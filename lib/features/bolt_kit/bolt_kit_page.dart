@@ -16,6 +16,7 @@ import '../../screens/bolt_torque_screen.dart';
 import '../../services/bolt_kit_export.dart';
 import '../../services/flange_catalog.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/local_record_scope.dart';
 import '../../widgets/number_field.dart';
 import '../quotes/quote_widgets.dart';
 import 'bolt_kit_store.dart';
@@ -27,10 +28,10 @@ typedef BoltKitTorqueFn = void Function(
 
 enum _LengthMode { asme, dims }
 
-class BoltKitPage extends StatefulWidget {
+class BoltKitPage extends StatelessWidget {
   /// Udostępnianie zamówienia — test podmienia, żeby nie wołać platformy.
   final BoltKitShareFn share;
-  final BoltKitStore store;
+  final BoltKitStore? store;
 
   /// Przejście do „Moment śrub”. Domyślnie [BoltTorqueScreen] — jego
   /// konstruktor nie przyjmuje parametrów, więc DN / klasę / gatunek
@@ -40,16 +41,40 @@ class BoltKitPage extends StatefulWidget {
   const BoltKitPage({
     super.key,
     this.share = shareBoltKit,
-    this.store = const BoltKitStore(),
+    this.store,
     this.openTorque,
   });
 
   @override
-  State<BoltKitPage> createState() => _BoltKitPageState();
+  Widget build(BuildContext context) => LocalRecordScope(
+        builder: (_, session) => _BoltKitBody(
+          session: session,
+          share: share,
+          store: store ?? BoltKitStore(captureOwner: session.captureOwner),
+          openTorque: openTorque,
+        ),
+      );
 }
 
-class _BoltKitPageState extends State<BoltKitPage>
-    with SingleTickerProviderStateMixin, ToolHandleHost<BoltKitPage>
+class _BoltKitBody extends StatefulWidget {
+  const _BoltKitBody({
+    required this.session,
+    required this.share,
+    required this.store,
+    required this.openTorque,
+  });
+
+  final LocalRecordSession session;
+  final BoltKitShareFn share;
+  final BoltKitStore store;
+  final BoltKitTorqueFn? openTorque;
+
+  @override
+  State<_BoltKitBody> createState() => _BoltKitPageState();
+}
+
+class _BoltKitPageState extends State<_BoltKitBody>
+    with SingleTickerProviderStateMixin, ToolHandleHost<_BoltKitBody>
     implements InputToolHandle {
   @override
   String get toolId => 'bolt_kit';
@@ -67,7 +92,9 @@ class _BoltKitPageState extends State<BoltKitPage>
   /// Asystent: tabela ASME B16.5 (DN × Class × przylga) i liczba połączeń.
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
-    if (!mounted || fields.keys.any((k) => !supportedFields.contains(k))) {
+    if (!mounted ||
+        !widget.session.isCurrent ||
+        fields.keys.any((k) => !supportedFields.contains(k))) {
       return fields.keys.toSet();
     }
     final dn = fields['dn'], cls = fields['class'], joints = fields['joints'];
@@ -141,7 +168,7 @@ class _BoltKitPageState extends State<BoltKitPage>
 
   Future<void> _load() async {
     final loaded = await widget.store.load();
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     setState(() {
       _joints = [...loaded.state.joints];
       _spare = loaded.state.sparePercent;
@@ -172,15 +199,16 @@ class _BoltKitPageState extends State<BoltKitPage>
   /// Zapis po każdej zmianie listy; zapisy idą po kolei (nowszy nigdy nie
   /// zostanie nadpisany starszym).
   void _persist() {
+    if (!widget.session.isCurrent) return;
     final snapshot =
         BoltKitState(joints: List.unmodifiable(_joints), sparePercent: _spare);
     _saveChain = _saveChain.then((_) async {
       try {
         await widget.store.save(snapshot, afterFailedRead: _readFailed);
         // Od teraz w pamięci leży lista z tego ekranu (poprzednia — w kopii).
-        _readFailed = false;
+        if (mounted && widget.session.isCurrent) _readFailed = false;
       } on BoltKitSaveBlocked {
-        if (mounted) {
+        if (mounted && widget.session.isCurrent) {
           _snack(context.tr(
               pl: 'Nie udało się odczytać zapisanej listy, a miejsce na jej '
                   'kopię jest zajęte — zapis wstrzymany, żeby jej nie '
@@ -190,7 +218,7 @@ class _BoltKitPageState extends State<BoltKitPage>
                   'the module again.'));
         }
       } catch (_) {
-        if (mounted) {
+        if (mounted && widget.session.isCurrent) {
           _snack(context.tr(
               pl: 'Nie udało się zapisać listy na telefonie.',
               en: 'Could not save the list on the phone.'));
@@ -200,6 +228,7 @@ class _BoltKitPageState extends State<BoltKitPage>
   }
 
   void _setJoints(List<BoltKitJoint> next) {
+    if (!widget.session.isCurrent) return;
     setState(() => _joints = next);
     _persist();
   }
@@ -276,28 +305,30 @@ class _BoltKitPageState extends State<BoltKitPage>
   }
 
   void _setSpare(int p) {
+    if (!widget.session.isCurrent) return;
     if (p == _spare) return;
     setState(() => _spare = p);
     _persist();
   }
 
   Future<void> _share(BoltKitOrder o, BoltKitShareFormat f) async {
-    if (_sharing || o.isEmpty) return;
+    if (!widget.session.isCurrent || _sharing || o.isEmpty) return;
     setState(() => _sharing = true);
     try {
       await widget.share(o, f, _en);
     } catch (_) {
-      if (mounted) {
+      if (mounted && widget.session.isCurrent) {
         _snack(context.tr(
             pl: 'Nie udało się udostępnić zamówienia.',
             en: 'Could not share the order.'));
       }
     } finally {
-      if (mounted) setState(() => _sharing = false);
+      if (mounted && widget.session.isCurrent) setState(() => _sharing = false);
     }
   }
 
   void _openTorque(BoltKitJoint j) {
+    if (!widget.session.isCurrent) return;
     final custom = widget.openTorque;
     if (custom != null) {
       custom(context, j);

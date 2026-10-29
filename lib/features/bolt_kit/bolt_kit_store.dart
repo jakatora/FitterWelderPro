@@ -21,6 +21,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show debugPrint, protected;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../database/local_record_owner.dart';
 import '../../services/owned_prefs.dart';
 
 import '../../domain/bolting/bolt_kit.dart';
@@ -51,13 +52,15 @@ class BoltKitStore {
   static const String key = 'bolt_kit_v1';
   static const String corruptKey = 'bolt_kit_v1_corrupt';
 
-  const BoltKitStore();
+  const BoltKitStore({this.captureOwner});
+
+  final Future<LocalRecordOwner> Function()? captureOwner;
 
   /// Surowa wartość spod [key] (punkt podmiany w teście: odczyt, który
   /// rzuca).
   @protected
   Future<Object?> readRaw() async =>
-      (await OwnedPrefs.instance()).get(key);
+      (await OwnedPrefs.instance(captureOwner)).get(key);
 
   /// Nigdy nie rzuca: brak, uszkodzony JSON albo błąd odczytu → pusty stan
   /// (z flagą `damaged`, gdy coś było, a nie dało się odczytać; przy
@@ -81,7 +84,7 @@ class BoltKitStore {
   /// surową wartość niezależnie od tego, czy jest nienaruszona (patrz opis
   /// biblioteki). Może rzucić [BoltKitSaveBlocked].
   Future<void> save(BoltKitState state, {bool afterFailedRead = false}) async {
-    final prefs = await OwnedPrefs.instance();
+    final prefs = await OwnedPrefs.instance(captureOwner);
     if (afterFailedRead) {
       await _backupUnread(prefs);
     } else {
