@@ -6,7 +6,8 @@
 /// Uszkodzony zapis (nieczytelny JSON, wartość innego typu, niespójne
 /// listy) NIE ginie przy następnym zapisie: zanim [TubeBendingStore.save]
 /// go nadpisze, surowa wartość trafia pod [TubeBendingStore.corruptKey] —
-/// tylko raz, istniejąca kopia nie jest nadpisywana. Ta sama zasada co
+/// istniejąca kopia nie jest nadpisywana, a inna uszkodzona wartość blokuje
+/// nowy zapis, by jej nie zgubić. Ta sama zasada co
 /// `bolt_kit_store.dart`. Po nieudanym ODCZYCIE (wyjątek platformy) pierwszy
 /// zapis kopiuje surową wartość także wtedy, gdy była nienaruszona.
 library;
@@ -14,6 +15,7 @@ library;
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show debugPrint, protected;
+import '../../database/local_record_owner.dart';
 import '../../services/owned_prefs.dart';
 
 import '../../domain/fitter/tube_bending.dart';
@@ -175,12 +177,14 @@ class TubeBendingStore {
   static const String key = 'tube_bending_v1';
   static const String corruptKey = 'tube_bending_v1_corrupt';
 
-  const TubeBendingStore();
+  const TubeBendingStore({this.captureOwner});
+
+  final Future<LocalRecordOwner> Function()? captureOwner;
 
   /// Surowa wartość spod [key] (punkt podmiany w teście).
   @protected
   Future<Object?> readRaw() async =>
-      (await OwnedPrefs.instance()).get(key);
+      (await OwnedPrefs.instance(captureOwner)).get(key);
 
   /// Nigdy nie rzuca.
   Future<TubeBendingLoad> load() async {
@@ -197,19 +201,29 @@ class TubeBendingStore {
   }
 
   /// Zapis; przed nadpisaniem uszkodzonej (albo nieodczytanej —
-  /// [afterFailedRead]) wartości robi jej kopię pod [corruptKey], jeśli
-  /// kopii jeszcze nie ma.
+  /// [afterFailedRead]) wartości robi jej kopię pod [corruptKey]. Jeśli
+  /// miejsce kopii zajmuje inna wartość, wstrzymuje zapis.
   Future<void> save(TubeBendingSaved state,
       {bool afterFailedRead = false}) async {
-    final prefs = await OwnedPrefs.instance();
+    final prefs = await OwnedPrefs.instance(captureOwner);
     final raw = prefs.get(key);
-    if (raw != null && !prefs.containsKey(corruptKey)) {
+    if (raw != null) {
       final damaged = raw is! String || !decodeTubeBending(raw).intact;
       if (damaged || afterFailedRead) {
-        await prefs.setString(corruptKey, raw is String ? raw : _describe(raw));
+        final copy = raw is String ? raw : _describe(raw);
+        final existing = prefs.get(corruptKey);
+        if (existing != null && existing != copy) {
+          throw StateError(
+              'Different tube bending record is already backed up');
+        }
+        if (existing == null && !await prefs.setString(corruptKey, copy)) {
+          throw StateError('Could not back up tube bending record');
+        }
       }
     }
-    await prefs.setString(key, encodeTubeBending(state));
+    if (!await prefs.setString(key, encodeTubeBending(state))) {
+      throw StateError('Could not save tube bending record');
+    }
   }
 
   static String _describe(Object raw) {

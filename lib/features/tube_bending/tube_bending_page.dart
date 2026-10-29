@@ -22,6 +22,7 @@ import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/clipboard_helper.dart';
 import '../../utils/haptic.dart';
+import '../../widgets/local_record_scope.dart';
 import '../../widgets/number_field.dart';
 import '../../widgets/readout.dart';
 import '../quotes/quote_widgets.dart';
@@ -34,18 +35,39 @@ Future<void> _defaultShareText(String text, String subject) async {
   await Share.share(text, subject: subject);
 }
 
-class TubeBendingPage extends StatefulWidget {
+class TubeBendingPage extends StatelessWidget {
   const TubeBendingPage({
     super.key,
     this.shareText = _defaultShareText,
-    this.store = const TubeBendingStore(),
+    this.store,
   });
 
+  final TubeShareText shareText;
+  final TubeBendingStore? store;
+
+  @override
+  Widget build(BuildContext context) => LocalRecordScope(
+        builder: (_, session) => _TubeBendingBody(
+          session: session,
+          shareText: shareText,
+          store: store ?? TubeBendingStore(captureOwner: session.captureOwner),
+        ),
+      );
+}
+
+class _TubeBendingBody extends StatefulWidget {
+  const _TubeBendingBody({
+    required this.session,
+    required this.shareText,
+    required this.store,
+  });
+
+  final LocalRecordSession session;
   final TubeShareText shareText;
   final TubeBendingStore store;
 
   @override
-  State<TubeBendingPage> createState() => _TubeBendingPageState();
+  State<_TubeBendingBody> createState() => _TubeBendingPageState();
 }
 
 /// Pole długości: tekst w bieżącej jednostce i wartość kanoniczna w mm.
@@ -65,8 +87,8 @@ class _Outcome {
   const _Outcome({this.problems = const [], this.run, this.offset});
 }
 
-class _TubeBendingPageState extends State<TubeBendingPage>
-    with ToolHandleHost<TubeBendingPage>
+class _TubeBendingPageState extends State<_TubeBendingBody>
+    with ToolHandleHost<_TubeBendingBody>
     implements InputToolHandle {
   @override
   String get toolId => 'tube_bending';
@@ -105,7 +127,9 @@ class _TubeBendingPageState extends State<TubeBendingPage>
 
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
-    if (!mounted || !_loaded) return fields.keys.toSet();
+    if (!mounted || !widget.session.isCurrent || !_loaded) {
+      return fields.keys.toSet();
+    }
     // Switching display units also works for incomplete native input. It
     // changes no canonical dimension and never invents a calculated answer.
     if (fields.length == 1 && fields.containsKey('unit')) {
@@ -226,6 +250,8 @@ class _TubeBendingPageState extends State<TubeBendingPage>
   bool _touched = false;
   bool _readFailed = false;
   bool _damagedNotice = false;
+  bool _saveFailed = false;
+  Future<void> _saveChain = Future<void>.value();
 
   List<_LenField> get _lengthFields => [
         _clr,
@@ -268,7 +294,7 @@ class _TubeBendingPageState extends State<TubeBendingPage>
 
   Future<void> _load() async {
     final l = await widget.store.load();
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     setState(() {
       _readFailed = l.readFailed;
       _damagedNotice = l.damaged && !_touched;
@@ -280,7 +306,7 @@ class _TubeBendingPageState extends State<TubeBendingPage>
     // Edycja sprzed końca odczytu nie była zapisana (zapis czekał na
     // odczyt) — zapisz ją teraz, a nie dopiero przy następnej zmianie.
     if (_touched) await _save();
-    if (mounted) markReady();
+    if (mounted && widget.session.isCurrent) markReady();
   }
 
   /// Kontrolery zdjęte z ekranu — pola trzymają je jeszcze w tej klatce.
@@ -375,21 +401,32 @@ class _TubeBendingPageState extends State<TubeBendingPage>
         rotationsDeg: [for (final c in _rots) _raw(c)],
       );
 
-  Future<void> _save() async {
+  Future<void> _save() {
     // Przed odczytem nie zapisujemy — nadpisalibyśmy zapis domyślnymi.
-    if (!_loaded) return;
-    final afterFailedRead = _readFailed;
-    _readFailed = false;
-    try {
-      await widget.store.save(_snapshot(), afterFailedRead: afterFailedRead);
-    } catch (e) {
-      debugPrint('[tube_bending] save failed: $e');
-    }
+    if (!_loaded || !widget.session.isCurrent) return Future<void>.value();
+    final snapshot = _snapshot();
+    _saveChain = _saveChain.then((_) async {
+      if (!widget.session.isCurrent) return;
+      try {
+        await widget.store.save(snapshot, afterFailedRead: _readFailed);
+        if (mounted && widget.session.isCurrent) {
+          _readFailed = false;
+          if (_saveFailed) setState(() => _saveFailed = false);
+        }
+      } catch (e) {
+        debugPrint('[tube_bending] save failed: $e');
+        if (mounted && widget.session.isCurrent) {
+          setState(() => _saveFailed = true);
+        }
+      }
+    });
+    return _saveChain;
   }
 
   /// Każda zmiana pól: przelicz, schowaj komunikat o uszkodzonym zapisie,
   /// zapisz rurkę.
   void _changed([VoidCallback? f]) {
+    if (!mounted || !widget.session.isCurrent) return;
     setState(() {
       f?.call();
       _touched = true;
@@ -678,6 +715,7 @@ class _TubeBendingPageState extends State<TubeBendingPage>
   String _signed(double mm) => mm >= 0 ? '+ ${_lenU(mm)}' : '− ${_lenU(-mm)}';
 
   Future<void> _share(String text) async {
+    if (!widget.session.isCurrent) return;
     unawaited(Haptic.tap());
     try {
       await widget.shareText(
@@ -716,6 +754,19 @@ class _TubeBendingPageState extends State<TubeBendingPage>
         padding: EdgeInsets.fromLTRB(
             16, 12, 16, 24 + MediaQuery.viewPaddingOf(context).bottom),
         children: [
+          if (_saveFailed)
+            KeyedSubtree(
+              key: const ValueKey('tb-save-failed'),
+              child: QuoteNotice(
+                color: kWarn,
+                icon: Icons.save_outlined,
+                text: context.tr(
+                    pl: 'Nie udało się zapisać rurki. Poprzedni zapis '
+                        'pozostaje bez zmian; sprawdź dane i spróbuj ponownie.',
+                    en: 'The tube could not be saved. The previous record '
+                        'is unchanged; check the data and try again.'),
+              ),
+            ),
           if (_damagedNotice)
             QuoteNotice(
               key: const ValueKey('tb-damaged'),

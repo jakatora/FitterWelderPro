@@ -63,7 +63,7 @@ void main() {
     expect(l.damaged, isFalse);
   });
 
-  test('uszkodzony JSON: komunikat, kopia przed nadpisaniem — tylko raz',
+  test('uszkodzony JSON: kopia przed nadpisaniem; zajęta kopia blokuje zapis',
       () async {
     SharedPreferences.setMockInitialValues(
         {TubeBendingStore.key: '{"v":1,"angles":[90'});
@@ -77,10 +77,11 @@ void main() {
     expect(prefs.getString(TubeBendingStore.corruptKey), '{"v":1,"angles":[90');
     expect((await store.load()).damaged, isFalse);
 
-    // Kolejne uszkodzenie nie nadpisuje pierwszej kopii.
+    // Inne uszkodzenie nie może zniknąć, gdy miejsce na kopię jest zajęte.
     await prefs.setString(TubeBendingStore.key, 'zepsute');
-    await store.save(_tube);
+    await expectLater(store.save(_tube), throwsA(isA<StateError>()));
     expect(prefs.getString(TubeBendingStore.corruptKey), '{"v":1,"angles":[90');
+    expect(prefs.getString(TubeBendingStore.key), 'zepsute');
   });
 
   test('niespójne listy, zła wersja, wartość innego typu → uszkodzony', () {

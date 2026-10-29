@@ -34,6 +34,40 @@ class _SlowStore extends TubeBendingStore {
   }
 }
 
+class _FlakyReadWriteStore extends TubeBendingStore {
+  var reads = 0;
+  var writes = 0;
+
+  @override
+  Future<Object?> readRaw() async {
+    if (reads++ == 0) throw StateError('read unavailable');
+    return super.readRaw();
+  }
+
+  @override
+  Future<void> save(TubeBendingSaved state,
+      {bool afterFailedRead = false}) async {
+    if (writes++ == 0) throw StateError('write unavailable');
+    await super.save(state, afterFailedRead: afterFailedRead);
+  }
+}
+
+class _DelayedFirstSaveStore extends TubeBendingStore {
+  final firstSaveStarted = Completer<void>();
+  final release = Completer<void>();
+  var writes = 0;
+
+  @override
+  Future<void> save(TubeBendingSaved state,
+      {bool afterFailedRead = false}) async {
+    if (writes++ == 0) {
+      firstSaveStarted.complete();
+      await release.future;
+    }
+    await super.save(state, afterFailedRead: afterFailedRead);
+  }
+}
+
 Future<_Spy> _pump(
   WidgetTester tester, {
   AppLanguage language = AppLanguage.pl,
@@ -341,6 +375,56 @@ void main() {
         decodeTubeBending(prefs.getString(TubeBendingStore.key)).state!;
     expect(saved.segmentsMm, [160, 200, 250, 120]);
     expect(saved.anglesDeg, [90, 45, 90]);
+  });
+
+  testWidgets(
+      'po błędzie pierwszego zapisu ponowienie zachowuje nieodczytaną rurkę',
+      (tester) async {
+    final original = encodeTubeBending(const TubeBendingSaved(
+      mode: TubeBendingMode.single,
+      unit: TubeUnit.mm,
+      clrMm: 38,
+      singleLegAMm: 600,
+      segmentsMm: [150, 200],
+      anglesDeg: [90],
+      rotationsDeg: [null],
+    ));
+    final store = _FlakyReadWriteStore();
+    await _pump(tester, prefs: {TubeBendingStore.key: original}, store: store);
+    await _enter(tester, 'tb-clr', '40');
+    expect(find.byKey(const ValueKey('tb-save-failed')), findsOneWidget);
+    await _enter(tester, 'tb-clr', '41');
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(TubeBendingStore.corruptKey), original);
+    expect(find.byKey(const ValueKey('tb-save-failed')), findsNothing);
+  });
+
+  testWidgets('zajęta kopia: zapis wstrzymany z komunikatem', (tester) async {
+    await _pump(tester, prefs: {
+      TubeBendingStore.key: 'drugie uszkodzenie',
+      TubeBendingStore.corruptKey: 'pierwsze uszkodzenie',
+    });
+    await _enter(tester, 'tb-clr', '40');
+    expect(find.byKey(const ValueKey('tb-save-failed')), findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(TubeBendingStore.key), 'drugie uszkodzenie');
+  });
+
+  testWidgets('nowsza edycja rurki wygrywa ze spóźnionym zapisem',
+      (tester) async {
+    final store = _DelayedFirstSaveStore();
+    addTearDown(() {
+      if (!store.release.isCompleted) store.release.complete();
+    });
+    await _pump(tester, store: store);
+    final clr = find.byKey(const ValueKey('tb-clr'));
+    await tester.enterText(clr, '40');
+    await tester.runAsync(() => store.firstSaveStarted.future);
+    await tester.enterText(clr, '41');
+    await tester.pumpAndSettle();
+    store.release.complete();
+    await tester.pumpAndSettle();
+    expect((await const TubeBendingStore().load()).state!.clrMm, 41);
   });
 
   testWidgets('po angielsku', (tester) async {
