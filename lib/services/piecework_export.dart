@@ -55,12 +55,17 @@ class PieceworkExport {
     return doc.save();
   }
 
-  static Future<void> sharePdf(PieceworkReport report, bool english) async {
+  static Future<void> sharePdf(PieceworkReport report, bool english,
+      {bool Function()? mayShare}) async {
+    if (mayShare != null && !mayShare()) return;
     final bytes = await buildPdfBytes(report, en: english);
+    if (mayShare != null && !mayShare()) return;
     final name = report.fileName(en: english);
     final dir = await getTemporaryDirectory();
+    if (mayShare != null && !mayShare()) return;
     final file = File('${dir.path}/$name');
     await file.writeAsBytes(bytes, flush: true);
+    if (mayShare != null && !mayShare()) return;
     await Share.shareXFiles(
       [XFile(file.path, mimeType: 'application/pdf', name: name)],
       subject: subject(report, en: english),
@@ -77,7 +82,10 @@ class PieceworkExport {
       (en ? 'Welds' : 'Spoiny', '${r.welds} · ${pieceworkDiText(r, en: en)}'),
       (en ? 'Days with entries' : 'Dni z wpisami', '${r.daysWorked}'),
       if (r.perDayGrosze != null)
-        (en ? 'Average per day' : 'Średnio na dzień', formatPln(r.perDayGrosze!)),
+        (
+          en ? 'Average per day' : 'Średnio na dzień',
+          formatPln(r.perDayGrosze!)
+        ),
       if (report.perHourGrosze != null)
         (
           en ? 'Per hour' : 'Na godzinę',
@@ -211,8 +219,7 @@ class PieceworkExport {
                       '${report.periodText(en: en)}',
                       size: 12,
                       strong: true),
-                  text(report.welderText(en: en),
-                      size: 8.5, color: _kInkMuted),
+                  text(report.welderText(en: en), size: 8.5, color: _kInkMuted),
                 ],
               ),
             ),
@@ -244,8 +251,10 @@ class PieceworkExport {
           [
             for (final row in pieceworkRows(r, en: en))
               [row.label, formatPln(row.grosze)],
-            [en ? 'TOTAL (before tax)' : 'RAZEM (przed podatkiem)',
-              formatPln(r.totalGrosze)],
+            [
+              en ? 'TOTAL (before tax)' : 'RAZEM (przed podatkiem)',
+              formatPln(r.totalGrosze)
+            ],
           ],
           rightAligned: const {1},
           widths: const {
@@ -296,7 +305,6 @@ class PieceworkExport {
             ],
             [
               for (final l in r.lines) weldCells(l, en: en),
-
             ],
             rightAligned: const {3, 6, 7, 8},
           ),
@@ -317,7 +325,9 @@ class PieceworkExport {
                   '${d.welds}',
                   formatPln(d.netGrosze),
                   d.skippedWelds > 0
-                      ? (en ? 'skipped welds — fill in OD' : 'pominięte — uzupełnij OD')
+                      ? (en
+                          ? 'skipped welds — fill in OD'
+                          : 'pominięte — uzupełnij OD')
                       : (d.topUpGrosze == 0 ? '—' : formatPln(d.topUpGrosze)),
                 ],
             ],

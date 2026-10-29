@@ -26,14 +26,15 @@ import '../../services/progress_scope_store.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/haptic.dart';
 import '../../widgets/help_button.dart';
+import '../../widgets/local_record_scope.dart';
 import '../../widgets/readout.dart';
 import '../quotes/quote_widgets.dart';
 import 'progress_chart.dart';
 import 'progress_help.dart';
 
-class ProgressPage extends StatefulWidget {
+class ProgressPage extends StatelessWidget {
   final WeldJournalDao? dao;
-  final ProgressScopeStore store;
+  final ProgressScopeStore? store;
 
   /// Zegar — w testach stały dzień.
   final DateTime Function()? clock;
@@ -41,12 +42,37 @@ class ProgressPage extends StatefulWidget {
   const ProgressPage({
     super.key,
     this.dao,
-    this.store = const ProgressScopeStore(),
+    this.store,
     this.clock,
   });
 
   @override
-  State<ProgressPage> createState() => _ProgressPageState();
+  Widget build(BuildContext context) => LocalRecordScope(
+        builder: (_, session) => _ProgressBody(
+          session: session,
+          dao: dao ?? WeldJournalDao(owner: session.captureOwner),
+          store:
+              store ?? ProgressScopeStore(captureOwner: session.captureOwner),
+          clock: clock,
+        ),
+      );
+}
+
+class _ProgressBody extends StatefulWidget {
+  final LocalRecordSession session;
+  final WeldJournalDao dao;
+  final ProgressScopeStore store;
+  final DateTime Function()? clock;
+
+  const _ProgressBody({
+    required this.session,
+    required this.dao,
+    required this.store,
+    this.clock,
+  });
+
+  @override
+  State<_ProgressBody> createState() => _ProgressPageState();
 }
 
 /// Wszystko, co ekran pokazuje — liczone raz na przebudowę.
@@ -74,8 +100,8 @@ class _View {
   });
 }
 
-class _ProgressPageState extends State<ProgressPage>
-    with ToolHandleHost<ProgressPage> {
+class _ProgressPageState extends State<_ProgressBody>
+    with ToolHandleHost<_ProgressBody> {
   @override
   String get toolId => 'work_progress';
   @override
@@ -109,7 +135,7 @@ class _ProgressPageState extends State<ProgressPage>
     return {};
   }
 
-  late final WeldJournalDao _dao = widget.dao ?? WeldJournalDao();
+  late final WeldJournalDao _dao = widget.dao;
 
   /// Nieusunięte wpisy dziennika.
   List<WeldEntry> _all = const [];
@@ -154,7 +180,7 @@ class _ProgressPageState extends State<ProgressPage>
     }
     filter = _validated(filter, all);
     final scope = await widget.store.load(filter.project, filter.testPackage);
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     setState(() {
       _all = all;
       _failed = failed;
@@ -183,6 +209,7 @@ class _ProgressPageState extends State<ProgressPage>
   }
 
   Future<void> _changeScope({String? project, String? testPackage}) async {
+    if (!widget.session.isCurrent) return;
     final next = _validated(
         _filter.copyWith(
           project: project ?? _filter.project,
@@ -191,11 +218,12 @@ class _ProgressPageState extends State<ProgressPage>
         _all);
     setState(() => _filter = next);
     final scope = await widget.store.load(next.project, next.testPackage);
-    if (!mounted || _filter != next) return;
+    if (!mounted || !widget.session.isCurrent || _filter != next) return;
     setState(() => _scope = scope);
   }
 
   void _saveScope(ProgressScope s) {
+    if (!widget.session.isCurrent) return;
     setState(() => _scope = s);
     final f = _filter;
     unawaited(widget.store.save(f.project, f.testPackage, s).catchError(
@@ -205,7 +233,7 @@ class _ProgressPageState extends State<ProgressPage>
   Future<void> _openJournal() async {
     await Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => const WeldJournalScreen()));
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     await _load();
   }
 
@@ -216,11 +244,16 @@ class _ProgressPageState extends State<ProgressPage>
     final last = DateTime(today.year + 1, 12, 31);
     final picked = await showDateRangePicker(
       context: context,
+      builder: (_, child) => LocalRecordScope(
+        restartOnAccountChange: false,
+        originSession: widget.session,
+        builder: (_, __) => child!,
+      ),
       firstDate: first,
       lastDate: last,
       initialDateRange: DateTimeRange(start: r.from, end: r.to),
     );
-    if (picked == null || !mounted) return;
+    if (picked == null || !mounted || !widget.session.isCurrent) return;
     setState(() => _filter = _filter.copyWith(
           period: ProgressPeriod.custom,
           customFrom: dayOnly(picked.start),
@@ -237,11 +270,16 @@ class _ProgressPageState extends State<ProgressPage>
     if (initial.isAfter(last)) initial = last;
     final picked = await showDatePicker(
       context: context,
+      builder: (_, child) => LocalRecordScope(
+        restartOnAccountChange: false,
+        originSession: widget.session,
+        builder: (_, __) => child!,
+      ),
       initialDate: initial,
       firstDate: first,
       lastDate: last,
     );
-    if (picked == null || !mounted) return;
+    if (picked == null || !mounted || !widget.session.isCurrent) return;
     _saveScope(_scope.copyWith(due: isoDate(picked)));
   }
 
@@ -298,12 +336,14 @@ class _ProgressPageState extends State<ProgressPage>
       );
 
   Future<void> _shareText(ProgressReport r) async {
+    if (!widget.session.isCurrent) return;
     final en = context.language == AppLanguage.en;
     final text = buildProgressReportText(r, en: en);
     final copied = _tr('Skopiowano raport.', 'Report copied.');
     final messenger = ScaffoldMessenger.of(context);
     if (kIsWeb) {
       await Clipboard.setData(ClipboardData(text: text));
+      if (!mounted || !widget.session.isCurrent) return;
       unawaited(Haptic.copied());
       messenger.showSnackBar(SnackBar(content: Text(copied)));
       return;
@@ -311,23 +351,28 @@ class _ProgressPageState extends State<ProgressPage>
     try {
       await ProgressExport.shareText(r, en: en);
     } catch (_) {
+      if (!mounted || !widget.session.isCurrent) return;
       await Clipboard.setData(ClipboardData(text: text));
+      if (!mounted || !widget.session.isCurrent) return;
       messenger.showSnackBar(SnackBar(content: Text(copied)));
     }
   }
 
   Future<void> _sharePdf(ProgressReport r) async {
-    if (_exporting) return;
+    if (_exporting || !widget.session.isCurrent) return;
     final en = context.language == AppLanguage.en;
     final failed =
         _tr('Nie udało się przygotować PDF.', 'Could not prepare the PDF.');
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _exporting = true);
     try {
-      await ProgressExport.sharePdf(r, en: en);
+      await ProgressExport.sharePdf(r,
+          en: en, mayShare: () => widget.session.isCurrent);
     } catch (e) {
       debugPrint('[work_progress] pdf failed: $e');
-      messenger.showSnackBar(SnackBar(content: Text(failed)));
+      if (mounted && widget.session.isCurrent) {
+        messenger.showSnackBar(SnackBar(content: Text(failed)));
+      }
     } finally {
       if (mounted) setState(() => _exporting = false);
     }

@@ -4,6 +4,7 @@
 library;
 
 import 'package:flutter/foundation.dart' show debugPrint;
+import '../database/local_record_owner.dart';
 import 'owned_prefs.dart';
 
 import '../domain/progress/progress_forecast.dart';
@@ -11,7 +12,9 @@ import '../domain/progress/progress_forecast.dart';
 class ProgressScopeStore {
   static const String prefix = 'work_progress.scope_v1.';
 
-  const ProgressScopeStore();
+  final Future<LocalRecordOwner> Function()? captureOwner;
+
+  const ProgressScopeStore({this.captureOwner});
 
   static String keyFor(String project, String testPackage) =>
       '$prefix${ProgressScope.keyFor(project, testPackage)}';
@@ -19,8 +22,9 @@ class ProgressScopeStore {
   /// Nigdy nie rzuca: nieczytelne preferencje = pusty zakres.
   Future<ProgressScope> load(String project, String testPackage) async {
     try {
-      final prefs = await OwnedPrefs.instance();
-      return ProgressScope.decode(prefs.getString(keyFor(project, testPackage)));
+      final prefs = await OwnedPrefs.instance(captureOwner);
+      return ProgressScope.decode(
+          prefs.getString(keyFor(project, testPackage)));
     } catch (e) {
       debugPrint('[work_progress] read scope failed: $e');
       return const ProgressScope();
@@ -29,7 +33,7 @@ class ProgressScopeStore {
 
   Future<void> save(
       String project, String testPackage, ProgressScope scope) async {
-    final prefs = await OwnedPrefs.instance();
+    final prefs = await OwnedPrefs.instance(captureOwner);
     await prefs.setString(keyFor(project, testPackage), scope.encode());
   }
 }

@@ -32,20 +32,26 @@ class ProgressExport {
       );
 
   static Future<void> sharePdf(ProgressReport report,
-      {required bool en}) async {
+      {required bool en, bool Function()? mayShare}) async {
+    if (mayShare != null && !mayShare()) return;
+    final regular = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
+    if (mayShare != null && !mayShare()) return;
+    final bold = await rootBundle.load('assets/fonts/Roboto-Bold.ttf');
+    if (mayShare != null && !mayShare()) return;
     final doc = buildPdfDocument(
       report: report,
       en: en,
-      font:
-          pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Regular.ttf')),
-      boldFont:
-          pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Bold.ttf')),
+      font: pw.Font.ttf(regular),
+      boldFont: pw.Font.ttf(bold),
     );
     final bytes = await doc.save();
+    if (mayShare != null && !mayShare()) return;
     final name = report.fileName(en: en);
     final dir = await getTemporaryDirectory();
+    if (mayShare != null && !mayShare()) return;
     final file = File('${dir.path}/$name');
     await file.writeAsBytes(bytes, flush: true);
+    if (mayShare != null && !mayShare()) return;
     await Share.shareXFiles(
       [XFile(file.path, mimeType: 'application/pdf', name: name)],
       subject: '${report.title(en: en)} — ${report.periodText(en: en)}',
@@ -134,7 +140,9 @@ class ProgressExport {
         ),
         if (s.crew.toExamine > 0)
           (
-            en ? 'To examine (B31.3 §341.3.4)' : 'Do dobadania (B31.3 §341.3.4)',
+            en
+                ? 'To examine (B31.3 §341.3.4)'
+                : 'Do dobadania (B31.3 §341.3.4)',
             '${s.crew.toExamine}'
           ),
       ],

@@ -13,7 +13,8 @@ import 'package:flutter/services.dart';
 import '../../assistant/core/tool_bridge.dart';
 import '../../database/weld_journal_dao.dart';
 import '../../domain/piecework/piecework.dart';
-import '../../domain/progress/progress_report.dart' show progressNum, weldsCount;
+import '../../domain/progress/progress_report.dart'
+    show progressNum, weldsCount;
 import '../../domain/progress/work_calendar.dart';
 import '../../domain/quotes/quote_calculator.dart' show formatPln, toGrosze;
 import '../../domain/weld_journal/weld_dates.dart';
@@ -25,6 +26,7 @@ import '../../services/welder_identity.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/clipboard_helper.dart';
 import '../../widgets/help_button.dart';
+import '../../widgets/local_record_scope.dart';
 import '../quotes/quote_widgets.dart';
 import 'piecework_help.dart';
 import 'piecework_store.dart';
@@ -32,48 +34,86 @@ import 'piecework_store.dart';
 /// Źródło spoin (domyślnie dziennik spoin) — wstrzykiwane w testach.
 typedef PieceworkWeldSource = Future<List<WeldEntry>> Function();
 
-Future<List<WeldEntry>> _defaultWelds() => WeldJournalDao().listAll();
-
 Future<String?> _defaultIdentity() async =>
     (await WelderIdentityService.instance.get())?.stamp;
 
 Future<void> _defaultShareText(String text, String subject) =>
     PieceworkExport.shareText(text, subject);
 
-class PieceworkPage extends StatefulWidget {
+class PieceworkPage extends StatelessWidget {
   const PieceworkPage({
     super.key,
     this.clock,
-    this.loadWelds = _defaultWelds,
-    this.loadIdentity = _defaultIdentity,
-    this.loadHourlyMinimum = loadSavedHourlyMinimum,
-    this.store = const PieceworkRatesStore(),
-    this.shareText = _defaultShareText,
-    this.sharePdf = PieceworkExport.sharePdf,
+    this.loadWelds,
+    this.loadIdentity,
+    this.loadHourlyMinimum,
+    this.store,
+    this.shareText,
+    this.sharePdf,
   });
 
   /// Zegar — w testach stały dzień.
   final DateTime Function()? clock;
-  final PieceworkWeldSource loadWelds;
+  final PieceworkWeldSource? loadWelds;
 
   /// Stempel „ja" (tożsamość spawacza na telefonie) albo null.
-  final Future<String?> Function() loadIdentity;
+  final Future<String?> Function()? loadIdentity;
 
   /// Minimalna stawka z „Ile brać za godzinę" w groszach albo null.
+  final Future<int?> Function()? loadHourlyMinimum;
+  final PieceworkRatesStore? store;
+  final PieceworkShareText? shareText;
+  final PieceworkSharePdf? sharePdf;
+
+  @override
+  Widget build(BuildContext context) => LocalRecordScope(
+        builder: (_, session) => _PieceworkBody(
+          session: session,
+          clock: clock,
+          loadWelds: loadWelds ??
+              () => WeldJournalDao(owner: session.captureOwner).listAll(),
+          loadIdentity: loadIdentity ?? _defaultIdentity,
+          loadHourlyMinimum: loadHourlyMinimum ?? loadSavedHourlyMinimum,
+          store:
+              store ?? PieceworkRatesStore(captureOwner: session.captureOwner),
+          shareText: shareText ?? _defaultShareText,
+          sharePdf: sharePdf ??
+              (report, english) => PieceworkExport.sharePdf(report, english,
+                  mayShare: () => session.isCurrent),
+        ),
+      );
+}
+
+class _PieceworkBody extends StatefulWidget {
+  final LocalRecordSession session;
+  final DateTime Function()? clock;
+  final PieceworkWeldSource loadWelds;
+  final Future<String?> Function() loadIdentity;
   final Future<int?> Function() loadHourlyMinimum;
   final PieceworkRatesStore store;
   final PieceworkShareText shareText;
   final PieceworkSharePdf sharePdf;
 
+  const _PieceworkBody({
+    required this.session,
+    this.clock,
+    required this.loadWelds,
+    required this.loadIdentity,
+    required this.loadHourlyMinimum,
+    required this.store,
+    required this.shareText,
+    required this.sharePdf,
+  });
+
   @override
-  State<PieceworkPage> createState() => _PieceworkPageState();
+  State<_PieceworkBody> createState() => _PieceworkPageState();
 }
 
 /// Wartość listy spawaczy oznaczająca całą brygadę.
 const String _kCrew = '';
 
-class _PieceworkPageState extends State<PieceworkPage>
-    with ToolHandleHost<PieceworkPage>
+class _PieceworkPageState extends State<_PieceworkBody>
+    with ToolHandleHost<_PieceworkBody>
     implements InputToolHandle {
   @override
   String get toolId => 'piecework';
@@ -93,6 +133,7 @@ class _PieceworkPageState extends State<PieceworkPage>
         .where((p) => p.name == fields['period'] && p != PieceworkPeriod.custom)
         .firstOrNull;
     if (!mounted ||
+        !widget.session.isCurrent ||
         fields.keys.any((k) => !supportedFields.contains(k)) ||
         period == null ||
         (fields.containsKey('crew') && fields['crew'] is! bool)) {
@@ -163,7 +204,7 @@ class _PieceworkPageState extends State<PieceworkPage>
         debugPrint('[piecework] hourly rate failed: $e');
       }
     }
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     final stamps = pieceworkStamps(all);
     setState(() {
       _all = all;
@@ -188,6 +229,7 @@ class _PieceworkPageState extends State<PieceworkPage>
   }
 
   void _setRates(PieceworkRates r) {
+    if (!widget.session.isCurrent) return;
     if (r == _rates) return;
     setState(() => _rates = r);
     unawaited(widget.store.save(r).catchError(
@@ -195,6 +237,7 @@ class _PieceworkPageState extends State<PieceworkPage>
   }
 
   void _setPeriod(PieceworkPeriod p, {DateTime? from, DateTime? to}) {
+    if (!widget.session.isCurrent) return;
     setState(() {
       _period = p;
       if (from != null) _customFrom = from;
@@ -211,19 +254,24 @@ class _PieceworkPageState extends State<PieceworkPage>
         customFrom: _customFrom, customTo: _customTo);
     final picked = await showDateRangePicker(
       context: context,
+      builder: (_, child) => LocalRecordScope(
+        restartOnAccountChange: false,
+        originSession: widget.session,
+        builder: (_, __) => child!,
+      ),
       firstDate: DateTime(kMinWeldYear),
       lastDate: DateTime(today.year + 1, 12, 31),
       initialDateRange: DateTimeRange(start: r.from, end: r.to),
     );
-    if (picked == null || !mounted) return;
+    if (picked == null || !mounted || !widget.session.isCurrent) return;
     _setPeriod(PieceworkPeriod.custom,
         from: dayOnly(picked.start), to: dayOnly(picked.end));
   }
 
   Future<void> _openJournal() async {
-    await Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const WeldJournalScreen()));
-    if (!mounted) return;
+    await Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const WeldJournalScreen()));
+    if (!mounted || !widget.session.isCurrent) return;
     await _load();
   }
 
@@ -249,12 +297,14 @@ class _PieceworkPageState extends State<PieceworkPage>
   }
 
   Future<void> _shareText(PieceworkReport r) async {
+    if (!widget.session.isCurrent) return;
     final en = context.language == AppLanguage.en;
     final text = buildPieceworkText(r, en: en);
     final copied = _tr('Skopiowano zestawienie.', 'Summary copied.');
     final messenger = ScaffoldMessenger.of(context);
     if (kIsWeb) {
       await Clipboard.setData(ClipboardData(text: text));
+      if (!mounted || !widget.session.isCurrent) return;
       messenger.showSnackBar(SnackBar(content: Text(copied)));
       return;
     }
@@ -262,13 +312,15 @@ class _PieceworkPageState extends State<PieceworkPage>
       await widget.shareText(text, PieceworkExport.subject(r, en: en));
     } catch (e) {
       debugPrint('[piecework] share text failed: $e');
+      if (!mounted || !widget.session.isCurrent) return;
       await Clipboard.setData(ClipboardData(text: text));
+      if (!mounted || !widget.session.isCurrent) return;
       messenger.showSnackBar(SnackBar(content: Text(copied)));
     }
   }
 
   Future<void> _sharePdf(PieceworkReport r) async {
-    if (_exporting) return;
+    if (_exporting || !widget.session.isCurrent) return;
     final en = context.language == AppLanguage.en;
     final failed =
         _tr('Nie udało się przygotować PDF.', 'Could not prepare the PDF.');
@@ -278,7 +330,9 @@ class _PieceworkPageState extends State<PieceworkPage>
       await widget.sharePdf(r, en);
     } catch (e) {
       debugPrint('[piecework] pdf failed: $e');
-      messenger.showSnackBar(SnackBar(content: Text(failed)));
+      if (mounted && widget.session.isCurrent) {
+        messenger.showSnackBar(SnackBar(content: Text(failed)));
+      }
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
@@ -414,11 +468,10 @@ class _PieceworkPageState extends State<PieceworkPage>
               ),
               for (final s in others)
                 DropdownMenuItem(
-                    value: s,
-                    child: Text(s, overflow: TextOverflow.ellipsis)),
+                    value: s, child: Text(s, overflow: TextOverflow.ellipsis)),
             ],
-            onChanged: (v) => setState(
-                () => _welder = (v == null || v == _kCrew) ? null : v),
+            onChanged: (v) =>
+                setState(() => _welder = (v == null || v == _kCrew) ? null : v),
           ),
         ),
       ],
@@ -434,8 +487,7 @@ class _PieceworkPageState extends State<PieceworkPage>
     final notes = pieceworkNotes(r, en: en);
     return QuoteSection(
       title: _tr('Zarobek', 'Earnings'),
-      subtitle:
-          '${report.periodText(en: en)} · ${report.welderText(en: en)}',
+      subtitle: '${report.periodText(en: en)} · ${report.welderText(en: en)}',
       children: [
         if (_all.isEmpty)
           QuoteNotice(
@@ -459,7 +511,8 @@ class _PieceworkPageState extends State<PieceworkPage>
           key: const ValueKey('piecework-total'),
           label: _tr('Akord brutto', 'Piecework, gross'),
           value: formatPln(r.totalGrosze),
-          unit: '${weldsCount(r.welds, en: en)} · ${pieceworkDiText(r, en: en)}',
+          unit:
+              '${weldsCount(r.welds, en: en)} · ${pieceworkDiText(r, en: en)}',
         ),
         const SizedBox(height: 12),
         for (final row in pieceworkRows(r, en: en))
@@ -574,8 +627,8 @@ class _PieceworkPageState extends State<PieceworkPage>
                 minimumSize: const Size.fromHeight(kMinTapTarget)),
             onPressed: _openJournal,
             icon: const Icon(Icons.edit_note),
-            label: Text(_tr('Uzupełnij w dzienniku spoin',
-                'Fill in the weld journal')),
+            label: Text(
+                _tr('Uzupełnij w dzienniku spoin', 'Fill in the weld journal')),
           ),
         ],
       ),
@@ -584,11 +637,11 @@ class _PieceworkPageState extends State<PieceworkPage>
 
   // ─── Stawki ────────────────────────────────────────────────────────────
 
-  String? _pctError(double? x, {double max = 1000}) => x != null &&
-          (x < 0 || x > max)
-      ? _tr('Od 0 do ${progressNum(max, en: false)} %',
-          'From 0 to ${progressNum(max, en: true)} %')
-      : null;
+  String? _pctError(double? x, {double max = 1000}) =>
+      x != null && (x < 0 || x > max)
+          ? _tr('Od 0 do ${progressNum(max, en: false)} %',
+              'From 0 to ${progressNum(max, en: true)} %')
+          : null;
 
   Widget _pct(String key, String label, int bp, ValueChanged<int> onBp,
           {double max = 1000, String? helper}) =>
@@ -626,8 +679,7 @@ class _PieceworkPageState extends State<PieceworkPage>
     return QuoteSection(
       key: const ValueKey('piecework-rates'),
       title: _tr('Stawki', 'Rates'),
-      subtitle: _tr(
-          'Zapamiętane na telefonie. Kwoty przed podatkiem.',
+      subtitle: _tr('Zapamiętane na telefonie. Kwoty przed podatkiem.',
           'Kept on the phone. Amounts before tax.'),
       children: [
         if (_ratesDamaged)
@@ -646,10 +698,16 @@ class _PieceworkPageState extends State<PieceworkPage>
           spacing: 6,
           runSpacing: 6,
           children: [
-            _chip('piecework-mode-di', PieceworkMode.di, r.mode,
+            _chip(
+                'piecework-mode-di',
+                PieceworkMode.di,
+                r.mode,
                 _tr('Za cal-średnicę (DI)', 'Per dia-inch (DI)'),
                 (m) => _setRates(r.copyWith(mode: m))),
-            _chip('piecework-mode-weld', PieceworkMode.weld, r.mode,
+            _chip(
+                'piecework-mode-weld',
+                PieceworkMode.weld,
+                r.mode,
                 _tr('Za spoinę', 'Per weld'),
                 (m) => _setRates(r.copyWith(mode: m))),
           ],
@@ -660,9 +718,10 @@ class _PieceworkPageState extends State<PieceworkPage>
           label: _tr('Stawka', 'Rate'),
           unit: pieceworkRateUnit(r.mode, en: en),
           value: r.rateGrosze / 100,
-          validate: (x) => x != null && (x < 0 || toGrosze(x) > kPieceworkMaxRateGrosze)
-              ? _tr('Wpisz kwotę od 0', 'Enter an amount from 0')
-              : null,
+          validate: (x) =>
+              x != null && (x < 0 || toGrosze(x) > kPieceworkMaxRateGrosze)
+                  ? _tr('Wpisz kwotę od 0', 'Enter an amount from 0')
+                  : null,
           onChanged: (x) {
             if (x == null || x < 0) return;
             final g = toGrosze(x);
@@ -698,12 +757,18 @@ class _PieceworkPageState extends State<PieceworkPage>
           spacing: 6,
           runSpacing: 6,
           children: [
-            _chip('piecework-wall-none', WallRule.none, r.wallRule,
+            _chip(
+                'piecework-wall-none',
+                WallRule.none,
+                r.wallRule,
                 _tr('Bez dopłaty', 'No surcharge'),
                 (w) => _setRates(r.copyWith(wallRule: w))),
-            _chip('piecework-wall-sch80', WallRule.sch80, r.wallRule,
-                'Sch 80+', (w) => _setRates(r.copyWith(wallRule: w))),
-            _chip('piecework-wall-mm', WallRule.mm, r.wallRule,
+            _chip('piecework-wall-sch80', WallRule.sch80, r.wallRule, 'Sch 80+',
+                (w) => _setRates(r.copyWith(wallRule: w))),
+            _chip(
+                'piecework-wall-mm',
+                WallRule.mm,
+                r.wallRule,
                 _tr('Od grubości (mm)', 'From thickness (mm)'),
                 (w) => _setRates(r.copyWith(wallRule: w))),
           ],
@@ -729,14 +794,16 @@ class _PieceworkPageState extends State<PieceworkPage>
           _pct('piecework-wall-pct', _tr('Dopłata', 'Surcharge'), r.wallBp,
               (v) => _setRates(r.copyWith(wallBp: v)),
               helper: r.wallRule == WallRule.sch80
-                  ? _tr('Grubość t z dziennika ≥ ścianki Sch 80 dla OD (nierdzewna: 80S).',
+                  ? _tr(
+                      'Grubość t z dziennika ≥ ścianki Sch 80 dla OD (nierdzewna: 80S).',
                       'Wall t from the journal ≥ the Sch 80 wall for the OD (stainless: 80S).')
                   : null),
         ],
         _sub(_tr('Naprawy', 'Repairs')),
         _pct(
             'piecework-reject',
-            _tr('Potrącenie za odrzuconą spoinę', 'Deduction for a rejected weld'),
+            _tr('Potrącenie za odrzuconą spoinę',
+                'Deduction for a rejected weld'),
             r.rejectBp,
             (v) => _setRates(r.copyWith(rejectBp: v)),
             max: 100,
@@ -758,13 +825,13 @@ class _PieceworkPageState extends State<PieceworkPage>
           onChanged: (x) => _setRates(r.copyWith(repairPaid: x)),
         ),
         if (r.repairPaid)
-          _pct('piecework-repair-pct',
-              _tr('Za naprawę', 'Per repair'), r.repairBp,
-              (v) => _setRates(r.copyWith(repairBp: v))),
+          _pct('piecework-repair-pct', _tr('Za naprawę', 'Per repair'),
+              r.repairBp, (v) => _setRates(r.copyWith(repairBp: v))),
         _sub(_tr('Dzień pracy', 'Working day')),
         QuoteNumberField(
           key: const ValueKey('piecework-min-day'),
-          label: _tr('Minimum dzienne (opcjonalnie)', 'Daily minimum (optional)'),
+          label:
+              _tr('Minimum dzienne (opcjonalnie)', 'Daily minimum (optional)'),
           unit: 'zł',
           value: r.minDayGrosze == null ? null : r.minDayGrosze! / 100,
           allowEmpty: true,
@@ -773,10 +840,10 @@ class _PieceworkPageState extends State<PieceworkPage>
                   'jednego spawacza.',
               'A day with welds below the minimum is topped up. One welder '
                   'only.'),
-          validate: (x) => x != null &&
-                  (x < 0 || toGrosze(x) > kPieceworkMaxRateGrosze)
-              ? _tr('Wpisz kwotę od 0', 'Enter an amount from 0')
-              : null,
+          validate: (x) =>
+              x != null && (x < 0 || toGrosze(x) > kPieceworkMaxRateGrosze)
+                  ? _tr('Wpisz kwotę od 0', 'Enter an amount from 0')
+                  : null,
           onChanged: (x) {
             if (x == null) {
               _setRates(r.copyWith(minDayGrosze: null));
@@ -790,17 +857,17 @@ class _PieceworkPageState extends State<PieceworkPage>
         const SizedBox(height: 10),
         QuoteNumberField(
           key: const ValueKey('piecework-hpd'),
-          label: _tr('Godzin dziennie (opcjonalnie)', 'Hours per day (optional)'),
+          label:
+              _tr('Godzin dziennie (opcjonalnie)', 'Hours per day (optional)'),
           unit: 'h',
           value: r.hoursPerDay,
           allowEmpty: true,
           decimals: 1,
           helper: _tr('Do zł/godzinę, gdy nie wpiszesz godzin okresu.',
               'For the per-hour figure when the period hours are empty.'),
-          validate: (x) =>
-              x != null && (x <= 0 || x > kPieceworkMaxHoursPerDay)
-                  ? _tr('Od 0 do 24 h', 'From 0 to 24 h')
-                  : null,
+          validate: (x) => x != null && (x <= 0 || x > kPieceworkMaxHoursPerDay)
+              ? _tr('Od 0 do 24 h', 'From 0 to 24 h')
+              : null,
           onChanged: (x) {
             if (x == null) {
               _setRates(r.copyWith(hoursPerDay: null));

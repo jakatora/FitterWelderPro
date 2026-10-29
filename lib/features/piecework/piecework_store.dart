@@ -11,6 +11,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../database/local_record_owner.dart';
 import '../../services/owned_prefs.dart';
 
 import '../../domain/piecework/piecework.dart';
@@ -29,13 +30,15 @@ class PieceworkRatesStore {
   static const String key = 'piecework_rates_v1';
   static const String corruptKey = 'piecework_rates_v1_corrupt';
 
-  const PieceworkRatesStore();
+  final Future<LocalRecordOwner> Function()? captureOwner;
+
+  const PieceworkRatesStore({this.captureOwner});
 
   /// Nigdy nie rzuca: brak zapisu = stawki domyślne; uszkodzony = domyślne
   /// w uszkodzonych polach i `damaged`.
   Future<PieceworkRatesLoad> load() async {
     try {
-      final prefs = await OwnedPrefs.instance();
+      final prefs = await OwnedPrefs.instance(captureOwner);
       final raw = prefs.get(key);
       if (raw == null) return const PieceworkRatesLoad(PieceworkRates());
       if (raw is! String) {
@@ -50,7 +53,7 @@ class PieceworkRatesStore {
   }
 
   Future<void> save(PieceworkRates rates) async {
-    final prefs = await OwnedPrefs.instance();
+    final prefs = await OwnedPrefs.instance(captureOwner);
     await _backupIfDamaged(prefs);
     await prefs.setString(key, rates.encode());
   }
