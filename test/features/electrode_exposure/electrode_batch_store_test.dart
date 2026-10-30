@@ -6,12 +6,25 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import 'package:cut_list_app/domain/welding/electrode_exposure.dart';
 import 'package:cut_list_app/features/electrode_exposure/electrode_batch_store.dart';
 
 ElectrodeBatch _batch(String id) => ElectrodeBatch.takenOut(
     id: id, electrode: ElectrodeClass.e7018, at: DateTime(2026, 10, 17, 7));
+
+class _RefuseWritePreferences extends InMemorySharedPreferencesStore {
+  _RefuseWritePreferences() : super.empty();
+
+  String? refusedKey;
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    if (key == refusedKey) return false;
+    return super.setValue(valueType, key, value);
+  }
+}
 
 void main() {
   const store = ElectrodeBatchStore();
@@ -34,6 +47,65 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(kElectrodeBatchesCorruptPrefsKey),
         'pierwsze uszkodzenie');
+  });
+
+  test('drugi uszkodzony zapis dostaje osobną kopię przed nadpisaniem',
+      () async {
+    SharedPreferences.setMockInitialValues({
+      kElectrodeBatchesPrefsKey: 'drugie uszkodzenie',
+      kElectrodeBatchesCorruptPrefsKey: 'pierwsze uszkodzenie',
+    });
+    await store.save([_batch('nowa')]);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(kElectrodeBatchesCorruptPrefsKey),
+        'pierwsze uszkodzenie');
+    expect(prefs.getString('${kElectrodeBatchesCorruptPrefsKey}_2'),
+        'drugie uszkodzenie');
+    expect(decodeBatches(prefs.getString(kElectrodeBatchesPrefsKey)).single.id,
+        'nowa');
+  });
+
+  test('brak trwałej kopii blokuje nadpisanie uszkodzonego zapisu', () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = _RefuseWritePreferences();
+    SharedPreferencesStorePlatform.instance = disk;
+    await disk.setValue(
+        'String', 'flutter.$kElectrodeBatchesPrefsKey', 'uszkodzony dziennik');
+    disk.refusedKey = 'flutter.$kElectrodeBatchesCorruptPrefsKey';
+
+    await expectLater(store.save([_batch('nowa')]), throwsA(isA<StateError>()));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(prefs.getString(kElectrodeBatchesPrefsKey), 'uszkodzony dziennik');
+    expect(prefs.containsKey(kElectrodeBatchesCorruptPrefsKey), isFalse);
+  });
+
+  test('pełne trzy kopie blokują nadpisanie czwartego uszkodzenia', () async {
+    SharedPreferences.setMockInitialValues({
+      kElectrodeBatchesPrefsKey: 'czwarte uszkodzenie',
+      kElectrodeBatchesCorruptPrefsKey: 'pierwsze',
+      '${kElectrodeBatchesCorruptPrefsKey}_2': 'drugie',
+      '${kElectrodeBatchesCorruptPrefsKey}_3': 'trzecie',
+    });
+
+    await expectLater(store.save([_batch('nowa')]), throwsA(isA<StateError>()));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(kElectrodeBatchesPrefsKey), 'czwarte uszkodzenie');
+    expect(prefs.getString(kElectrodeBatchesCorruptPrefsKey), 'pierwsze');
+    expect(prefs.getString('${kElectrodeBatchesCorruptPrefsKey}_2'), 'drugie');
+    expect(prefs.getString('${kElectrodeBatchesCorruptPrefsKey}_3'), 'trzecie');
+  });
+
+  test('odmowa zapisu głównego klucza jest błędem', () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = _RefuseWritePreferences();
+    SharedPreferencesStorePlatform.instance = disk;
+    disk.refusedKey = 'flutter.$kElectrodeBatchesPrefsKey';
+
+    await expectLater(store.save([_batch('nowa')]), throwsA(isA<StateError>()));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(prefs.containsKey(kElectrodeBatchesPrefsKey), isFalse);
   });
 
   test('inny typ wartości w prefs (liczba, lista) nie wywala odczytu',

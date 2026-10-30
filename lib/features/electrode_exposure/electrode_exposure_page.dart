@@ -200,24 +200,29 @@ class _ElectrodeExposurePageState extends State<_ElectrodeExposureBody>
           now: widget.now(), english: _en)
       : Future<void>.value();
 
-  Future<void> _commit(List<ElectrodeBatch> next) async {
+  Future<bool> _commit(List<ElectrodeBatch> next) async {
     // Po zamknięciu ekranu (np. „Cofnij” w snackbarze, który żyje dalej
     // w ScaffoldMessengerze aplikacji) — żadnego setState; cofnięcie po
     // wyjściu idzie przez [_undoBatch] wprost na zapisie.
-    if (!mounted || !widget.session.isCurrent) return;
+    if (!mounted || !widget.session.isCurrent) return false;
+    final previous = _batches;
     setState(() => _batches = next);
     try {
       await widget.store.save(next);
     } catch (_) {
       if (mounted && widget.session.isCurrent) {
+        if (identical(_batches, next)) setState(() => _batches = previous);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            key: const ValueKey('electrode-save-failed'),
             content: Text(context.tr(
                 pl: 'Nie udało się zapisać dziennika.',
                 en: 'Could not save the log.'))));
       }
+      return false;
     }
-    if (!mounted || !widget.session.isCurrent) return;
+    if (!mounted || !widget.session.isCurrent) return false;
     await _reschedule();
+    return true;
   }
 
   String _newId() {
@@ -243,8 +248,8 @@ class _ElectrodeExposurePageState extends State<_ElectrodeExposureBody>
       ),
     );
     if (batch == null || !mounted || !widget.session.isCurrent) return;
+    if (!await _commit([..._batches, batch])) return;
     unawaited(Haptic.saved());
-    await _commit([..._batches, batch]);
     if (!mounted || !widget.session.isCurrent) return;
     final end = batch.deadline ?? batch.takenOutAt.add(batch.limit);
     ScaffoldMessenger.of(context)
@@ -257,20 +262,23 @@ class _ElectrodeExposurePageState extends State<_ElectrodeExposureBody>
                   '${formatHm(end)}.'))));
   }
 
-  Future<void> _replace(ElectrodeBatch next, {String? undoText}) async {
-    if (!widget.session.isCurrent) return;
+  Future<bool> _replace(ElectrodeBatch next, {String? undoText}) async {
+    if (!widget.session.isCurrent) return false;
     final previous = _batches.where((b) => b.id == next.id).firstOrNull;
-    await _commit([
+    if (!await _commit([
       for (final b in _batches) b.id == next.id ? next : b,
-    ]);
+    ])) {
+      return false;
+    }
     unawaited(Haptic.saved());
     if (undoText == null ||
         previous == null ||
         !mounted ||
         !widget.session.isCurrent) {
-      return;
+      return true;
     }
     _showUndo(undoText, previous);
+    return true;
   }
 
   /// Snackbar „Cofnij” dla JEDNEJ partii — przywraca tylko ją, w bieżącej
@@ -316,12 +324,12 @@ class _ElectrodeExposurePageState extends State<_ElectrodeExposureBody>
     };
   }
 
-  Future<void> _toOven(ElectrodeBatch b) =>
-      _replace(b.returnToOven(widget.now()));
+  Future<void> _toOven(ElectrodeBatch b) async =>
+      await _replace(b.returnToOven(widget.now()));
 
   Future<void> _outAgain(ElectrodeBatch b) async {
     final next = b.takeOutAgain(widget.now());
-    await _replace(next);
+    if (!await _replace(next)) return;
     if (!mounted || !widget.session.isCurrent) return;
     final reset = next.events.last.reset;
     ScaffoldMessenger.of(context)
@@ -381,7 +389,8 @@ class _ElectrodeExposurePageState extends State<_ElectrodeExposureBody>
     await _replace(b.redried(widget.now()));
   }
 
-  Future<void> _close(ElectrodeBatch b, BatchClosure how) => _replace(
+  Future<void> _close(ElectrodeBatch b, BatchClosure how) async =>
+      await _replace(
         b.close(widget.now(), how),
         undoText: how == BatchClosure.consumed
             ? context.tr(pl: 'Partia zużyta.', en: 'Batch used up.')
@@ -391,10 +400,12 @@ class _ElectrodeExposurePageState extends State<_ElectrodeExposureBody>
   Future<void> _delete(ElectrodeBatch b) async {
     if (!widget.session.isCurrent) return;
     final previous = _batches.where((x) => x.id == b.id).firstOrNull ?? b;
-    await _commit([
+    if (!await _commit([
       for (final x in _batches)
         if (x.id != b.id) x
-    ]);
+    ])) {
+      return;
+    }
     if (!mounted || !widget.session.isCurrent) return;
     _showUndo(
         context.tr(

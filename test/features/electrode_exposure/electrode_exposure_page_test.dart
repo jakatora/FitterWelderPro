@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:cut_list_app/domain/qualification/reminder_plan.dart';
 import 'package:cut_list_app/domain/welding/electrode_exposure.dart';
+import 'package:cut_list_app/features/electrode_exposure/electrode_batch_store.dart';
 import 'package:cut_list_app/features/electrode_exposure/electrode_exposure_page.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/services/qualification_reminders.dart';
@@ -44,6 +45,15 @@ class _Clock {
   _Clock(this.now);
   DateTime now;
   DateTime call() => now;
+}
+
+class _FailingElectrodeBatchStore extends ElectrodeBatchStore {
+  const _FailingElectrodeBatchStore();
+
+  @override
+  Future<void> save(List<ElectrodeBatch> batches) async {
+    throw StateError('Zapis odmówiony');
+  }
 }
 
 DateTime at(int h, [int m = 0, int day = 17]) => DateTime(2026, 10, day, h, m);
@@ -98,6 +108,7 @@ void main() {
     Size logical = const Size(400, 860),
     ElectrodeShareText? shareText,
     ElectrodeSharePdf? sharePdf,
+    ElectrodeBatchStore? store,
   }) async {
     tester.view.physicalSize = logical * 3;
     tester.view.devicePixelRatio = 3;
@@ -112,6 +123,7 @@ void main() {
         ),
         home: ElectrodeExposurePage(
           now: clock.call,
+          store: store,
           reminders: reminders,
           shareText: shareText,
           sharePdf: sharePdf,
@@ -213,6 +225,37 @@ void main() {
     expect(saved.single.id, id);
     expect(saved.single.location, 'hala B');
     expect(saved.single.limitMinutes, 240);
+  });
+
+  testWidgets('odmowa zapisu cofa dodanie i nie pokazuje sukcesu',
+      (tester) async {
+    await pump(tester, store: const _FailingElectrodeBatchStore());
+    await tapKey(tester, 'electrode-add');
+    await tapKey(tester, 'electrode-save');
+
+    expect(find.byKey(const ValueKey('electrode-empty')), findsOneWidget);
+    expect(find.byKey(const ValueKey('electrode-save-failed')), findsOneWidget);
+    expect(find.textContaining('Start odliczania:'), findsNothing);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.containsKey(kElectrodeBatchesPrefsKey), isFalse);
+  });
+
+  testWidgets('odmowa zapisu złomowania przywraca partię bez Cofnij',
+      (tester) async {
+    await seed([_seed('b1')]);
+    await pump(tester, store: const _FailingElectrodeBatchStore());
+    await tapKey(tester, 'electrode-scrap-b1');
+
+    expect(_state('b1', ExposureState.ok), findsOneWidget);
+    expect(find.byKey(const ValueKey('electrode-save-failed')), findsOneWidget);
+    expect(find.text('Partia na złom.'), findsNothing);
+    expect(find.text('Cofnij'), findsNothing);
+    final prefs = await SharedPreferences.getInstance();
+    expect(
+        decodeBatches(prefs.getString(kElectrodeBatchesPrefsKey))
+            .single
+            .isClosed,
+        isFalse);
   });
 
   testWidgets('przesunięcie zegara: OK → kończy się → przekroczony',
