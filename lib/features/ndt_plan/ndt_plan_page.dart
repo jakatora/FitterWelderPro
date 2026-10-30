@@ -159,6 +159,11 @@ class _NdtPlanPageState extends State<_NdtPlanBody>
   /// poczeka, żeby stare reguły nie trafiły do nowego projektu.
   bool _rulesLoading = false;
 
+  /// Zmiany reguł wpływają na gotowość dopiero po potwierdzonym zapisie.
+  bool _rulesSaving = false;
+  bool _rulesSaveFailed = false;
+  int _saveRevision = 0;
+
   /// Zapisy po kolei: późniejsza zmiana nigdy nie zostanie nadpisana
   /// wcześniejszą, która skończyła się później.
   Future<void> _saveChain = Future<void>.value();
@@ -233,11 +238,14 @@ class _NdtPlanPageState extends State<_NdtPlanBody>
   }
 
   void _applyLoad(NdtRuleSetDecode d) {
+    _saveRevision++;
     _set = d.set;
     _rulesIntact = d.intact;
     _rulesDropped = d.dropped;
     _readFailed = d.readFailed;
     _rulesLoading = false;
+    _rulesSaving = false;
+    _rulesSaveFailed = false;
     _round = 0;
   }
 
@@ -282,17 +290,36 @@ class _NdtPlanPageState extends State<_NdtPlanBody>
       return;
     }
     final project = _project;
+    final revision = ++_saveRevision;
     setState(() {
       _set = s;
-      _rulesIntact = true;
-      _rulesDropped = 0;
+      _rulesSaving = true;
+      _rulesSaveFailed = false;
     });
     _saveChain = _saveChain.then((_) async {
       try {
         await widget.store.save(project, s);
+        if (mounted &&
+            widget.session.isCurrent &&
+            project == _project &&
+            revision == _saveRevision) {
+          setState(() {
+            _rulesIntact = true;
+            _rulesDropped = 0;
+            _rulesSaving = false;
+            _rulesSaveFailed = false;
+          });
+        }
       } catch (e) {
         debugPrint('[ndt_plan] save rules failed: $e');
-        if (mounted && widget.session.isCurrent) {
+        if (mounted &&
+            widget.session.isCurrent &&
+            project == _project &&
+            revision == _saveRevision) {
+          setState(() {
+            _rulesSaving = false;
+            _rulesSaveFailed = true;
+          });
           _snack(_tr('Nie udało się zapisać reguł na telefonie.',
               'Could not save the rules on the phone.'));
         }
@@ -391,7 +418,10 @@ class _NdtPlanPageState extends State<_NdtPlanBody>
   NdtPlan _plan() => computeNdtPlan(
         _all,
         rules: _set.rules,
-        rulesIntact: _rulesIntact && !_rulesLoading,
+        rulesIntact: _rulesIntact &&
+            !_rulesLoading &&
+            !_rulesSaving &&
+            !_rulesSaveFailed,
         project: _project,
         round: _round,
       );
@@ -629,6 +659,33 @@ class _NdtPlanPageState extends State<_NdtPlanBody>
           'From the project specification. Required = welds × %, always '
               'rounded up.'),
       children: [
+        if (_rulesSaving)
+          QuoteNotice(
+            key: const ValueKey('ndt-rules-saving'),
+            text: _tr('Zapisywanie reguł. Gotowość linii czeka na zapis.',
+                'Saving rules. Line readiness waits for confirmation.'),
+          ),
+        if (_rulesSaveFailed) ...[
+          QuoteNotice(
+            key: const ValueKey('ndt-rules-save-failed'),
+            color: kFail,
+            icon: Icons.save_outlined,
+            text: _tr(
+                'Nie udało się zapisać reguł. Żadna linia nie jest gotowa '
+                    'według niezapisanych zmian. Ponów zapis przed użyciem planu.',
+                'Rules could not be saved. No line is ready under unsaved '
+                    'changes. Retry saving before using the plan.'),
+          ),
+          OutlinedButton.icon(
+            key: const ValueKey('ndt-rules-save-retry'),
+            style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(kMinTapTarget)),
+            onPressed: () => _setRules(_set),
+            icon: const Icon(Icons.refresh),
+            label: Text(_tr('Ponów zapis reguł', 'Retry saving rules')),
+          ),
+          const SizedBox(height: 12),
+        ],
         if (_readFailed) ...[
           QuoteNotice(
             key: const ValueKey('ndt-rules-read-failed'),
@@ -908,7 +965,9 @@ class _NdtPlanPageState extends State<_NdtPlanBody>
           key: const ValueKey('ndt-share-text'),
           style: OutlinedButton.styleFrom(
               minimumSize: const Size.fromHeight(kMinTapTarget)),
-          onPressed: () => unawaited(_shareText(report)),
+          onPressed: _rulesSaving || _rulesSaveFailed
+              ? null
+              : () => unawaited(_shareText(report)),
           icon: const Icon(Icons.sms_outlined),
           label: Text(_tr('Wyślij zlecenie tekstem', 'Send the order as text')),
         ),
@@ -917,7 +976,9 @@ class _NdtPlanPageState extends State<_NdtPlanBody>
           key: const ValueKey('ndt-share-pdf'),
           style: OutlinedButton.styleFrom(
               minimumSize: const Size.fromHeight(kMinTapTarget)),
-          onPressed: _exporting ? null : () => unawaited(_sharePdf(report)),
+          onPressed: _exporting || _rulesSaving || _rulesSaveFailed
+              ? null
+              : () => unawaited(_sharePdf(report)),
           icon: _exporting
               ? const SizedBox(
                   width: 18,

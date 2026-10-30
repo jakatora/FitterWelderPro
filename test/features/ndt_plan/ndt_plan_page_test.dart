@@ -188,8 +188,8 @@ void main() {
     // a1 po naprawie: RT i VT czekają na ponowne badanie.
     expect(_verdict(tester, _l12), 'Niegotowa do próby ciśnieniowej');
     expect(_key('ndt-blocker-$_l12-repairsAwaiting'), findsOneWidget);
-    expect(find.text('• Naprawy czekają na ponowne badanie: 1'),
-        findsOneWidget);
+    expect(
+        find.text('• Naprawy czekają na ponowne badanie: 1'), findsOneWidget);
     expect(_key('ndt-ordered-RT-a1'), findsOneWidget);
     // Powód przy zleconej — ten sam co w tekście i PDF.
     expect(
@@ -199,7 +199,8 @@ void main() {
     expect(find.text('Gotowe: 0 z 2 linii'), findsOneWidget);
   });
 
-  testWidgets('N5: błąd odczytu reguł — komunikat, edycja zablokowana, nic '
+  testWidgets(
+      'N5: błąd odczytu reguł — komunikat, edycja zablokowana, nic '
       'nie jest zapisane do udanego ponownego odczytu', (tester) async {
     final store = _FakeStore(
         failReads: 1, stored: NdtRuleSet.fromPreset(NdtPreset.rt10vt100));
@@ -236,16 +237,52 @@ void main() {
     expect(store.saved.map((s) => s.preset), [NdtPreset.b313]);
     first.complete();
     await tester.pumpAndSettle();
-    expect(store.saved.map((s) => s.preset),
-        [NdtPreset.b313, NdtPreset.rt100]);
+    expect(store.saved.map((s) => s.preset), [NdtPreset.b313, NdtPreset.rt100]);
     expect(store.stored!.preset, NdtPreset.rt100);
 
     await _tap(tester, 'ndt-preset-${NdtPreset.rt10vt100}');
-    expect(find.text('Nie udało się zapisać reguł na telefonie.'),
-        findsOneWidget);
+    expect(
+        find.text('Nie udało się zapisać reguł na telefonie.'), findsOneWidget);
   });
 
-  testWidgets('reguły → wynik: bez reguł nic nie jest gotowe; dodana reguła '
+  testWidgets('niezapisane reguły nie oznaczają linii jako gotowej; ponowienie',
+      (tester) async {
+    var attempts = 0;
+    final first = Completer<void>();
+    final store = _FakeStore(saveImpl: (_) async {
+      if (++attempts == 1) {
+        await first.future;
+        throw StateError('brak miejsca');
+      }
+    });
+    await _pump(tester, welds: _welds(), store: store);
+    await _tap(tester, 'ndt-preset-${NdtPreset.rt10vt100}');
+    expect(attempts, 1);
+    expect(_key('ndt-rules-saving'), findsOneWidget);
+    expect(_verdict(tester, _l12), 'Niegotowa do próby ciśnieniowej');
+    expect(tester.widget<OutlinedButton>(_key('ndt-share-text')).onPressed,
+        isNull);
+    expect(
+        tester.widget<OutlinedButton>(_key('ndt-share-pdf')).onPressed, isNull);
+    first.complete();
+    await tester.pumpAndSettle();
+    expect(_key('ndt-rules-save-failed'), findsOneWidget);
+    expect(_verdict(tester, _l12), 'Niegotowa do próby ciśnieniowej');
+    expect(tester.widget<OutlinedButton>(_key('ndt-share-text')).onPressed,
+        isNull);
+    expect(store.stored, isNull);
+
+    await _tap(tester, 'ndt-rules-save-retry');
+    expect(attempts, 2);
+    expect(_key('ndt-rules-save-failed'), findsNothing);
+    expect(_verdict(tester, _l12), 'Gotowa do próby ciśnieniowej');
+    expect(tester.widget<OutlinedButton>(_key('ndt-share-text')).onPressed,
+        isNotNull);
+    expect(store.stored, NdtRuleSet.fromPreset(NdtPreset.rt10vt100));
+  });
+
+  testWidgets(
+      'reguły → wynik: bez reguł nic nie jest gotowe; dodana reguła '
       'liczy grupy i się zapisuje', (tester) async {
     await _pump(tester, welds: _welds());
     expect(_key('ndt-no-rules'), findsOneWidget);
@@ -278,10 +315,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Od 0 do 100 %'), findsOneWidget);
     expect(
-        tester
-            .widget<FilledButton>(_key('ndt-edit-save'))
-            .onPressed,
-        isNull);
+        tester.widget<FilledButton>(_key('ndt-edit-save')).onPressed, isNull);
     await tester.enterText(_key('ndt-edit-pct'), '20');
     await tester.pumpAndSettle();
     await _tap(tester, 'ndt-edit-save');
@@ -301,9 +335,7 @@ void main() {
             'każdy spawacz + VT 100 %'),
         findsOneWidget);
     expect(find.textContaining('§341.4.1(b)(1)'), findsOneWidget);
-    expect(
-        find.text(
-            'RT 5$nb% · BW · każdy spawacz osobno · partia = projekt'),
+    expect(find.text('RT 5$nb% · BW · każdy spawacz osobno · partia = projekt'),
         findsOneWidget);
     expect(
         find.text('VT 100$nb% · wszystkie spoiny (BW/FW/SW/BR) · spawacze '
@@ -315,12 +347,11 @@ void main() {
     expect(find.text('RT 5$nb% BW · cały projekt · JK-12'), findsWidgets);
     expect(_verdict(tester, _l12), 'Gotowa do próby ciśnieniowej');
     expect(_verdict(tester, _l14), 'Niegotowa do próby ciśnieniowej');
-    expect(find.text('• Spoiny bez spawacza (nieprzypisane): 1'),
-        findsOneWidget);
+    expect(
+        find.text('• Spoiny bez spawacza (nieprzypisane): 1'), findsOneWidget);
 
     final prefs = await SharedPreferences.getInstance();
-    expect(
-        decodeNdtRuleSet(prefs.getString(NdtPlanStore.keyFor('Blok 4'))).set,
+    expect(decodeNdtRuleSet(prefs.getString(NdtPlanStore.keyFor('Blok 4'))).set,
         NdtRuleSet.fromPreset(NdtPreset.b313));
 
     // Inny projekt ma własne reguły (jeszcze żadnych).
@@ -333,16 +364,13 @@ void main() {
 
   testWidgets('gotowość linii: gotowa / niegotowa z powodami i grupami',
       (tester) async {
-    await _pump(tester,
-        welds: _welds(), prefs: _saved(NdtPreset.rt10vt100));
+    await _pump(tester, welds: _welds(), prefs: _saved(NdtPreset.rt10vt100));
     expect(find.text('Gotowe: 1 z 2 linii'), findsOneWidget);
     expect(_verdict(tester, _l12), 'Gotowa do próby ciśnieniowej');
-    expect(
-        tester.widget<Text>(_key('ndt-line-numbers-$_l12')).data,
+    expect(tester.widget<Text>(_key('ndt-line-numbers-$_l12')).data,
         '12 spoin · grupy kompletne 3/3 · brakuje 0');
     expect(_verdict(tester, _l14), 'Niegotowa do próby ciśnieniowej');
-    expect(
-        tester.widget<Text>(_key('ndt-line-numbers-$_l14')).data,
+    expect(tester.widget<Text>(_key('ndt-line-numbers-$_l14')).data,
         '6 spoin · grupy kompletne 0/3 · brakuje 3');
     for (final b in ['unassigned', 'incompleteGroups', 'missing']) {
       expect(_key('ndt-blocker-$_l14-$b'), findsOneWidget, reason: b);
@@ -388,14 +416,15 @@ void main() {
     expect(_verdict(tester, _l14), 'Not ready for the pressure test');
     expect(find.text('• Welds with no welder (unassigned): 1'), findsOneWidget);
     expect(find.text('RT — to order: 1 weld'), findsOneWidget);
-    expect(find.text('RT 10$nb% · BW · each welder · each line'),
-        findsOneWidget);
+    expect(
+        find.text('RT 10$nb% · BW · each welder · each line'), findsOneWidget);
     expect(find.textContaining('RT/UT target 10$nb%'), findsOneWidget);
     expect(find.textContaining('Gotowa'), findsNothing);
   });
 
   for (final lang in AppLanguage.values) {
-    testWidgets('320×640 i tekst 1,3 (${lang.name}): ekran i edytor reguły bez '
+    testWidgets(
+        '320×640 i tekst 1,3 (${lang.name}): ekran i edytor reguły bez '
         'przepełnień', (tester) async {
       await _pump(
         tester,
@@ -453,11 +482,9 @@ void main() {
   }
 
   testWidgets('cele dotyku ≥ 48 dp', (tester) async {
-    await _pump(tester,
-        welds: _welds(), prefs: _saved(NdtPreset.rt10vt100));
-    final ids = NdtRuleSet.fromPreset(NdtPreset.rt10vt100)
-        .rules
-        .map((r) => r.id);
+    await _pump(tester, welds: _welds(), prefs: _saved(NdtPreset.rt10vt100));
+    final ids =
+        NdtRuleSet.fromPreset(NdtPreset.rt10vt100).rules.map((r) => r.id);
     for (final k in [
       ...NdtPreset.values.map((p) => 'ndt-preset-$p'),
       'ndt-project',
@@ -543,7 +570,8 @@ void main() {
     expect(find.text('Skopiowano zlecenie.'), findsOneWidget);
   });
 
-  testWidgets('uszkodzone reguły: komunikat, nic nie jest gotowe, '
+  testWidgets(
+      'uszkodzone reguły: komunikat, nic nie jest gotowe, '
       'potwierdzenie zapisuje i robi kopię', (tester) async {
     const raw =
         '{"v":1,"rules":[{"id":"a","method":"RT","pct":10,"joints":["BW"]},'
@@ -561,8 +589,7 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(NdtPlanStore.corruptKeyFor('Blok 4')), raw);
     expect(
-        decodeNdtRuleSet(prefs.getString(NdtPlanStore.keyFor('Blok 4')))
-            .intact,
+        decodeNdtRuleSet(prefs.getString(NdtPlanStore.keyFor('Blok 4'))).intact,
         isTrue);
   });
 
@@ -579,8 +606,8 @@ void main() {
         rules: NdtRuleSet.fromPreset(NdtPreset.rt10vt100).rules,
         project: 'Blok 4');
     for (final en in [false, true]) {
-      final report = NdtOrderReport(
-          project: 'Blok 4', plan: plan, generatedAt: _clock());
+      final report =
+          NdtOrderReport(project: 'Blok 4', plan: plan, generatedAt: _clock());
       final doc = NdtPlanExport.buildPdfDocument(
         report: report,
         en: en,
@@ -598,8 +625,12 @@ void main() {
     final withOrdered = computeNdtPlan([
       ..._welds(),
       _w('o1', line: 'L-12', ndt: {NdtMethod.rt: ndtOf(NdtScope.selected)}),
-      _w('x1', line: 'L-16', ndt: {NdtMethod.rt: ndtOf(NdtScope.progressive, NdtResult.ok)}),
-    ], rules: NdtRuleSet.fromPreset(NdtPreset.rt10vt100).rules, project: 'Blok 4');
+      _w('x1',
+          line: 'L-16',
+          ndt: {NdtMethod.rt: ndtOf(NdtScope.progressive, NdtResult.ok)}),
+    ],
+        rules: NdtRuleSet.fromPreset(NdtPreset.rt10vt100).rules,
+        project: 'Blok 4');
     final o = withOrdered.ordered[NdtMethod.rt]!.single;
     expect(NdtPlanExport.orderCells(1, o, en: false, ordered: true)[7],
         'zlecone, bez wyniku · losowo 10$nb% · JK-12 · L-12');
