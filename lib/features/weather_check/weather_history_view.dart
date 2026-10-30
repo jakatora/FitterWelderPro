@@ -119,6 +119,13 @@ class _WeatherHistoryViewState extends State<WeatherHistoryView> {
       }
     } catch (e) {
       debugPrint('[weather] delete failed: $e');
+      if (mounted && widget.session.isCurrent) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(context.tr(
+              pl: 'Nie udało się usunąć pomiaru.',
+              en: 'Could not delete the check.')),
+        ));
+      }
     }
   }
 

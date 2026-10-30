@@ -358,7 +358,6 @@ class _WeatherCheckPageState extends State<_WeatherCheckBody>
   Future<void> _save(WeatherAssessment a) async {
     if (!widget.session.isCurrent) return;
     final r = _record(a);
-    unawaited(Haptic.saved());
     ({List<WeatherCheckRecord> records, int dropped})? res;
     try {
       res = await widget.store.add(r);
@@ -373,6 +372,7 @@ class _WeatherCheckPageState extends State<_WeatherCheckBody>
           pl: 'Nie udało się zapisać pomiaru.',
           en: 'Could not save the check.');
     } else {
+      unawaited(Haptic.saved());
       final n = res.records.length;
       setState(() {
         _historyCount = n;

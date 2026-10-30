@@ -39,6 +39,14 @@ class _FailingThresholdsStore extends WeatherCheckStore {
       throw StateError('dysk pełny');
 }
 
+class _FailingRemoveStore extends WeatherCheckStore {
+  const _FailingRemoveStore();
+
+  @override
+  Future<List<WeatherCheckRecord>> remove(String id) async =>
+      throw StateError('brak miejsca');
+}
+
 Future<void> _pump(
   WidgetTester tester, {
   AppLanguage language = AppLanguage.pl,
@@ -182,7 +190,8 @@ void main() {
     expect(find.text('Powierzchnia (pomiar)'), findsOneWidget);
     expect(_verdict(WeatherVerdict.conditional), findsOneWidget);
     expect(_key('wx-cond-${WeatherCode.condensation}'), findsOneWidget);
-    expect(find.descendant(of: _key('wx-margin'), matching: find.text('1,34 K')),
+    expect(
+        find.descendant(of: _key('wx-margin'), matching: find.text('1,34 K')),
         findsOneWidget);
   });
 
@@ -582,10 +591,49 @@ void main() {
         hasLength(2));
     expect(_key('wx-history-damaged'), findsNothing);
 
-    // Kolejne uszkodzenie nie nadpisuje pierwszej kopii.
+    // Kolejne uszkodzenie zachowuje osobną kopię.
     await prefs.setString(WeatherCheckStore.historyKey, '{znowu zły');
     await _tap(tester, 'wx-save');
     expect(prefs.getString(WeatherCheckStore.corruptHistoryKey), raw);
+    expect(prefs.getString('${WeatherCheckStore.corruptHistoryKey}_2'),
+        '{znowu zły');
+  });
+
+  testWidgets('pełne kopie blokują zapis pomiaru z komunikatem',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      WeatherCheckStore.historyKey: 'trzecie uszkodzenie',
+      WeatherCheckStore.corruptHistoryKey: 'pierwsza kopia',
+      '${WeatherCheckStore.corruptHistoryKey}_2': 'druga kopia',
+    });
+    await _pump(tester);
+    await _calm(tester);
+    await _tap(tester, 'wx-save');
+    expect(find.text('Nie udało się zapisać pomiaru.'), findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    expect(
+        prefs.getString(WeatherCheckStore.historyKey), 'trzecie uszkodzenie');
+  });
+
+  testWidgets('nieudane usunięcie historii pokazuje błąd i zostawia wpis',
+      (tester) async {
+    final old = WeatherCheckRecord(
+      id: 'old',
+      takenAt: DateTime(2026, 10, 1, 8),
+      input: const WeatherInput(ambientC: 10, rhPct: 60, windMs: 1),
+      verdict: WeatherVerdict.conditional,
+    );
+    SharedPreferences.setMockInitialValues({
+      WeatherCheckStore.historyKey: encodeWeatherHistory([old]),
+    });
+    await _pump(tester, store: const _FailingRemoveStore());
+    await _tap(tester, 'wx-history');
+    expect(_key('wx-record-old'), findsOneWidget);
+    await _tap(tester, 'wx-record-old');
+    await _tap(tester, 'wx-rec-delete');
+    await _tap(tester, 'wx-rec-delete-confirm');
+    expect(find.text('Nie udało się usunąć pomiaru.'), findsOneWidget);
+    expect(_key('wx-record-old'), findsOneWidget);
   });
 
   testWidgets('W4: ostrzeżenie przy zbliżaniu się do limitu historii',
