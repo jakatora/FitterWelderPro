@@ -3,19 +3,19 @@
 /// Bez bazy SQLite — moduł nie zmienia schematu. Uszkodzony zapis
 /// (nieczytelny JSON, inna wersja, wartość innego typu, wpis pominięty przy
 /// odczycie) NIE ginie przy następnym zapisie: zanim [save] go nadpisze,
-/// surowa wartość trafia pod [corruptKey] — tylko raz, istniejąca kopia nie
-/// jest nadpisywana (ta sama mechanika co bolt_kit_store.dart).
+/// surowa wartość trafia pod [corruptKey]. Istniejąca kopia nie jest
+/// nadpisywana, a inne uszkodzenie blokuje nowy zapis.
 ///
 /// Nieudany ODCZYT (wyjątek platformy) to co innego: wartość w pamięci może
 /// być dobra, tylko ekran jej nie zna. Wtedy pierwszy [save] z
 /// `afterFailedRead: true` kopiuje surową wartość pod [corruptKey] nawet
-/// nienaruszoną (jeśli kopii jeszcze nie ma).
+/// nienaruszoną; jeśli miejsce kopii zajmuje inny zapis, wstrzymuje zapis.
 library;
 
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show debugPrint, protected;
-import 'package:shared_preferences/shared_preferences.dart';
+import '../../database/local_record_owner.dart';
 import '../../services/owned_prefs.dart';
 
 import '../../domain/exam/exam_session.dart';
@@ -35,7 +35,9 @@ class WelderExamLoad {
 }
 
 class WelderExamStore {
-  const WelderExamStore();
+  const WelderExamStore({this.captureOwner});
+
+  final Future<LocalRecordOwner> Function()? captureOwner;
 
   static const String key = 'welder_exam_v1';
   static const String corruptKey = 'welder_exam_v1_corrupt';
@@ -43,7 +45,7 @@ class WelderExamStore {
   /// Surowa wartość spod [key] (punkt podmiany w teście).
   @protected
   Future<Object?> readRaw() async =>
-      (await OwnedPrefs.instance()).get(key);
+      (await OwnedPrefs.instance(captureOwner)).get(key);
 
   /// Nigdy nie rzuca.
   Future<WelderExamLoad> load() async {
@@ -62,24 +64,21 @@ class WelderExamStore {
   }
 
   Future<void> save(ExamStats stats, {bool afterFailedRead = false}) async {
-    final prefs = await OwnedPrefs.instance();
-    await _backup(prefs, always: afterFailedRead);
-    await prefs.setString(key, encodeExamStats(stats));
-  }
-
-  /// Kopia surowej wartości spod [key] — gdy nie jest nienaruszonym zapisem
-  /// tego modułu (albo [always]) i kopii jeszcze nie ma.
-  static Future<void> _backup(SharedPreferences prefs,
-      {required bool always}) async {
-    try {
-      final raw = prefs.get(key);
-      if (raw == null) return;
-      if (!always && raw is String && decodeExamStats(raw).intact) return;
-      if (prefs.containsKey(corruptKey)) return;
-      await prefs.setString(corruptKey, raw is String ? raw : _describe(raw));
-    } catch (e) {
-      // Kopia to zabezpieczenie — jej brak nie może zablokować zapisu.
-      debugPrint('[welder_exam] backup failed: $e');
+    final prefs = await OwnedPrefs.instance(captureOwner);
+    final raw = prefs.get(key);
+    if (raw != null &&
+        (afterFailedRead || raw is! String || !decodeExamStats(raw).intact)) {
+      final copy = raw is String ? raw : _describe(raw);
+      final existing = prefs.get(corruptKey);
+      if (existing != null && existing != copy) {
+        throw StateError('Different exam stats are already backed up');
+      }
+      if (existing == null && !await prefs.setString(corruptKey, copy)) {
+        throw StateError('Could not back up exam stats');
+      }
+    }
+    if (!await prefs.setString(key, encodeExamStats(stats))) {
+      throw StateError('Could not save exam stats');
     }
   }
 

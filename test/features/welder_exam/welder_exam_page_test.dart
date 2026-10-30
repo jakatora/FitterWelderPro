@@ -15,12 +15,30 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 const _seed = 7;
 
+class _FlakyReadWriteStore extends WelderExamStore {
+  var reads = 0;
+  var writes = 0;
+
+  @override
+  Future<Object?> readRaw() async {
+    if (reads++ == 0) throw StateError('read unavailable');
+    return super.readRaw();
+  }
+
+  @override
+  Future<void> save(ExamStats stats, {bool afterFailedRead = false}) async {
+    if (writes++ == 0) throw StateError('write unavailable');
+    await super.save(stats, afterFailedRead: afterFailedRead);
+  }
+}
+
 Future<void> _pump(
   WidgetTester tester, {
   AppLanguage lang = AppLanguage.pl,
   Size size = const Size(800, 1400),
   double textScale = 1.0,
   Map<String, Object> prefs = const {},
+  WelderExamStore store = const WelderExamStore(),
 }) async {
   SharedPreferences.setMockInitialValues(prefs);
   tester.view.physicalSize = size;
@@ -36,6 +54,7 @@ Future<void> _pump(
         child: child!,
       ),
       home: WelderExamPage(
+        store: store,
         seed: _seed,
         clock: () => DateTime(2026, 10, 17, 9, 30),
       ),
@@ -365,5 +384,42 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(WelderExamStore.corruptKey), '{"v":1,"missed":');
     expect((await _savedStats()).statFor(q.category).correct, 1);
+  });
+
+  testWidgets(
+      'po błędzie zapisu kolejna odpowiedź zachowuje nieodczytane statystyki',
+      (tester) async {
+    final original = encodeExamStats(ExamStats(history: [
+      ExamSessionRecord(
+        at: DateTime.utc(2026, 10, 17),
+        mode: ExamMode.quick,
+        score: 3,
+        total: 10,
+      ),
+    ]));
+    final store = _FlakyReadWriteStore();
+    await _pump(tester, prefs: {WelderExamStore.key: original}, store: store);
+    final questions = drawExamQuestions(seed: _seed, en: false);
+    await _tap(tester, 'we-quick');
+    await _answer(tester, questions[0], good: false);
+    expect(_key('we-save-failed'), findsOneWidget);
+    await _answer(tester, questions[1], good: true, next: false);
+    await tester.pumpAndSettle();
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(WelderExamStore.corruptKey), original);
+    expect(_key('we-save-failed'), findsNothing);
+  });
+
+  testWidgets('zajęta kopia: zapis wstrzymany z komunikatem', (tester) async {
+    await _pump(tester, prefs: {
+      WelderExamStore.key: 'drugie uszkodzenie',
+      WelderExamStore.corruptKey: 'pierwsze uszkodzenie',
+    });
+    await _tap(tester, 'we-quick');
+    await _answer(tester, drawExamQuestions(seed: _seed, en: false).first,
+        good: true, next: false);
+    expect(_key('we-save-failed'), findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(WelderExamStore.key), 'drugie uszkodzenie');
   });
 }

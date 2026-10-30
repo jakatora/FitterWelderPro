@@ -50,9 +50,8 @@ void main() {
     expect(load.stats.missed.keys, stats.missed.keys);
   });
 
-  test(
-      'uszkodzony JSON: pusty stan z flagą, kopia przed nadpisaniem — tylko '
-      'raz', () async {
+  test('uszkodzony JSON: kopia przed nadpisaniem; zajęta kopia blokuje zapis',
+      () async {
     SharedPreferences.setMockInitialValues(
         {WelderExamStore.key: '{"v":1,"categories":'});
     const store = WelderExamStore();
@@ -66,10 +65,11 @@ void main() {
     expect(
         decodeExamStats(prefs.getString(WelderExamStore.key)!).intact, isTrue);
 
-    // Drugi uszkodzony zapis nie nadpisuje pierwszej kopii.
+    // Drugi uszkodzony zapis nie może zniknąć przy zajętym miejscu na kopię.
     await prefs.setString(WelderExamStore.key, 'znowu zepsute');
-    await store.save(_someStats());
+    await expectLater(store.save(_someStats()), throwsA(isA<StateError>()));
     expect(prefs.getString(WelderExamStore.corruptKey), '{"v":1,"categories":');
+    expect(prefs.getString(WelderExamStore.key), 'znowu zepsute');
   });
 
   test('wartość innego typu pod kluczem → flaga i kopia', () async {

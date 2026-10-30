@@ -19,6 +19,7 @@ import '../../domain/exam/exam_questions.dart';
 import '../../domain/exam/exam_session.dart';
 import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/local_record_scope.dart';
 import '../weld_symbols/weld_symbol_painter.dart';
 import 'welder_exam_store.dart';
 
@@ -27,16 +28,16 @@ const double _kAnswerHeight = 56;
 
 enum _View { home, question, result }
 
-class WelderExamPage extends StatefulWidget {
+class WelderExamPage extends StatelessWidget {
   const WelderExamPage({
     super.key,
-    this.store = const WelderExamStore(),
+    this.store,
     this.clock,
     this.seed,
   });
 
   /// Zapis statystyk (w testach podmieniany).
-  final WelderExamStore store;
+  final WelderExamStore? store;
 
   /// Zegar (data wyniku sesji, ziarno losowania); `null` — systemowy.
   final DateTime Function()? clock;
@@ -45,14 +46,39 @@ class WelderExamPage extends StatefulWidget {
   final int? seed;
 
   @override
-  State<WelderExamPage> createState() => _WelderExamPageState();
+  Widget build(BuildContext context) => LocalRecordScope(
+        builder: (_, session) => _WelderExamBody(
+          session: session,
+          store: store ?? WelderExamStore(captureOwner: session.captureOwner),
+          clock: clock,
+          seed: seed,
+        ),
+      );
 }
 
-class _WelderExamPageState extends State<WelderExamPage> {
+class _WelderExamBody extends StatefulWidget {
+  const _WelderExamBody({
+    required this.session,
+    required this.store,
+    required this.clock,
+    required this.seed,
+  });
+
+  final LocalRecordSession session;
+  final WelderExamStore store;
+  final DateTime Function()? clock;
+  final int? seed;
+
+  @override
+  State<_WelderExamBody> createState() => _WelderExamPageState();
+}
+
+class _WelderExamPageState extends State<_WelderExamBody> {
   ExamStats _stats = const ExamStats();
   bool _loaded = false;
   bool _damaged = false;
   bool _readFailed = false;
+  bool _saveFailed = false;
 
   ExamSession? _session;
   _View _view = _View.home;
@@ -82,7 +108,7 @@ class _WelderExamPageState extends State<WelderExamPage> {
 
   Future<void> _load() async {
     final r = await widget.store.load();
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     setState(() {
       _stats = r.stats;
       _damaged = r.damaged;
@@ -92,14 +118,22 @@ class _WelderExamPageState extends State<WelderExamPage> {
   }
 
   void _persist() {
+    if (!widget.session.isCurrent) return;
     final snapshot = _stats;
-    final afterFailedRead = _readFailed;
-    _readFailed = false;
-    _saving = _saving
-        .then((_) =>
-            widget.store.save(snapshot, afterFailedRead: afterFailedRead))
-        .catchError((Object e) {
-      debugPrint('[welder_exam] save failed: $e');
+    _saving = _saving.then((_) async {
+      if (!widget.session.isCurrent) return;
+      try {
+        await widget.store.save(snapshot, afterFailedRead: _readFailed);
+        if (mounted && widget.session.isCurrent) {
+          _readFailed = false;
+          if (_saveFailed) setState(() => _saveFailed = false);
+        }
+      } catch (e) {
+        debugPrint('[welder_exam] save failed: $e');
+        if (mounted && widget.session.isCurrent) {
+          setState(() => _saveFailed = true);
+        }
+      }
     });
   }
 
@@ -119,6 +153,7 @@ class _WelderExamPageState extends State<WelderExamPage> {
       ];
 
   void _start(ExamMode mode, {ExamCategory? category, List<String>? ids}) {
+    if (!mounted || !widget.session.isCurrent) return;
     final questions = drawExamQuestions(
       seed: _nextSeed(),
       en: _en,
@@ -141,11 +176,14 @@ class _WelderExamPageState extends State<WelderExamPage> {
 
   void _scrollToTop() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) _scroll.jumpTo(0);
+      if (mounted && widget.session.isCurrent && _scroll.hasClients) {
+        _scroll.jumpTo(0);
+      }
     });
   }
 
   void _answer(int option) {
+    if (!mounted || !widget.session.isCurrent) return;
     final s = _session;
     if (s == null) return;
     final question = s.current;
@@ -155,7 +193,7 @@ class _WelderExamPageState extends State<WelderExamPage> {
     _persist();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final ctx = _feedbackKey.currentContext;
-      if (ctx == null || !mounted) return;
+      if (ctx == null || !mounted || !widget.session.isCurrent) return;
       Scrollable.ensureVisible(
         ctx,
         duration: const Duration(milliseconds: 200),
@@ -165,6 +203,7 @@ class _WelderExamPageState extends State<WelderExamPage> {
   }
 
   void _next() {
+    if (!mounted || !widget.session.isCurrent) return;
     final s = _session;
     if (s == null || !s.currentAnswered) return;
     if (s.isLast) {
@@ -176,6 +215,7 @@ class _WelderExamPageState extends State<WelderExamPage> {
   }
 
   void _finish() {
+    if (!mounted || !widget.session.isCurrent) return;
     final s = _session!;
     setState(() {
       _stats = _stats.withSession(ExamSessionRecord(
@@ -192,6 +232,7 @@ class _WelderExamPageState extends State<WelderExamPage> {
   }
 
   void _goHome() {
+    if (!mounted || !widget.session.isCurrent) return;
     setState(() {
       _view = _View.home;
       _session = null;
@@ -200,6 +241,7 @@ class _WelderExamPageState extends State<WelderExamPage> {
   }
 
   void _again() {
+    if (!mounted || !widget.session.isCurrent) return;
     final s = _session;
     if (s == null) return;
     _start(s.mode, category: s.category);
@@ -222,11 +264,29 @@ class _WelderExamPageState extends State<WelderExamPage> {
             key: const ValueKey('we-scroll'),
             controller: _scroll,
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-            child: switch (_view) {
-              _View.home => _home(),
-              _View.question => _question(_session!),
-              _View.result => _result(_session!),
-            },
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (_saveFailed)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      _t(
+                          'Nie udało się zapisać statystyk. Poprzedni zapis '
+                              'pozostaje bez zmian; kolejna zmiana ponowi zapis.',
+                          'Could not save the statistics. The previous record '
+                              'is unchanged; the next change will retry saving.'),
+                      key: const ValueKey('we-save-failed'),
+                      style: const TextStyle(color: kWarn),
+                    ),
+                  ),
+                switch (_view) {
+                  _View.home => _home(),
+                  _View.question => _question(_session!),
+                  _View.result => _result(_session!),
+                },
+              ],
+            ),
           ),
         ),
       ),
