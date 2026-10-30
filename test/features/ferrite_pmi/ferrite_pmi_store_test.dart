@@ -11,13 +11,16 @@ import 'package:cut_list_app/domain/ferrite_pmi/ferrite.dart';
 import 'package:cut_list_app/domain/ferrite_pmi/ferrite_pmi_protocol.dart';
 import 'package:cut_list_app/features/ferrite_pmi/ferrite_pmi_store.dart';
 
-FerritePmiProtocol _p(int i, {String date = '2026-10-18'}) => FerritePmiProtocol(
+FerritePmiProtocol _p(int i, {String date = '2026-10-18'}) =>
+    FerritePmiProtocol(
       id: 'p$i',
       date: date,
       title: 'Spoina $i',
       sites: [
         FerriteSite(
-            id: 'p$i-s', location: FerriteLocation.weld, readings: const ['45']),
+            id: 'p$i-s',
+            location: FerriteLocation.weld,
+            readings: const ['45']),
       ],
       updatedAt: i,
     );
@@ -34,8 +37,8 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     await store.upsert(_p(1, date: '2026-10-17'));
     await store.upsert(_p(2, date: '2026-10-18'));
-    await store.upsert(FerritePmiProtocol.blank(
-        id: 'blank', now: DateTime(2026, 10, 18, 9)));
+    await store.upsert(
+        FerritePmiProtocol.blank(id: 'blank', now: DateTime(2026, 10, 18, 9)));
     final list = await store.load();
     expect(list.map((e) => e.id), ['p2', 'p1']);
   });
@@ -110,7 +113,11 @@ void main() {
         ...good,
         'id': 'p3',
         'sites': [
-          {'id': 'x', 'loc': 'weld', 'readings': ['31', 45, '50']},
+          {
+            'id': 'x',
+            'loc': 'weld',
+            'readings': ['31', 45, '50']
+          },
           {'id': 'y', 'loc': 'nowhere'},
         ],
       },
@@ -124,5 +131,23 @@ void main() {
     expect(load.protocols.map((e) => e.id), containsAll(['p1', 'p3']));
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(FerritePmiStore.corruptBackupKey), raw);
+  });
+
+  test('dwie zajęte kopie nie pozwalają utracić trzeciego uszkodzenia',
+      () async {
+    const third = 'trzecie uszkodzenie';
+    SharedPreferences.setMockInitialValues({
+      FerritePmiStore.key: third,
+      FerritePmiStore.corruptBackupKey: 'pierwsze uszkodzenie',
+      FerritePmiStore.corruptLastBackupKey: 'drugie uszkodzenie',
+    });
+
+    await expectLater(store.upsert(_p(1)), throwsA(isA<StateError>()));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(FerritePmiStore.key), third);
+    expect(prefs.getString(FerritePmiStore.corruptBackupKey),
+        'pierwsze uszkodzenie');
+    expect(prefs.getString(FerritePmiStore.corruptLastBackupKey),
+        'drugie uszkodzenie');
   });
 }

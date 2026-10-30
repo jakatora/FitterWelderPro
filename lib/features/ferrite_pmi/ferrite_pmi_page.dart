@@ -21,16 +21,16 @@ import 'ferrite_pmi_edit_page.dart';
 import 'ferrite_pmi_store.dart';
 import '../../widgets/local_record_scope.dart';
 
-class FerritePmiPage extends StatefulWidget {
+class FerritePmiPage extends StatelessWidget {
   const FerritePmiPage({
     super.key,
-    this.store = const FerritePmiStore(),
+    this.store,
     this.now = DateTime.now,
     this.newId,
     this.shareText = ferritePmiDefaultShareText,
   });
 
-  final FerritePmiStore store;
+  final FerritePmiStore? store;
   final DateTime Function() now;
 
   /// Identyfikator nowego protokołu — wstrzykiwany w testach.
@@ -38,12 +38,39 @@ class FerritePmiPage extends StatefulWidget {
   final FerritePmiShareText shareText;
 
   @override
-  State<FerritePmiPage> createState() => _FerritePmiPageState();
+  Widget build(BuildContext context) => LocalRecordScope(
+        builder: (_, session) => _FerritePmiBody(
+          session: session,
+          store: store ?? FerritePmiStore(captureOwner: session.captureOwner),
+          now: now,
+          newId: newId,
+          shareText: shareText,
+        ),
+      );
+}
+
+class _FerritePmiBody extends StatefulWidget {
+  const _FerritePmiBody({
+    required this.session,
+    required this.store,
+    required this.now,
+    required this.newId,
+    required this.shareText,
+  });
+
+  final LocalRecordSession session;
+  final FerritePmiStore store;
+  final DateTime Function() now;
+  final String Function()? newId;
+  final FerritePmiShareText shareText;
+
+  @override
+  State<_FerritePmiBody> createState() => _FerritePmiPageState();
 }
 
 enum _ItemAction { share, delete }
 
-class _FerritePmiPageState extends State<FerritePmiPage> {
+class _FerritePmiPageState extends State<_FerritePmiBody> {
   List<FerritePmiProtocol>? _items;
   bool _loadFailed = false;
   FerritePmiLoad? _damage;
@@ -57,15 +84,15 @@ class _FerritePmiPageState extends State<FerritePmiPage> {
   Future<void> _reload() async {
     try {
       final load = await widget.store.loadReport();
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       setState(() {
         _items = load.protocols;
-        _loadFailed = false;
+        _loadFailed = load.readFailed;
         if (load.damaged) _damage = load;
       });
     } catch (e) {
       debugPrint('[ferrite_pmi] load failed: $e');
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       setState(() {
         _items = const [];
         _loadFailed = true;
@@ -76,6 +103,7 @@ class _FerritePmiPageState extends State<FerritePmiPage> {
   String _id() => widget.newId?.call() ?? const Uuid().v4();
 
   void _snack(String text, {Key? key, SnackBarAction? action}) {
+    if (!mounted || !widget.session.isCurrent) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(key: key, content: Text(text), action: action));
@@ -98,67 +126,77 @@ class _FerritePmiPageState extends State<FerritePmiPage> {
   }
 
   Future<void> _open(FerritePmiProtocol p) async {
+    if (!widget.session.isCurrent) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => LocalRecordScope(
+          originSession: widget.session,
           restartOnAccountChange: false,
-          builder: (_, __) => FerritePmiEditPage(
+          builder: (_, session) => FerritePmiEditPage(
                 initial: p,
                 store: widget.store,
+                session: session,
                 now: widget.now,
                 shareText: widget.shareText,
               )),
     ));
-    await _reload();
+    if (mounted && widget.session.isCurrent) await _reload();
   }
 
   Future<void> _new() async {
+    if (!widget.session.isCurrent) return;
     if (_refuseWhenFull()) return;
     await _open(FerritePmiProtocol.blank(id: _id(), now: widget.now()));
   }
 
   Future<void> _share(FerritePmiProtocol p) async {
+    if (!widget.session.isCurrent) return;
     final en = context.language == AppLanguage.en;
     try {
       await widget.shareText(
           ferritePmiProtocolText(p, en: en, now: widget.now()),
           ferritePmiSubject(en: en));
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       _snack(context.tr(
           pl: 'Nie udało się udostępnić: $e', en: 'Sharing failed: $e'));
     }
   }
 
   Future<void> _delete(FerritePmiProtocol p) async {
+    if (!widget.session.isCurrent) return;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title:
-            Text(context.tr(pl: 'Usunąć protokół?', en: 'Delete this record?')),
-        content: Text(_titleOf(p)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogCtx, false),
-            child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
-          ),
-          FilledButton(
-            key: const ValueKey('fp-delete-confirm'),
-            style: FilledButton.styleFrom(
-                backgroundColor: kFail, foregroundColor: Colors.white),
-            onPressed: () => Navigator.pop(dialogCtx, true),
-            child: Text(context.tr(pl: 'Usuń', en: 'Delete')),
-          ),
-        ],
+      builder: (_) => LocalRecordScope(
+        originSession: widget.session,
+        restartOnAccountChange: false,
+        builder: (dialogCtx, __) => AlertDialog(
+          title: Text(
+              context.tr(pl: 'Usunąć protokół?', en: 'Delete this record?')),
+          content: Text(_titleOf(p)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx, false),
+              child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+            ),
+            FilledButton(
+              key: const ValueKey('fp-delete-confirm'),
+              style: FilledButton.styleFrom(
+                  backgroundColor: kFail, foregroundColor: Colors.white),
+              onPressed: () => Navigator.pop(dialogCtx, true),
+              child: Text(context.tr(pl: 'Usuń', en: 'Delete')),
+            ),
+          ],
+        ),
       ),
     );
-    if (ok != true || !mounted) return;
+    if (ok != true || !mounted || !widget.session.isCurrent) return;
     try {
       await widget.store.delete(p.id);
     } catch (e) {
       // Błąd zapisu (np. brak miejsca) — komunikat zamiast wyjątku;
       // protokół zostaje w historii.
       debugPrint('[ferrite_pmi] delete failed: $e');
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       _snack(
         key: const ValueKey('fp-delete-failed'),
         context.tr(
@@ -171,7 +209,7 @@ class _FerritePmiPageState extends State<FerritePmiPage> {
       return;
     }
     await _reload();
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     _snack(
       key: const ValueKey('fp-deleted'),
       context.tr(pl: 'Protokół usunięty.', en: 'Record deleted.'),
@@ -184,11 +222,12 @@ class _FerritePmiPageState extends State<FerritePmiPage> {
   }
 
   Future<void> _restore(FerritePmiProtocol p) async {
+    if (!widget.session.isCurrent) return;
     try {
       await widget.store.restore(p);
     } catch (e) {
       debugPrint('[ferrite_pmi] restore failed: $e');
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       _snack(
         key: const ValueKey('fp-restore-failed'),
         context.tr(
@@ -198,7 +237,7 @@ class _FerritePmiPageState extends State<FerritePmiPage> {
                 'failed.'),
       );
     }
-    if (mounted) await _reload();
+    if (mounted && widget.session.isCurrent) await _reload();
   }
 
   String _titleOf(FerritePmiProtocol p) {
@@ -242,23 +281,37 @@ class _FerritePmiPageState extends State<FerritePmiPage> {
               key: const ValueKey('fp-load-damaged'),
               color: kFail,
               icon: Icons.report_gmailerrorred_outlined,
-              text: _damage!.unreadable
+              text: _damage!.readFailed
                   ? context.tr(
-                      pl: 'Zapisanej historii nie da się odczytać — kopia '
-                          'surowego zapisu została w telefonie.',
-                      en: 'The saved history could not be read — a raw copy '
-                          'is kept on the phone.')
-                  : context.tr(
-                      pl: 'Część zapisu była nieczytelna: pominięto '
-                          '${_damage!.droppedProtocols} protokołów i '
-                          '${_damage!.droppedItems} elementów (miejsc, '
-                          'odczytów, pozycji). Kopia surowego zapisu została '
-                          'w telefonie.',
-                      en: 'Part of the saved data was unreadable: '
-                          '${_damage!.droppedProtocols} record(s) and '
-                          '${_damage!.droppedItems} item(s) (locations, '
-                          'readings, PMI items) skipped. A raw copy is kept '
-                          'on the phone.'),
+                      pl: 'Nie udało się odczytać historii. Zapis nowych '
+                          'zmian jest wstrzymany, aby nie utracić danych.',
+                      en: 'Could not read the history. New changes cannot '
+                          'be saved until the data can be read.')
+                  : _damage!.backupFailed
+                      ? context.tr(
+                          pl: 'Uszkodzony zapis pozostaje w telefonie, ale nie '
+                              'udało się utworzyć jego kopii. Zapis nowych zmian '
+                              'jest wstrzymany, aby nie utracić danych.',
+                          en: 'The damaged data remains on this phone, but its '
+                              'backup could not be made. New changes cannot be '
+                              'saved until the data is protected.')
+                      : _damage!.unreadable
+                          ? context.tr(
+                              pl: 'Zapisanej historii nie da się odczytać — kopia '
+                                  'surowego zapisu została w telefonie.',
+                              en: 'The saved history could not be read — a raw copy '
+                                  'is kept on the phone.')
+                          : context.tr(
+                              pl: 'Część zapisu była nieczytelna: pominięto '
+                                  '${_damage!.droppedProtocols} protokołów i '
+                                  '${_damage!.droppedItems} elementów (miejsc, '
+                                  'odczytów, pozycji). Kopia surowego zapisu została '
+                                  'w telefonie.',
+                              en: 'Part of the saved data was unreadable: '
+                                  '${_damage!.droppedProtocols} record(s) and '
+                                  '${_damage!.droppedItems} item(s) (locations, '
+                                  'readings, PMI items) skipped. A raw copy is kept '
+                                  'on the phone.'),
             ),
           QuoteNotice(
             icon: Icons.gavel_outlined,

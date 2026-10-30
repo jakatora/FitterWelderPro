@@ -146,7 +146,9 @@ FerritePmiProtocol _saved(int i) => FerritePmiProtocol(
       customMax: '70',
       sites: [
         FerriteSite(
-            id: 'old-$i-s', location: FerriteLocation.weld, readings: const ['45']),
+            id: 'old-$i-s',
+            location: FerriteLocation.weld,
+            readings: const ['45']),
       ],
       updatedAt: i,
     );
@@ -238,7 +240,8 @@ void main() {
     expect(_has('fp-site-0-r-0'), isFalse);
   });
 
-  testWidgets('preset typowy: etykieta TYPOWE, źródło; materiał rodzimy → '
+  testWidgets(
+      'preset typowy: etykieta TYPOWE, źródło; materiał rodzimy → '
       'brak werdyktu', (tester) async {
     await _pump(tester);
     await _tapKey(tester, 'fp-new');
@@ -291,13 +294,13 @@ void main() {
     await _enter(tester, 'fp-pmi-0-ni', '10,3');
     // Bez Mo — nie zielone: nie wyklucza 316.
     expect(_has('fp-pmi-0-verdict-toVerify'), isTrue);
-    final moMissing = tester
-        .widget<Text>(find.byKey(const ValueKey('fp-pmi-0-mo-status')));
+    final moMissing =
+        tester.widget<Text>(find.byKey(const ValueKey('fp-pmi-0-mo-status')));
     expect(moMissing.data, contains('brak odczytu Mo — nie wyklucza 316'));
     await _enter(tester, 'fp-pmi-0-mo', '2,1');
     expect(_has('fp-pmi-0-verdict-nonConforming'), isTrue);
-    final mo = tester
-        .widget<Text>(find.byKey(const ValueKey('fp-pmi-0-mo-status')));
+    final mo =
+        tester.widget<Text>(find.byKey(const ValueKey('fp-pmi-0-mo-status')));
     expect(mo.data, contains('nie występuje w 1.4301 / 304'));
     expect(mo.data, contains('możliwy 1.4401 / 316'));
     // Mo 0,3 — pozostałość pod progiem, nie blokuje.
@@ -322,7 +325,8 @@ void main() {
     expect(_has('fp-site-0-verdict-pass'), isTrue);
   });
 
-  testWidgets('zakres ręczny: min. odczytów 3 przy 2 odczytach → brak '
+  testWidgets(
+      'zakres ręczny: min. odczytów 3 przy 2 odczytach → brak '
       'werdyktu', (tester) async {
     await _pump(tester);
     await _tapKey(tester, 'fp-new');
@@ -401,6 +405,27 @@ void main() {
     expect(_has('fp-load-damaged'), isTrue);
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(FerritePmiStore.corruptBackupKey), 'nie-json');
+  });
+
+  testWidgets('brak miejsca na kopię: komunikat i oryginał bez zmian',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      FerritePmiStore.key: 'trzecie uszkodzenie',
+      FerritePmiStore.corruptBackupKey: 'pierwsze uszkodzenie',
+      FerritePmiStore.corruptLastBackupKey: 'drugie uszkodzenie',
+    });
+    await _pump(tester);
+    expect(find.textContaining('nie udało się utworzyć jego kopii'),
+        findsOneWidget);
+    await _tapKey(tester, 'fp-new');
+    await _enter(tester, 'fp-title', 'Nowy pomiar');
+    expect(_has('fp-save-failed'), isTrue);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(FerritePmiStore.key), 'trzecie uszkodzenie');
+    expect(prefs.getString(FerritePmiStore.corruptBackupKey),
+        'pierwsze uszkodzenie');
+    expect(prefs.getString(FerritePmiStore.corruptLastBackupKey),
+        'drugie uszkodzenie');
   });
 
   testWidgets('udostępnianie tekstu protokołu', (tester) async {
@@ -527,15 +552,18 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(_app(FerritePmiEditPage(
-        initial: FerritePmiProtocol.blank(id: 'x', now: _now)
-            .copyWith(date: date),
+        initial:
+            FerritePmiProtocol.blank(id: 'x', now: _now).copyWith(date: date),
         now: () => _now,
       )));
       await tester.pumpAndSettle();
       await _tapKey(tester, 'fp-date');
       expect(tester.takeException(), isNull);
-      expect(tester.widget<DatePickerDialog>(find.byType(DatePickerDialog))
-          .initialDate, expected);
+      expect(
+          tester
+              .widget<DatePickerDialog>(find.byType(DatePickerDialog))
+              .initialDate,
+          expected);
     });
   }
 }

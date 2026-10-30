@@ -15,6 +15,7 @@
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../database/local_record_owner.dart';
 import '../../services/owned_prefs.dart';
 
 import '../../domain/ferrite_pmi/ferrite_pmi_protocol.dart';
@@ -25,12 +26,16 @@ class FerritePmiLoad {
 
   /// Zapis był nieczytelny w całości (historia pusta).
   final bool unreadable;
+  final bool readFailed;
+  final bool backupFailed;
   final int droppedProtocols;
   final int droppedItems;
 
   const FerritePmiLoad(
     this.protocols, {
     this.unreadable = false,
+    this.readFailed = false,
+    this.backupFailed = false,
     this.droppedProtocols = 0,
     this.droppedItems = 0,
   });
@@ -51,14 +56,16 @@ class FerritePmiStore {
   /// Kopia PIERWSZEGO nieczytelnego zapisu (nigdy nienadpisywana).
   static const String corruptBackupKey = '${key}_corrupt';
 
-  /// Kopia późniejszego, innego nieczytelnego zapisu (ostatnia).
+  /// Kopia drugiego, innego nieczytelnego zapisu (nienadpisywana).
   static const String corruptLastBackupKey = '${key}_corrupt_last';
 
   /// Tyle protokołów mieści historia; od [warnAt] (90 %) ekran ostrzega.
   static const int maxEntries = 200;
   static const int warnAt = 180;
 
-  const FerritePmiStore();
+  const FerritePmiStore({this.captureOwner});
+
+  final Future<LocalRecordOwner> Function()? captureOwner;
 
   static Future<void>? _tail;
   static int _inFlight = 0;
@@ -79,39 +86,70 @@ class FerritePmiStore {
   Future<FerritePmiLoad> loadReport() => _serial(_loadNow);
 
   Future<FerritePmiLoad> _loadNow() async {
-    final prefs = await OwnedPrefs.instance();
-    Object? raw;
+    final prefs = await OwnedPrefs.instance(captureOwner);
+    final Object? raw;
     try {
       raw = prefs.get(key);
-      if (raw == null || (raw is String && raw.isEmpty)) {
-        return const FerritePmiLoad([]);
-      }
+    } catch (_) {
+      return const FerritePmiLoad([], unreadable: true, readFailed: true);
+    }
+    if (raw == null || (raw is String && raw.isEmpty)) {
+      return const FerritePmiLoad([]);
+    }
+    try {
       if (raw is! String) throw const FormatException('not a string');
       final parsed = ferritePmiParse(jsonDecode(raw));
-      if (parsed.damaged) await _backup(prefs, raw);
+      final backedUp = !parsed.damaged || await _backup(prefs, raw);
       return FerritePmiLoad(
         sortFerritePmi(parsed.protocols),
+        backupFailed: !backedUp,
         droppedProtocols: parsed.droppedProtocols,
         droppedItems: parsed.droppedItems,
       );
     } catch (_) {
-      if (raw != null) await _backup(prefs, raw);
-      return const FerritePmiLoad([], unreadable: true);
+      final backedUp = await _backup(prefs, raw);
+      return FerritePmiLoad([], unreadable: true, backupFailed: !backedUp);
     }
   }
 
-  static Future<void> _backup(SharedPreferences prefs, Object raw) async {
+  static Future<bool> _backup(SharedPreferences prefs, Object raw) async {
     final text = raw.toString();
-    final first = prefs.get(corruptBackupKey);
-    if (first == null) {
-      await prefs.setString(corruptBackupKey, text);
-    } else if (first != text && prefs.get(corruptLastBackupKey) != text) {
-      await prefs.setString(corruptLastBackupKey, text);
+    try {
+      final first = prefs.get(corruptBackupKey);
+      if (first == text) return true;
+      final last = prefs.get(corruptLastBackupKey);
+      if (last == text) return true;
+      if (first == null) {
+        return await prefs.setString(corruptBackupKey, text) &&
+            prefs.get(corruptBackupKey) == text;
+      }
+      if (last == null) {
+        return await prefs.setString(corruptLastBackupKey, text) &&
+            prefs.get(corruptLastBackupKey) == text;
+      }
+    } catch (_) {
+      return false;
+    }
+    return false;
+  }
+
+  static bool _damaged(Object raw) {
+    if (raw is! String) return true;
+    try {
+      return ferritePmiParse(jsonDecode(raw)).damaged;
+    } catch (_) {
+      return true;
     }
   }
 
   Future<void> _write(List<FerritePmiProtocol> list) async {
-    final prefs = await OwnedPrefs.instance();
+    final prefs = await OwnedPrefs.instance(captureOwner);
+    final raw = prefs.get(key);
+    if (raw != null && (raw is! String || raw.isNotEmpty) && _damaged(raw)) {
+      if (!await _backup(prefs, raw)) {
+        throw StateError('Could not preserve damaged $key before writing');
+      }
+    }
     final ok = await prefs.setString(
         key, jsonEncode(ferritePmiToJson(sortFerritePmi(list))));
     if (!ok) throw StateError('SharedPreferences.setString($key) failed');
@@ -121,7 +159,9 @@ class FerritePmiStore {
   /// trafia do historii — a jeśli był zapisany, znika. NOWY protokół przy
   /// pełnej historii → [FerritePmiStoreFull] (nic nie jest przycinane).
   Future<void> upsert(FerritePmiProtocol p) => _serial(() async {
-        final list = [...(await _loadNow()).protocols];
+        final load = await _loadNow();
+        if (load.readFailed) throw StateError('Could not read $key');
+        final list = [...load.protocols];
         final existed = list.any((e) => e.id == p.id);
         list.removeWhere((e) => e.id == p.id);
         if (!p.isBlank) {
@@ -136,15 +176,18 @@ class FerritePmiStore {
   /// „Cofnij” po usunięciu: przywraca protokół ZAWSZE, także przy pełnej
   /// historii (to dane, które już były zapisane).
   Future<void> restore(FerritePmiProtocol p) => _serial(() async {
-        final list = [...(await _loadNow()).protocols]
+        final load = await _loadNow();
+        if (load.readFailed) throw StateError('Could not read $key');
+        final list = [...load.protocols]
           ..removeWhere((e) => e.id == p.id)
           ..add(p);
         await _write(list);
       });
 
   Future<void> delete(String id) => _serial(() async {
-        final list = [...(await _loadNow()).protocols]
-          ..removeWhere((e) => e.id == id);
+        final load = await _loadNow();
+        if (load.readFailed) throw StateError('Could not read $key');
+        final list = [...load.protocols]..removeWhere((e) => e.id == id);
         await _write(list);
       });
 }
