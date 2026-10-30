@@ -18,7 +18,9 @@ import 'package:uuid/uuid.dart';
 import '../../domain/spool_check/spool_check.dart';
 import '../../domain/spool_check/spool_check_text.dart';
 import '../../i18n/app_language.dart';
+import '../../services/owned_prefs.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/local_record_scope.dart';
 import '../../widgets/number_field.dart';
 import '../quotes/quote_widgets.dart' show FieldPair, QuoteNotice, QuoteSection;
 import 'spool_check_store.dart';
@@ -66,14 +68,16 @@ class SpoolCheckEditPage extends StatefulWidget {
   const SpoolCheckEditPage({
     super.key,
     required this.initial,
-    this.store = const SpoolCheckStore(),
+    this.store,
+    this.session,
     this.now = DateTime.now,
     this.shareText = spoolCheckDefaultShareText,
     this.newId,
   });
 
   final SpoolCheck initial;
-  final SpoolCheckStore store;
+  final SpoolCheckStore? store;
+  final LocalRecordSession? session;
   final DateTime Function() now;
   final SpoolCheckShareText shareText;
 
@@ -86,6 +90,8 @@ class SpoolCheckEditPage extends StatefulWidget {
 
 class _SpoolCheckEditPageState extends State<SpoolCheckEditPage> {
   late SpoolCheck _p = widget.initial;
+  late final LocalRecordSession _session;
+  late final SpoolCheckStore _store;
 
   late final _spoolNo = TextEditingController(text: _p.spoolNo);
   late final _isoNo = TextEditingController(text: _p.isoNo);
@@ -105,13 +111,17 @@ class _SpoolCheckEditPageState extends State<SpoolCheckEditPage> {
   @override
   void initState() {
     super.initState();
+    _session = widget.session ?? LocalRecordSession.capture();
+    _store = widget.store ??
+        SpoolCheckStore(
+            prefs: () => OwnedPrefs.instance(_session.captureOwner));
     unawaited(_loadOtherNos());
   }
 
   Future<void> _loadOtherNos() async {
     try {
-      final all = await widget.store.load();
-      if (!mounted) return;
+      final all = await _store.load();
+      if (!mounted || !_session.isCurrent) return;
       setState(() => _otherNos = {
             for (final c in all)
               if (c.id != _p.id && c.spoolNo.trim().isNotEmpty)
@@ -151,10 +161,11 @@ class _SpoolCheckEditPageState extends State<SpoolCheckEditPage> {
   // ── Zmiany i zapis ─────────────────────────────────────────────────────
 
   void _set(SpoolCheck Function(SpoolCheck p) change) {
+    if (!mounted || !_session.isCurrent) return;
     setState(() => _p =
         change(_p).copyWith(updatedAt: widget.now().millisecondsSinceEpoch));
     final snapshot = _p;
-    unawaited(widget.store.upsert(snapshot).catchError((Object e) {
+    unawaited(_store.upsert(snapshot).catchError((Object e) {
       debugPrint('[spool_check] save failed: $e');
       _reportSaveFailure(
           full: e is SpoolCheckStoreFull,
@@ -165,7 +176,7 @@ class _SpoolCheckEditPageState extends State<SpoolCheckEditPage> {
   /// Raz na ekran — protokół, który się nie zapisuje, nie może tego robić
   /// po cichu.
   void _reportSaveFailure({bool full = false, bool unavailable = false}) {
-    if (!mounted || _saveFailureShown) return;
+    if (!mounted || !_session.isCurrent || _saveFailureShown) return;
     _saveFailureShown = true;
     if (unavailable) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -221,11 +232,12 @@ class _SpoolCheckEditPageState extends State<SpoolCheckEditPage> {
   }
 
   void _removeItem(SpoolItem item) {
+    if (!mounted || !_session.isCurrent) return;
     final index = _p.items.indexWhere((i) => i.id == item.id);
     if (index < 0) return;
     _set((p) =>
         p.copyWith(items: [...p.items]..removeWhere((i) => i.id == item.id)));
-    final store = widget.store;
+    final store = _store;
     final checkId = _p.id;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -235,6 +247,7 @@ class _SpoolCheckEditPageState extends State<SpoolCheckEditPage> {
         action: SnackBarAction(
           label: context.tr(pl: 'Cofnij', en: 'Undo'),
           onPressed: () {
+            if (!_session.isCurrent) return;
             if (mounted) {
               if (_p.items.any((i) => i.id == item.id)) return;
               final list = [..._p.items]
@@ -250,6 +263,7 @@ class _SpoolCheckEditPageState extends State<SpoolCheckEditPage> {
   }
 
   Future<void> _pickDate() async {
+    if (!_session.isCurrent) return;
     final first = DateTime(2000);
     final last = DateTime(2100);
     var current = DateTime.tryParse(_p.date) ?? widget.now();
@@ -260,8 +274,13 @@ class _SpoolCheckEditPageState extends State<SpoolCheckEditPage> {
       initialDate: current,
       firstDate: first,
       lastDate: last,
+      builder: (_, child) => LocalRecordScope(
+        originSession: _session,
+        restartOnAccountChange: false,
+        builder: (_, __) => child!,
+      ),
     );
-    if (picked == null || !mounted) return;
+    if (picked == null || !mounted || !_session.isCurrent) return;
     _set((p) => p.copyWith(date: spoolDate(picked)));
   }
 
@@ -277,6 +296,7 @@ class _SpoolCheckEditPageState extends State<SpoolCheckEditPage> {
   }
 
   Future<void> _shareText() async {
+    if (!_session.isCurrent) return;
     final en = context.language == AppLanguage.en;
     await widget.shareText(
         spoolCheckProtocolText(_p, en: en), spoolCheckSubject(en: en));

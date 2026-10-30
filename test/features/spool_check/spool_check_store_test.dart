@@ -98,6 +98,25 @@ void main() {
     expect(prefs.getString(SpoolCheckStore.corruptLastBackupKey), '{zepsute');
   });
 
+  test('dwie zajęte kopie blokują nadpisanie trzeciego uszkodzenia', () async {
+    SharedPreferences.setMockInitialValues({
+      SpoolCheckStore.key: 'trzecie uszkodzenie',
+      SpoolCheckStore.corruptBackupKey: 'pierwsze uszkodzenie',
+      SpoolCheckStore.corruptLastBackupKey: 'drugie uszkodzenie',
+    });
+    const store = SpoolCheckStore();
+    final load = await store.loadReport();
+    expect(load.backupFailed, isTrue);
+    await expectLater(
+        store.upsert(_c('nowy')), throwsA(isA<SpoolCheckStoreUnavailable>()));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(SpoolCheckStore.key), 'trzecie uszkodzenie');
+    expect(prefs.getString(SpoolCheckStore.corruptBackupKey),
+        'pierwsze uszkodzenie');
+    expect(prefs.getString(SpoolCheckStore.corruptLastBackupKey),
+        'drugie uszkodzenie');
+  });
+
   test(
       'uszkodzone pozycje w zapisie: raport uszkodzeń i kopia surowego '
       'zapisu', () async {

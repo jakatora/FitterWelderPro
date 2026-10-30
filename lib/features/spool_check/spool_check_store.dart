@@ -74,7 +74,7 @@ class SpoolCheckStore {
   /// Kopia PIERWSZEGO nieczytelnego zapisu (nigdy nienadpisywana).
   static const String corruptBackupKey = '${key}_corrupt';
 
-  /// Kopia późniejszego, innego nieczytelnego zapisu (ostatnia).
+  /// Kopia drugiego, innego nieczytelnego zapisu (nienadpisywana).
   static const String corruptLastBackupKey = '${key}_corrupt_last';
 
   /// Dostęp do SharedPreferences — wstrzykiwany w testach (np. pamięć,
@@ -131,14 +131,20 @@ class SpoolCheckStore {
     );
   }
 
-  /// Pierwsza kopia zostaje na zawsze; inny, późniejszy uszkodzony zapis
-  /// trafia do [corruptLastBackupKey]. `true` — ten tekst jest w kopii.
+  /// Obie kopie zostają nienadpisane. `true` — ten tekst jest w kopii.
   static Future<bool> _backup(SharedPreferences p, Object raw) async {
     final text = raw.toString();
     try {
       final first = p.get(corruptBackupKey);
-      if (first == text || p.get(corruptLastBackupKey) == text) return true;
-      final target = first == null ? corruptBackupKey : corruptLastBackupKey;
+      if (first == text) return true;
+      final last = p.get(corruptLastBackupKey);
+      if (last == text) return true;
+      final target = first == null
+          ? corruptBackupKey
+          : last == null
+              ? corruptLastBackupKey
+              : null;
+      if (target == null) return false;
       final ok = await p.setString(target, text);
       return ok && p.get(target) == text;
     } catch (_) {

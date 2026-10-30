@@ -11,22 +11,23 @@ import 'package:uuid/uuid.dart';
 import '../../domain/spool_check/spool_check.dart';
 import '../../domain/spool_check/spool_check_text.dart';
 import '../../i18n/app_language.dart';
+import '../../services/owned_prefs.dart';
 import '../../theme/app_theme.dart';
 import '../quotes/quote_widgets.dart' show QuoteNotice, QuoteSection;
 import 'spool_check_edit_page.dart';
 import 'spool_check_store.dart';
 import '../../widgets/local_record_scope.dart';
 
-class SpoolCheckPage extends StatefulWidget {
+class SpoolCheckPage extends StatelessWidget {
   const SpoolCheckPage({
     super.key,
-    this.store = const SpoolCheckStore(),
+    this.store,
     this.now = DateTime.now,
     this.newId,
     this.shareText = spoolCheckDefaultShareText,
   });
 
-  final SpoolCheckStore store;
+  final SpoolCheckStore? store;
   final DateTime Function() now;
 
   /// Identyfikator nowego protokołu / pozycji — wstrzykiwany w testach.
@@ -34,12 +35,41 @@ class SpoolCheckPage extends StatefulWidget {
   final SpoolCheckShareText shareText;
 
   @override
-  State<SpoolCheckPage> createState() => _SpoolCheckPageState();
+  Widget build(BuildContext context) => LocalRecordScope(
+        builder: (_, session) => _SpoolCheckBody(
+          session: session,
+          store: store ??
+              SpoolCheckStore(
+                  prefs: () => OwnedPrefs.instance(session.captureOwner)),
+          now: now,
+          newId: newId,
+          shareText: shareText,
+        ),
+      );
+}
+
+class _SpoolCheckBody extends StatefulWidget {
+  const _SpoolCheckBody({
+    required this.session,
+    required this.store,
+    required this.now,
+    required this.newId,
+    required this.shareText,
+  });
+
+  final LocalRecordSession session;
+  final SpoolCheckStore store;
+  final DateTime Function() now;
+  final String Function()? newId;
+  final SpoolCheckShareText shareText;
+
+  @override
+  State<_SpoolCheckBody> createState() => _SpoolCheckPageState();
 }
 
 enum _ItemAction { duplicate, delete }
 
-class _SpoolCheckPageState extends State<SpoolCheckPage> {
+class _SpoolCheckPageState extends State<_SpoolCheckBody> {
   List<SpoolCheck>? _items;
   bool _loadFailed = false;
 
@@ -55,7 +85,7 @@ class _SpoolCheckPageState extends State<SpoolCheckPage> {
   Future<void> _reload() async {
     try {
       final load = await widget.store.loadReport();
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       setState(() {
         _items = load.checks;
         _loadFailed = false;
@@ -63,7 +93,7 @@ class _SpoolCheckPageState extends State<SpoolCheckPage> {
       });
     } catch (e) {
       debugPrint('[spool_check] load failed: $e');
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       setState(() {
         _items = const [];
         _loadFailed = true;
@@ -92,7 +122,7 @@ class _SpoolCheckPageState extends State<SpoolCheckPage> {
   }
 
   void _showUnavailable() {
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
@@ -102,21 +132,25 @@ class _SpoolCheckPageState extends State<SpoolCheckPage> {
   }
 
   Future<void> _open(SpoolCheck check) async {
+    if (!widget.session.isCurrent) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => LocalRecordScope(
+          originSession: widget.session,
           restartOnAccountChange: false,
-          builder: (_, __) => SpoolCheckEditPage(
+          builder: (_, session) => SpoolCheckEditPage(
                 initial: check,
                 store: widget.store,
+                session: session,
                 now: widget.now,
                 shareText: widget.shareText,
                 newId: widget.newId,
               )),
     ));
-    await _reload();
+    if (mounted && widget.session.isCurrent) await _reload();
   }
 
   Future<void> _new() async {
+    if (!widget.session.isCurrent) return;
     if (_refuseWhenFull()) return;
     // Zapis uszkodzony bez kopii — formularz by się nie zapisał.
     if (_damage?.backupFailed ?? false) {
@@ -129,6 +163,7 @@ class _SpoolCheckPageState extends State<SpoolCheckPage> {
   /// Następny spool z serii: nagłówek, tolerancje i wymiary z rysunku
   /// zostają, pomiary — nie.
   Future<void> _duplicate(SpoolCheck source) async {
+    if (!widget.session.isCurrent) return;
     if (_refuseWhenFull()) return;
     final copy = source.duplicateFor(
         newId: _id(), now: widget.now(), itemId: (_) => _id());
@@ -140,10 +175,20 @@ class _SpoolCheckPageState extends State<SpoolCheckPage> {
       _showUnavailable();
       return;
     } catch (e) {
-      // Edycja i tak zapisuje się przy każdej zmianie — otwieramy kopię.
       debugPrint('[spool_check] duplicate save failed: $e');
+      if (mounted && widget.session.isCurrent) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          key: const ValueKey('sc-duplicate-failed'),
+          content: Text(context.tr(
+            pl: 'Nie udało się zapisać kopii. Protokół nie został otwarty.',
+            en: 'Could not save the copy. The record was not opened.',
+          )),
+        ));
+        await _reload();
+      }
+      return;
     }
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
@@ -158,37 +203,54 @@ class _SpoolCheckPageState extends State<SpoolCheckPage> {
   }
 
   Future<void> _delete(SpoolCheck check) async {
+    if (!widget.session.isCurrent) return;
     final en = context.language == AppLanguage.en;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title:
-            Text(context.tr(pl: 'Usunąć protokół?', en: 'Delete this record?')),
-        content: Text(spoolCheckTitle(check, en: en)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogCtx, false),
-            child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
-          ),
-          FilledButton(
-            key: const ValueKey('sc-delete-confirm'),
-            style: FilledButton.styleFrom(
-                backgroundColor: kFail, foregroundColor: Colors.white),
-            onPressed: () => Navigator.pop(dialogCtx, true),
-            child: Text(context.tr(pl: 'Usuń', en: 'Delete')),
-          ),
-        ],
-      ),
+      builder: (_) => LocalRecordScope(
+          originSession: widget.session,
+          restartOnAccountChange: false,
+          builder: (dialogCtx, __) => AlertDialog(
+                title: Text(context.tr(
+                    pl: 'Usunąć protokół?', en: 'Delete this record?')),
+                content: Text(spoolCheckTitle(check, en: en)),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogCtx, false),
+                    child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+                  ),
+                  FilledButton(
+                    key: const ValueKey('sc-delete-confirm'),
+                    style: FilledButton.styleFrom(
+                        backgroundColor: kFail, foregroundColor: Colors.white),
+                    onPressed: () => Navigator.pop(dialogCtx, true),
+                    child: Text(context.tr(pl: 'Usuń', en: 'Delete')),
+                  ),
+                ],
+              )),
     );
-    if (ok != true || !mounted) return;
+    if (ok != true || !mounted || !widget.session.isCurrent) return;
     try {
       await widget.store.delete(check.id);
     } on SpoolCheckStoreUnavailable {
       _showUnavailable();
       return;
+    } catch (e) {
+      debugPrint('[spool_check] delete failed: $e');
+      if (mounted && widget.session.isCurrent) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          key: const ValueKey('sc-delete-failed'),
+          content: Text(context.tr(
+            pl: 'Nie udało się usunąć protokołu — sprawdź historię.',
+            en: 'Could not delete the record — check the history.',
+          )),
+        ));
+        await _reload();
+      }
+      return;
     }
     await _reload();
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     // Cofnięcie idzie przez magazyn — działa także po zamknięciu ekranu
     // i przy pełnej historii (to odwołanie usunięcia, nie nowy wpis).
     final store = widget.store;
@@ -201,14 +263,15 @@ class _SpoolCheckPageState extends State<SpoolCheckPage> {
         action: SnackBarAction(
           label: context.tr(pl: 'Cofnij', en: 'Undo'),
           onPressed: () async {
+            if (!widget.session.isCurrent) return;
             try {
               await store.restore(check);
             } catch (e) {
               debugPrint('[spool_check] undo failed: $e');
-              if (mounted) _showUnavailable();
+              if (mounted && widget.session.isCurrent) _showUnavailable();
               return;
             }
-            if (mounted) await _reload();
+            if (mounted && widget.session.isCurrent) await _reload();
           },
         ),
       ));

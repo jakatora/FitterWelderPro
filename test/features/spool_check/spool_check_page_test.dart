@@ -166,6 +166,22 @@ class _NoBackupPrefs implements SharedPreferences {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class _FailingDuplicateStore extends SpoolCheckStore {
+  const _FailingDuplicateStore();
+
+  @override
+  Future<void> upsert(SpoolCheck check) async =>
+      throw StateError('simulated save failure');
+}
+
+class _FailingDeleteStore extends SpoolCheckStore {
+  const _FailingDeleteStore();
+
+  @override
+  Future<void> delete(String id) async =>
+      throw StateError('simulated delete failure');
+}
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
@@ -222,6 +238,30 @@ void main() {
     expect(copy.evaluate().overall, SpoolOverall.incomplete);
     // Oryginał nietknięty.
     expect(saved.firstWhere((c) => c.id == 'old').items.first.measuredMm, 1251);
+  });
+
+  testWidgets('błąd powielenia nie otwiera niezapisanego protokołu',
+      (tester) async {
+    _seed([_stored()]);
+    await _pump(tester, store: const _FailingDuplicateStore());
+    await _tapKey(tester, 'sc-dup-last');
+    expect(find.byKey(const ValueKey('sc-duplicate-failed')), findsOneWidget);
+    expect(find.text('Protokół spoola'), findsNothing);
+    expect((await const SpoolCheckStore().load()).map((c) => c.id), ['old']);
+  });
+
+  testWidgets('błąd usuwania zachowuje historię i pokazuje komunikat',
+      (tester) async {
+    _seed([_stored()]);
+    await _pump(tester, store: const _FailingDeleteStore());
+    await _tapKey(tester, 'sc-menu-0');
+    await tester.tap(find.byKey(const ValueKey('sc-menu-del')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sc-delete-confirm')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('sc-delete-failed')), findsOneWidget);
+    expect(find.text('HISTORIA (1)'), findsOneWidget);
+    expect((await const SpoolCheckStore().load()).map((c) => c.id), ['old']);
   });
 
   testWidgets(
