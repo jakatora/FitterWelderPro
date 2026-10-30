@@ -6,15 +6,15 @@
 ///
 /// Uszkodzony zapis (nieczytelny JSON, wartość innego typu, wpis pominięty
 /// przy odczycie) NIE ginie przy następnym zapisie: zanim [save] go
-/// nadpisze, surowa wartość trafia pod [corruptKey] — tylko raz, istniejąca
-/// kopia nie jest nadpisywana. Ta sama mechanika co `flange_check_store.dart`.
+/// nadpisze, surowa wartość trafia pod jeden z dwóch kluczy kopii. Istniejące
+/// kopie nie są nadpisywane.
 ///
 /// Nieudany ODCZYT (wyjątek platformy) to co innego niż uszkodzony zapis:
 /// wartość w pamięci może być zupełnie dobra, tylko ekran jej nie zna. Wtedy
 /// [BoltKitLoad.readFailed] i pierwszy [save] z `afterFailedRead: true`
 /// najpierw kopiuje surową wartość pod [corruptKey] (nawet nienaruszoną),
-/// a gdy kopia już jest i jest inna — odmawia zapisu ([BoltKitSaveBlocked]),
-/// zamiast nadpisać listę po cichu.
+/// a gdy obie kopie są zajęte — odmawia zapisu ([BoltKitSaveBlocked]), zamiast
+/// nadpisać listę po cichu.
 library;
 
 import 'dart:convert';
@@ -39,8 +39,7 @@ class BoltKitLoad {
       {this.damaged = false, this.readFailed = false});
 }
 
-/// Zapis wstrzymany: odczyt się nie udał, a miejsce na kopię jest zajęte
-/// inną wartością — nadpisanie skasowałoby listę bez kopii.
+/// Zapis wstrzymany: nie można potwierdzić kopii wcześniejszej listy.
 class BoltKitSaveBlocked implements Exception {
   const BoltKitSaveBlocked();
 
@@ -51,6 +50,7 @@ class BoltKitSaveBlocked implements Exception {
 class BoltKitStore {
   static const String key = 'bolt_kit_v1';
   static const String corruptKey = 'bolt_kit_v1_corrupt';
+  static const String secondCorruptKey = '${corruptKey}_2';
 
   const BoltKitStore({this.captureOwner});
 
@@ -59,8 +59,11 @@ class BoltKitStore {
   /// Surowa wartość spod [key] (punkt podmiany w teście: odczyt, który
   /// rzuca).
   @protected
-  Future<Object?> readRaw() async =>
-      (await OwnedPrefs.instance(captureOwner)).get(key);
+  Future<Object?> readRaw() async {
+    final prefs = await OwnedPrefs.instance(captureOwner);
+    await prefs.reload();
+    return prefs.get(key);
+  }
 
   /// Nigdy nie rzuca: brak, uszkodzony JSON albo błąd odczytu → pusty stan
   /// (z flagą `damaged`, gdy coś było, a nie dało się odczytać; przy
@@ -85,17 +88,25 @@ class BoltKitStore {
   /// biblioteki). Może rzucić [BoltKitSaveBlocked].
   Future<void> save(BoltKitState state, {bool afterFailedRead = false}) async {
     final prefs = await OwnedPrefs.instance(captureOwner);
+    await prefs.reload();
     if (afterFailedRead) {
       await _backupUnread(prefs);
     } else {
       await _backupIfDamaged(prefs);
     }
-    await prefs.setString(key, encodeBoltKit(state));
+    final encoded = encodeBoltKit(state);
+    if (!await prefs.setString(key, encoded)) {
+      throw StateError('Could not save bolt kit');
+    }
+    await prefs.reload();
+    if (prefs.get(key) != encoded) {
+      throw StateError('Could not verify bolt kit write');
+    }
   }
 
   /// Kopia wartości, której ekran nie odczytał. Pusta lista albo brak
-  /// zapisu — nie ma czego chronić. Kopia już jest: ta sama wartość — OK,
-  /// inna — [BoltKitSaveBlocked].
+  /// zapisu — nie ma czego chronić. Kopia tej samej wartości — OK;
+  /// obie kopie zajęte innymi wartościami — [BoltKitSaveBlocked].
   static Future<void> _backupUnread(SharedPreferences prefs) async {
     final raw = prefs.get(key);
     if (raw == null) return;
@@ -103,23 +114,39 @@ class BoltKitStore {
       final d = decodeBoltKitReport(raw);
       if (d.intact && d.state.joints.isEmpty) return;
     }
-    final copy = raw is String ? raw : _describe(raw);
-    final existing = prefs.get(corruptKey);
-    if (existing == null) {
-      await prefs.setString(corruptKey, copy);
-      return;
-    }
-    if (existing != copy) throw const BoltKitSaveBlocked();
+    await _backupRaw(prefs, raw is String ? raw : _describe(raw));
   }
 
   /// Kopia surowej wartości spod [key], jeśli nie jest nienaruszonym
-  /// zapisem tego modułu i kopii jeszcze nie ma.
+  /// zapisem tego modułu.
   static Future<void> _backupIfDamaged(SharedPreferences prefs) async {
     final raw = prefs.get(key);
     if (raw == null) return;
     if (raw is String && decodeBoltKitReport(raw).intact) return;
-    if (prefs.containsKey(corruptKey)) return;
-    await prefs.setString(corruptKey, raw is String ? raw : _describe(raw));
+    await _backupRaw(prefs, raw is String ? raw : _describe(raw));
+  }
+
+  /// Nie nadpisuj wcześniejszych kopii. Wynik `setString` i cache nie
+  /// wystarczają: sprawdź kopię po ponownym odczycie z platformy.
+  static Future<void> _backupRaw(SharedPreferences prefs, String copy) async {
+    String? free;
+    for (final backupKey in [corruptKey, secondCorruptKey]) {
+      final existing = prefs.get(backupKey);
+      if (existing == copy) return;
+      if (existing == null && free == null) free = backupKey;
+    }
+    if (free == null) throw const BoltKitSaveBlocked();
+    try {
+      if (!await prefs.setString(free, copy)) {
+        throw const BoltKitSaveBlocked();
+      }
+      await prefs.reload();
+      if (prefs.get(free) != copy) throw const BoltKitSaveBlocked();
+    } on BoltKitSaveBlocked {
+      rethrow;
+    } catch (_) {
+      throw const BoltKitSaveBlocked();
+    }
   }
 
   static String _describe(Object raw) {

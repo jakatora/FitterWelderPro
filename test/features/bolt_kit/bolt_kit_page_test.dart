@@ -375,19 +375,34 @@ void main() {
         2);
   });
 
-  testWidgets('błąd odczytu i zajęta kopia — zapis wstrzymany z komunikatem',
+  testWidgets('błąd odczytu i dwie zajęte kopie — zapis wstrzymany',
       (tester) async {
     final original = _saved([_a]);
     await _pump(tester,
         prefs: {
           BoltKitStore.key: original,
           BoltKitStore.corruptKey: 'starsza kopia',
+          '${BoltKitStore.corruptKey}_2': 'druga kopia',
         },
         store: _FlakyStore());
     await _tap(tester, 'bk-add');
     expect(find.textContaining('zapis wstrzymany'), findsOneWidget);
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(BoltKitStore.key), original);
+    await _drainSnackBars(tester);
+  });
+
+  testWidgets('uszkodzona lista i dwie zajęte kopie — zapis wstrzymany',
+      (tester) async {
+    await _pump(tester, prefs: {
+      BoltKitStore.key: 'trzecie uszkodzenie',
+      BoltKitStore.corruptKey: 'pierwsza kopia',
+      '${BoltKitStore.corruptKey}_2': 'druga kopia',
+    });
+    await _tap(tester, 'bk-add');
+    expect(find.textContaining('zapis wstrzymany'), findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(BoltKitStore.key), 'trzecie uszkodzenie');
     await _drainSnackBars(tester);
   });
 

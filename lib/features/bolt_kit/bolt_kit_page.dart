@@ -210,12 +210,10 @@ class _BoltKitPageState extends State<_BoltKitBody>
       } on BoltKitSaveBlocked {
         if (mounted && widget.session.isCurrent) {
           _snack(context.tr(
-              pl: 'Nie udało się odczytać zapisanej listy, a miejsce na jej '
-                  'kopię jest zajęte — zapis wstrzymany, żeby jej nie '
-                  'nadpisać. Otwórz moduł ponownie.',
-              en: 'The saved list could not be read and the backup slot is '
-                  'taken — saving is paused so it is not overwritten. Open '
-                  'the module again.'));
+              pl: 'Nie udało się zachować kopii wcześniejszej listy — zapis '
+                  'wstrzymany, żeby nie utracić danych. Otwórz moduł ponownie.',
+              en: 'Could not preserve a copy of the previous list — saving '
+                  'is paused to protect your data. Open the module again.'));
         }
       } catch (_) {
         if (mounted && widget.session.isCurrent) {

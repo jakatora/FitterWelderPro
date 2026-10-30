@@ -1,8 +1,8 @@
-// Zapis listy połączeń: klucz z wersją, kopia uszkodzonego zapisu przed
-// nadpisaniem (tylko raz).
+// Zapis listy połączeń: klucz z wersją, nienadpisywane kopie uszkodzeń.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import 'package:cut_list_app/domain/bolting/bolt_kit.dart';
 import 'package:cut_list_app/features/bolt_kit/bolt_kit_store.dart';
@@ -18,6 +18,20 @@ class _FlakyStore extends BoltKitStore {
   Future<Object?> readRaw() async {
     if (reads++ == 0) throw StateError('kanał platformy niedostępny');
     return super.readRaw();
+  }
+}
+
+class _ControlledPreferences extends InMemorySharedPreferencesStore {
+  _ControlledPreferences() : super.empty();
+
+  String? refusedKey;
+  String? unpersistedKey;
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    if (key == refusedKey) return false;
+    if (key == unpersistedKey) return true;
+    return super.setValue(valueType, key, value);
   }
 }
 
@@ -43,8 +57,7 @@ void main() {
     expect(prefs.containsKey(BoltKitStore.corruptKey), isFalse);
   });
 
-  test('uszkodzony zapis: komunikat, kopia przed nadpisaniem — tylko raz',
-      () async {
+  test('uszkodzony zapis: drugi surowy zapis dostaje osobną kopię', () async {
     SharedPreferences.setMockInitialValues(
         {BoltKitStore.key: '{"v":1,"joints":[{'});
     const store = BoltKitStore();
@@ -61,6 +74,77 @@ void main() {
     await prefs.setString(BoltKitStore.key, 'zepsute');
     await store.save(const BoltKitState());
     expect(prefs.getString(BoltKitStore.corruptKey), '{"v":1,"joints":[{');
+    expect(prefs.getString('${BoltKitStore.corruptKey}_2'), 'zepsute');
+  });
+
+  test('dwie pełne kopie blokują nadpisanie trzeciego uszkodzenia', () async {
+    SharedPreferences.setMockInitialValues({
+      BoltKitStore.key: 'trzecie uszkodzenie',
+      BoltKitStore.corruptKey: 'pierwsze',
+      '${BoltKitStore.corruptKey}_2': 'drugie',
+    });
+    await expectLater(const BoltKitStore().save(const BoltKitState()),
+        throwsA(isA<BoltKitSaveBlocked>()));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(BoltKitStore.key), 'trzecie uszkodzenie');
+    expect(prefs.getString(BoltKitStore.corruptKey), 'pierwsze');
+    expect(prefs.getString('${BoltKitStore.corruptKey}_2'), 'drugie');
+  });
+
+  test('odmowa kopii po odczycie nie pozwala nadpisać listy', () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = _ControlledPreferences();
+    SharedPreferencesStorePlatform.instance = disk;
+    await disk.setValue('String', 'flutter.${BoltKitStore.key}', 'zepsute');
+    disk.refusedKey = 'flutter.${BoltKitStore.corruptKey}';
+    const store = BoltKitStore();
+    expect((await store.load()).damaged, isTrue);
+    await expectLater(
+        store.save(const BoltKitState()), throwsA(isA<BoltKitSaveBlocked>()));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(prefs.getString(BoltKitStore.key), 'zepsute');
+    expect(prefs.containsKey(BoltKitStore.corruptKey), isFalse);
+  });
+
+  test('kopia przyjęta tylko do cache nie pozwala nadpisać listy', () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = _ControlledPreferences();
+    SharedPreferencesStorePlatform.instance = disk;
+    await disk.setValue('String', 'flutter.${BoltKitStore.key}', 'zepsute');
+    disk.unpersistedKey = 'flutter.${BoltKitStore.corruptKey}';
+    await expectLater(const BoltKitStore().save(const BoltKitState()),
+        throwsA(isA<BoltKitSaveBlocked>()));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(prefs.getString(BoltKitStore.key), 'zepsute');
+  });
+
+  test('odmowa głównego zapisu nie pokazuje nowej listy po odczycie', () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = _ControlledPreferences();
+    SharedPreferencesStorePlatform.instance = disk;
+    final original = encodeBoltKit(const BoltKitState(joints: [_joint]));
+    await disk.setValue('String', 'flutter.${BoltKitStore.key}', original);
+    disk.refusedKey = 'flutter.${BoltKitStore.key}';
+    const store = BoltKitStore();
+    await expectLater(
+        store.save(const BoltKitState()), throwsA(isA<StateError>()));
+    expect((await store.load()).state.joints.single.id, 'a');
+  });
+
+  test('pozorny sukces głównego zapisu jest wykrywany po przeładowaniu',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = _ControlledPreferences();
+    SharedPreferencesStorePlatform.instance = disk;
+    final original = encodeBoltKit(const BoltKitState(joints: [_joint]));
+    await disk.setValue('String', 'flutter.${BoltKitStore.key}', original);
+    disk.unpersistedKey = 'flutter.${BoltKitStore.key}';
+    const store = BoltKitStore();
+    await expectLater(
+        store.save(const BoltKitState()), throwsA(isA<StateError>()));
+    expect((await store.load()).state.joints.single.id, 'a');
   });
 
   test('wartość innego typu → uszkodzony, kopia jako tekst', () async {
@@ -111,12 +195,12 @@ void main() {
       expect(prefs.getString(BoltKitStore.corruptKey), original);
     });
 
-    test('kopia zajęta inną wartością → zapis wstrzymany, lista nienadpisana',
-        () async {
+    test('dwie kopie zajęte → zapis wstrzymany, lista nienadpisana', () async {
       final original = encodeBoltKit(const BoltKitState(joints: [_joint]));
       SharedPreferences.setMockInitialValues({
         BoltKitStore.key: original,
         BoltKitStore.corruptKey: 'starsza kopia',
+        '${BoltKitStore.corruptKey}_2': 'druga kopia',
       });
       const store = BoltKitStore();
       await expectLater(
@@ -126,6 +210,28 @@ void main() {
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString(BoltKitStore.key), original);
       expect(prefs.getString(BoltKitStore.corruptKey), 'starsza kopia');
+      expect(prefs.getString('${BoltKitStore.corruptKey}_2'), 'druga kopia');
+    });
+
+    test('zajęta pierwsza kopia pozwala zachować nieodczytaną listę w drugiej',
+        () async {
+      final original = encodeBoltKit(const BoltKitState(joints: [_joint]));
+      SharedPreferences.setMockInitialValues({
+        BoltKitStore.key: original,
+        BoltKitStore.corruptKey: 'starsza kopia',
+      });
+      await const BoltKitStore()
+          .save(const BoltKitState(joints: [other]), afterFailedRead: true);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(BoltKitStore.corruptKey), 'starsza kopia');
+      expect(prefs.getString('${BoltKitStore.corruptKey}_2'), original);
+      expect(
+          decodeBoltKitReport(prefs.getString(BoltKitStore.key))
+              .state
+              .joints
+              .single
+              .id,
+          'b');
     });
 
     test('kopia równa tej wartości → zapis przechodzi', () async {
