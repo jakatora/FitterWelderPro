@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
@@ -23,6 +25,30 @@ class _ControlledPreferences extends InMemorySharedPreferencesStore {
   Future<bool> remove(String key) async {
     if (key == unpersistedRemoveKey) return true;
     return super.remove(key);
+  }
+}
+
+class _DelayedFirstHistoryWrite extends InMemorySharedPreferencesStore {
+  _DelayedFirstHistoryWrite() : super.empty();
+
+  final firstEntered = Completer<void>();
+  final releaseFirst = Completer<void>();
+  final secondEntered = Completer<void>();
+  var writes = 0;
+  var armed = true;
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    if (armed && key == 'flutter.${WeatherCheckStore.historyKey}') {
+      writes++;
+      if (writes == 1) {
+        firstEntered.complete();
+        await releaseFirst.future;
+      } else if (writes == 2) {
+        secondEntered.complete();
+      }
+    }
+    return super.setValue(valueType, key, value);
   }
 }
 
@@ -152,5 +178,69 @@ void main() {
     await expectLater(store.saveThresholds(WeatherThresholds.defaults),
         throwsA(isA<StateError>()));
     expect((await store.loadThresholds()).maxWindGasMs, 1.5);
+  });
+
+  test('opóźniony pierwszy pomiar nie usuwa drugiego z historii', () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = _DelayedFirstHistoryWrite();
+    SharedPreferencesStorePlatform.instance = disk;
+
+    final first = store.add(_record('pierwszy'));
+    await disk.firstEntered.future;
+    final second = store.add(_record('drugi'));
+    await Future.any<void>([
+      disk.secondEntered.future,
+      Future<void>.delayed(const Duration(milliseconds: 300)),
+    ]);
+    disk.releaseFirst.complete();
+    await Future.wait([first, second]);
+
+    expect((await store.loadHistory()).map((r) => r.id).toSet(),
+        {'pierwszy', 'drugi'});
+  });
+
+  test('dodanie po opóźnionym usunięciu nie gubi nowego pomiaru', () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = _DelayedFirstHistoryWrite()..armed = false;
+    SharedPreferencesStorePlatform.instance = disk;
+    await disk.setValue('String', 'flutter.${WeatherCheckStore.historyKey}',
+        encodeWeatherHistory([_record('stary')]));
+    disk.armed = true;
+
+    final deletion = store.remove('stary');
+    await disk.firstEntered.future;
+    final addition = store.add(_record('nowy'));
+    await Future.any<void>([
+      disk.secondEntered.future,
+      Future<void>.delayed(const Duration(milliseconds: 300)),
+    ]);
+    disk.releaseFirst.complete();
+    await Future.wait([deletion, addition]);
+
+    expect((await store.loadHistory()).map((r) => r.id).toList(), ['nowy']);
+  });
+
+  test('błąd środkowej operacji nie omija wcześniejszego zapisu', () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = _DelayedFirstHistoryWrite();
+    SharedPreferencesStorePlatform.instance = disk;
+
+    final first = store.add(_record('pierwszy'));
+    await disk.firstEntered.future;
+    final rejected = WeatherCheckStore(
+            captureOwner: () async => throw StateError('brak sesji'))
+        .add(_record('odrzucony'));
+    final rejectedCheck = expectLater(rejected, throwsA(isA<StateError>()));
+    final third = store.add(_record('trzeci'));
+    await Future.any<void>([
+      disk.secondEntered.future,
+      Future<void>.delayed(const Duration(milliseconds: 300)),
+    ]);
+    disk.releaseFirst.complete();
+    await Future.wait([first, third]);
+    await rejectedCheck;
+
+    expect((await store.loadHistory()).map((r) => r.id).toSet(),
+        {'pierwszy', 'trzeci'});
   });
 }

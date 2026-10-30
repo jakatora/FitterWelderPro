@@ -32,10 +32,51 @@ class WeatherCheckStore {
 
   final Future<LocalRecordOwner> Function()? captureOwner;
 
-  Future<WeatherHistoryDecode> loadHistoryDetailed() async {
-    final prefs = await OwnedPrefs.instance(captureOwner);
+  static Future<void>? _historyTail;
+  static int _historyInFlight = 0;
+
+  /// Odczyt i zapis jednej zmiany historii muszą pozostać razem. Właściciel
+  /// jest uchwycony przed oczekiwaniem, aby kolejka nie przeszła na inne konto.
+  Future<T> _mutateHistory<T>(
+      Future<T> Function(LocalRecordOwner owner) operation) {
+    final ownerFuture = (captureOwner ?? LocalRecordOwner.capture)();
+    final previous = _historyInFlight > 0 ? _historyTail : null;
+    _historyInFlight++;
+    final result = _runHistoryMutation(ownerFuture, previous, operation);
+    _historyTail = result
+        .then<void>((_) {}, onError: (Object _) {})
+        .whenComplete(() => _historyInFlight--);
+    return result;
+  }
+
+  static Future<T> _runHistoryMutation<T>(
+      Future<LocalRecordOwner> ownerFuture,
+      Future<void>? previous,
+      Future<T> Function(LocalRecordOwner owner) operation) async {
+    final LocalRecordOwner owner;
+    if (previous == null) {
+      owner = await ownerFuture;
+    } else {
+      // Czekaj na oba Future nawet gdy uchwycenie konta się nie uda.
+      // Odrzucona środkowa operacja nie może przepuścić następnej przed
+      // zakończeniem wcześniejszego zapisu.
+      final ready = await Future.wait<Object?>([previous, ownerFuture]);
+      owner = ready[1]! as LocalRecordOwner;
+    }
+    owner.requireCurrent();
+    return operation(owner);
+  }
+
+  static Future<WeatherHistoryDecode> _loadHistoryFor(
+      LocalRecordOwner owner) async {
+    final prefs = await OwnedPrefs.instance(() async => owner);
     await prefs.reload();
     return decodeWeatherHistoryDetailed(prefs.get(historyKey));
+  }
+
+  Future<WeatherHistoryDecode> loadHistoryDetailed() async {
+    final owner = await (captureOwner ?? LocalRecordOwner.capture)();
+    return _loadHistoryFor(owner);
   }
 
   Future<List<WeatherCheckRecord>> loadHistory() async =>
@@ -64,8 +105,14 @@ class WeatherCheckStore {
 
   /// Zapisuje historię (najnowsze pierwsze, najwyżej [maxRecords]).
   /// Zwraca liczbę usuniętych najstarszych wpisów.
-  Future<int> saveHistory(List<WeatherCheckRecord> records) async {
-    final prefs = await OwnedPrefs.instance(captureOwner);
+  Future<int> saveHistory(List<WeatherCheckRecord> records) {
+    final snapshot = List<WeatherCheckRecord>.of(records);
+    return _mutateHistory((owner) => _saveHistoryFor(snapshot, owner));
+  }
+
+  static Future<int> _saveHistoryFor(
+      List<WeatherCheckRecord> records, LocalRecordOwner owner) async {
+    final prefs = await OwnedPrefs.instance(() async => owner);
     await prefs.reload();
     await _backupIfDamaged(prefs);
     final sorted = [...records]..sort((a, b) => b.takenAt.compareTo(a.takenAt));
@@ -84,18 +131,25 @@ class WeatherCheckStore {
   /// Dopisuje [record] na początek historii. `dropped` — ile najstarszych
   /// wpisów usunięto przez limit.
   Future<({List<WeatherCheckRecord> records, int dropped})> add(
-      WeatherCheckRecord record) async {
-    final list = [record, ...(await loadHistoryDetailed()).records];
-    final dropped = await saveHistory(list);
-    return (records: await loadHistory(), dropped: dropped);
-  }
+          WeatherCheckRecord record) =>
+      _mutateHistory((owner) async {
+        final list = [record, ...(await _loadHistoryFor(owner)).records];
+        final dropped = await _saveHistoryFor(list, owner);
+        return (
+          records: (await _loadHistoryFor(owner)).records,
+          dropped: dropped
+        );
+      });
 
-  Future<List<WeatherCheckRecord>> remove(String id) async {
-    final list =
-        (await loadHistoryDetailed()).records.where((r) => r.id != id).toList();
-    await saveHistory(list);
-    return list;
-  }
+  Future<List<WeatherCheckRecord>> remove(String id) =>
+      _mutateHistory((owner) async {
+        final list = (await _loadHistoryFor(owner))
+            .records
+            .where((r) => r.id != id)
+            .toList();
+        await _saveHistoryFor(list, owner);
+        return (await _loadHistoryFor(owner)).records;
+      });
 
   Future<({WeatherThresholds thresholds, bool repaired})>
       loadThresholdsDetailed() async {
