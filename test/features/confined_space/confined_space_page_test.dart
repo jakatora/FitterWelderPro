@@ -29,6 +29,22 @@ class _Spy {
   Future<void> pdf(ConfinedSpaceRecord r, bool en) async => pdfs.add((r, en));
 }
 
+class _FailingUpsertStore extends ConfinedSpaceStore {
+  const _FailingUpsertStore({super.clock});
+
+  @override
+  Future<void> upsert(ConfinedSpaceRecord record) async =>
+      throw StateError('storage unavailable');
+}
+
+class _FailingDeleteStore extends ConfinedSpaceStore {
+  const _FailingDeleteStore({super.clock});
+
+  @override
+  Future<void> delete(String id) async =>
+      throw StateError('storage unavailable');
+}
+
 Future<_Spy> _pump(
   WidgetTester tester, {
   AppLanguage language = AppLanguage.pl,
@@ -36,6 +52,7 @@ Future<_Spy> _pump(
   double textScale = 1.0,
   DateTime Function()? now,
   TimeOfDay? Function()? pickTime,
+  ConfinedSpaceStore? store,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -52,12 +69,12 @@ Future<_Spy> _pump(
         child: child!,
       ),
       home: ConfinedSpacePage(
+        store: store,
         now: now ?? () => _now,
         newId: () => 'cs-${++n}',
         shareText: spy.text,
         sharePdf: spy.pdf,
-        pickTime: (_, initial) async =>
-            pickTime == null ? initial : pickTime(),
+        pickTime: (_, initial) async => pickTime == null ? initial : pickTime(),
       ),
     ),
   ));
@@ -192,8 +209,8 @@ void main() {
   testWidgets('nowy protokół: odhaczenie → pomiar → werdykt, zapis i historia',
       (tester) async {
     await _pump(tester);
-    expect(find.text('Przestrzeń zamknięta: wejście i spawanie'),
-        findsOneWidget);
+    expect(
+        find.text('Przestrzeń zamknięta: wejście i spawanie'), findsOneWidget);
     expect(find.byKey(const ValueKey('cs-empty')), findsOneWidget);
 
     await _tapKey(tester, 'cs-new');
@@ -241,7 +258,8 @@ void main() {
       if (c.id == 'perm-written' || c.id == 'clean-sewer') continue;
       await _tapKey(tester, 'cs-check-${c.id}');
     }
-    expect(await _status(tester),
+    expect(
+        await _status(tester),
         'Przygotowane, atmosfera w progach — wejście wg pozwolenia; mierz '
         'dalej w trakcie.');
     await _back(tester);
@@ -258,8 +276,8 @@ void main() {
     expect(saved.na, {'clean-sewer'});
     expect(saved.measurements.single.time, '07:30');
     expect(saved.measurements.single.place, 'dno');
-    expect(saved.measurements.single[CsGas.o2],
-        const CsQty(20.9, CsUnit.pctVol));
+    expect(
+        saved.measurements.single[CsGas.o2], const CsQty(20.9, CsUnit.pctVol));
     expect(saved.limits.isDefault, isTrue);
   });
 
@@ -279,15 +297,18 @@ void main() {
     expect(await _status(tester), startsWith('Przygotowane'));
   });
 
-  testWidgets('tlen za mało i za dużo — STOP; pomiar po przewietrzeniu zdejmuje',
+  testWidgets(
+      'tlen za mało i za dużo — STOP; pomiar po przewietrzeniu zdejmuje',
       (tester) async {
     var clock = DateTime(2026, 10, 17, 10, 0);
     await _pump(tester, now: () => clock);
     await _tapKey(tester, 'cs-new');
     await _tickAllBefore(tester);
     await _fullReading(tester, o2: '18');
-    expect(await _status(tester),
-        startsWith('STOP — tlen 18 % o 10:00 — poniżej 19,5 %, niedotlenienie'));
+    expect(
+        await _status(tester),
+        startsWith(
+            'STOP — tlen 18 % o 10:00 — poniżej 19,5 %, niedotlenienie'));
     expect(find.byIcon(Icons.dangerous_outlined), findsOneWidget);
     expect(await _row(tester, 0), contains('O₂ 18 % (ZA MAŁO)'));
 
@@ -302,8 +323,8 @@ void main() {
 
     // Odczyt spoza skali — przycisk nieaktywny.
     await _enter(tester, 'cs-meas-o2', '150');
-    final add = tester.widget<ButtonStyleButton>(
-        find.byKey(const ValueKey('cs-meas-add')));
+    final add = tester
+        .widget<ButtonStyleButton>(find.byKey(const ValueKey('cs-meas-add')));
     expect(add.onPressed, isNull);
     expect(find.text('Wpisz liczbę 0–100'), findsOneWidget);
   });
@@ -330,8 +351,7 @@ void main() {
     expect(find.byKey(const ValueKey('cs-meas-tie')), findsOneWidget);
     expect(await _status(tester), startsWith('STOP — tlen 18 %'));
     await _show(tester, 'cs-tie-o2');
-    expect(
-        find.textContaining('O₂: różne odczyty z tej samej minuty (10:30)'),
+    expect(find.textContaining('O₂: różne odczyty z tej samej minuty (10:30)'),
         findsWidgets);
   });
 
@@ -341,8 +361,8 @@ void main() {
     await _tapKey(tester, 'cs-new');
     await _enter(tester, 'cs-f-location', 'Studzienka K-3');
     await _enter(tester, 'cs-limit-lelMax', '5');
-    expect(await _textOf(tester, 'cs-gas-value-lel'),
-        'brak odczytu — wymagany');
+    expect(
+        await _textOf(tester, 'cs-gas-value-lel'), 'brak odczytu — wymagany');
     expect((await _load()).records.single.limits[CsBound.lelMax],
         const CsQty(5, CsUnit.pctLel));
 
@@ -363,10 +383,12 @@ void main() {
     await _enter(tester, 'cs-limit-lelMax', '');
     expect((await _load()).records.single.limits[CsBound.lelMax], isNull);
     await _fullReading(tester);
-    expect(await _status(tester), startsWith('Wpisz próg z pozwolenia dla: DGW'));
+    expect(
+        await _status(tester), startsWith('Wpisz próg z pozwolenia dla: DGW'));
     // Pusty próg nie łagodzi: 50 % DGW to STOP wg granicy 10 % DGW.
     await _reading(tester, lel: '50');
-    expect(await _status(tester),
+    expect(
+        await _status(tester),
         startsWith('STOP — Gazy palne 50 % DGW o 07:30 — powyżej progu 10 % '
             'DGW (granica twarda'));
   });
@@ -445,7 +467,11 @@ void main() {
     final json = _yesterday().toJson();
     json['measurements'] = [
       ...(json['measurements'] as List),
-      {'time': '07:10', 'at': 'wczoraj', 'o2': {'v': 20.9, 'u': 'pctVol'}},
+      {
+        'time': '07:10',
+        'at': 'wczoraj',
+        'o2': {'v': 20.9, 'u': 'pctVol'}
+      },
     ];
     final raw = jsonEncode([json]);
     SharedPreferences.setMockInitialValues({ConfinedSpaceStore.key: raw});
@@ -498,6 +524,36 @@ void main() {
 
     await _tapKey(tester, 'cs-open-1');
     expect(find.byKey(const ValueKey('cs-old-notice')), findsOneWidget);
+  });
+
+  testWidgets('nieudany zapis kopii nie otwiera niezapisanego protokołu',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      ConfinedSpaceStore.key:
+          jsonEncode(confinedSpaceRecordsToJson([_yesterday()])),
+    });
+    await _pump(tester, store: _FailingUpsertStore(clock: () => _now));
+    await _tapKey(tester, 'cs-dup-last');
+    expect(find.byKey(const ValueKey('cs-edit-list')), findsNothing);
+    expect(find.byKey(const ValueKey('cs-duplicate-failed')), findsOneWidget);
+    expect((await _load()).records.map((r) => r.id), ['old']);
+  });
+
+  testWidgets('błąd usunięcia zostawia protokół i pokazuje komunikat',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      ConfinedSpaceStore.key:
+          jsonEncode(confinedSpaceRecordsToJson([_yesterday()])),
+    });
+    await _pump(tester, store: _FailingDeleteStore(clock: () => _now));
+    await _tapKey(tester, 'cs-menu-0');
+    await tester.tap(find.byKey(const ValueKey('cs-menu-del')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cs-delete-confirm')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('cs-delete-failed')), findsOneWidget);
+    expect((await _load()).records.map((r) => r.id), ['old']);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('menu pozycji: duplikat i usunięcie z cofnięciem',
@@ -688,7 +744,8 @@ void main() {
     expect(await _row(tester, 1), startsWith('2026-10-18 07:00'));
   });
 
-  testWidgets('ręczna godzina: z przyszłości odrzucona; STOP wpisany później '
+  testWidgets(
+      'ręczna godzina: z przyszłości odrzucona; STOP wpisany później '
       'blokuje zieleń', (tester) async {
     var clock = DateTime(2026, 10, 17, 14, 0);
     TimeOfDay? picked;
@@ -744,7 +801,8 @@ void main() {
         DateTime(2026, 10, 17, 23, 50).millisecondsSinceEpoch);
   });
 
-  testWidgets('historia: ostrzeżenie od 180 protokołów, przy 200 nowy odrzucony',
+  testWidgets(
+      'historia: ostrzeżenie od 180 protokołów, przy 200 nowy odrzucony',
       (tester) async {
     List<ConfinedSpaceRecord> many(int n) => [
           for (var i = 0; i < n; i++)
@@ -752,16 +810,16 @@ void main() {
                 {..._yesterday().toJson(), 'id': 'p$i'})!,
         ];
     SharedPreferences.setMockInitialValues({
-      ConfinedSpaceStore.key: jsonEncode(confinedSpaceRecordsToJson(
-          many(ConfinedSpaceStore.warnAt))),
+      ConfinedSpaceStore.key: jsonEncode(
+          confinedSpaceRecordsToJson(many(ConfinedSpaceStore.warnAt))),
     });
     await _pump(tester);
     await _show(tester, 'cs-store-warn');
     expect(find.textContaining('Historia: 180/200'), findsOneWidget);
 
     SharedPreferences.setMockInitialValues({
-      ConfinedSpaceStore.key: jsonEncode(confinedSpaceRecordsToJson(
-          many(ConfinedSpaceStore.maxEntries))),
+      ConfinedSpaceStore.key: jsonEncode(
+          confinedSpaceRecordsToJson(many(ConfinedSpaceStore.maxEntries))),
     });
     await tester.pumpWidget(const SizedBox());
     await _pump(tester);
@@ -820,7 +878,45 @@ void main() {
     expect((await store.load()).damaged, isFalse);
   });
 
-  test('pełna historia: zmiana zapisanego działa, nowy odrzucony, nic nie '
+  test('dwie zajęte kopie blokują nadpisanie trzeciego uszkodzenia', () async {
+    SharedPreferences.setMockInitialValues({
+      ConfinedSpaceStore.key: 'trzecie uszkodzenie',
+      ConfinedSpaceStore.corruptBackupKey: 'pierwsze uszkodzenie',
+      ConfinedSpaceStore.corruptLastBackupKey: 'drugie uszkodzenie',
+    });
+    const store = ConfinedSpaceStore();
+    await expectLater(store.upsert(_yesterday()), throwsA(isA<StateError>()));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(ConfinedSpaceStore.key), 'trzecie uszkodzenie');
+    expect(prefs.getString(ConfinedSpaceStore.corruptBackupKey),
+        'pierwsze uszkodzenie');
+    expect(prefs.getString(ConfinedSpaceStore.corruptLastBackupKey),
+        'drugie uszkodzenie');
+  });
+
+  testWidgets('zajęte kopie: ekran zgłasza brak zapisu i zachowuje historię',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      ConfinedSpaceStore.key: 'trzecie uszkodzenie',
+      ConfinedSpaceStore.corruptBackupKey: 'pierwsze uszkodzenie',
+      ConfinedSpaceStore.corruptLastBackupKey: 'drugie uszkodzenie',
+    });
+    await _pump(tester);
+    expect(find.textContaining('nie udało się utworzyć jego kopii'),
+        findsOneWidget);
+    await _tapKey(tester, 'cs-new');
+    await _enter(tester, 'cs-f-location', 'Nowa przestrzeń');
+    expect(find.byKey(const ValueKey('cs-save-failed')), findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(ConfinedSpaceStore.key), 'trzecie uszkodzenie');
+    expect(prefs.getString(ConfinedSpaceStore.corruptBackupKey),
+        'pierwsze uszkodzenie');
+    expect(prefs.getString(ConfinedSpaceStore.corruptLastBackupKey),
+        'drugie uszkodzenie');
+  });
+
+  test(
+      'pełna historia: zmiana zapisanego działa, nowy odrzucony, nic nie '
       'wypada', () async {
     SharedPreferences.setMockInitialValues({
       ConfinedSpaceStore.key: jsonEncode(confinedSpaceRecordsToJson([
@@ -832,8 +928,9 @@ void main() {
     const store = ConfinedSpaceStore();
     final first = (await store.load()).records.first;
     await store.upsert(first.copyWith(notes: 'zmiana'));
-    expect((await store.load()).records.firstWhere((r) => r.id == first.id)
-        .notes, 'zmiana');
+    expect(
+        (await store.load()).records.firstWhere((r) => r.id == first.id).notes,
+        'zmiana');
     await expectLater(
         store.upsert(ConfinedSpaceRecord.fromJson(
             {..._yesterday().toJson(), 'id': 'nowy'})!),
@@ -847,8 +944,7 @@ void main() {
     ('2019-12-31', DateTime(2020)),
     ('2101-01-01', DateTime(2100)),
   ]) {
-    testWidgets('kalendarz otwiera zapis z datą $date',
-        (tester) async {
+    testWidgets('kalendarz otwiera zapis z datą $date', (tester) async {
       SharedPreferences.setMockInitialValues({
         ConfinedSpaceStore.key: jsonEncode(
             confinedSpaceRecordsToJson([_yesterday().copyWith(date: date)])),
@@ -857,9 +953,11 @@ void main() {
       await _tapKey(tester, 'cs-open-0');
       await _tapKey(tester, 'cs-date');
       expect(tester.takeException(), isNull);
-      final picker = tester.widget<DatePickerDialog>(find.byType(DatePickerDialog));
+      final picker =
+          tester.widget<DatePickerDialog>(find.byType(DatePickerDialog));
       expect(picker.initialDate, expected);
-      expect((await const ConfinedSpaceStore().load()).records.single.date, date);
+      expect(
+          (await const ConfinedSpaceStore().load()).records.single.date, date);
     });
   }
 }

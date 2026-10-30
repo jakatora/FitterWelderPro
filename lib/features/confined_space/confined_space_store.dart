@@ -17,6 +17,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../database/local_record_owner.dart';
 import '../../services/owned_prefs.dart';
 
 import '../../domain/confined_space/confined_space_record.dart';
@@ -27,6 +28,8 @@ class ConfinedSpaceLoad {
 
   /// Zapis był nieczytelny w całości (historia pusta).
   final bool unreadable;
+  final bool readFailed;
+  final bool backupFailed;
 
   /// Ile protokołów i pomiarów pominięto jako uszkodzone.
   final int droppedRecords;
@@ -35,11 +38,13 @@ class ConfinedSpaceLoad {
   const ConfinedSpaceLoad(
     this.records, {
     this.unreadable = false,
+    this.readFailed = false,
+    this.backupFailed = false,
     this.droppedRecords = 0,
     this.droppedMeasurements = 0,
   });
 
-  /// Coś odrzucono — surowy tekst jest w kopii, ekran pokazuje baner.
+  /// Coś odrzucono — ekran pokazuje baner; [backupFailed] mówi o braku kopii.
   bool get damaged =>
       unreadable || droppedRecords > 0 || droppedMeasurements > 0;
 }
@@ -59,7 +64,7 @@ class ConfinedSpaceStore {
   /// Kopia PIERWSZEGO nieczytelnego zapisu (nigdy nienadpisywana).
   static const String corruptBackupKey = '${key}_corrupt';
 
-  /// Kopia późniejszego, innego nieczytelnego zapisu (ostatnia).
+  /// Kopia drugiego, innego nieczytelnego zapisu (nienadpisywana).
   static const String corruptLastBackupKey = '${key}_corrupt_last';
 
   /// Tyle protokołów mieści historia; od [warnAt] (90 %) ekran ostrzega.
@@ -69,12 +74,14 @@ class ConfinedSpaceStore {
   /// Zegar do odrzucania pomiarów „z przyszłości” przy odczycie; `null` =
   /// zegar systemowy. Ekrany podają swój (wstrzykiwany w testach).
   final DateTime Function()? clock;
+  final Future<LocalRecordOwner> Function()? captureOwner;
 
-  const ConfinedSpaceStore({this.clock});
+  const ConfinedSpaceStore({this.clock, this.captureOwner});
 
   /// Ten sam magazyn z zegarem [c], jeśli nie ma własnego.
-  ConfinedSpaceStore withClock(DateTime Function() c) =>
-      clock == null ? ConfinedSpaceStore(clock: c) : this;
+  ConfinedSpaceStore withClock(DateTime Function() c) => clock == null
+      ? ConfinedSpaceStore(clock: c, captureOwner: captureOwner)
+      : this;
 
   DateTime _now() => (clock ?? DateTime.now)();
 
@@ -99,42 +106,73 @@ class ConfinedSpaceStore {
   Future<ConfinedSpaceLoad> load() => _serial(_loadNow);
 
   Future<ConfinedSpaceLoad> _loadNow() async {
-    final prefs = await OwnedPrefs.instance();
-    Object? raw;
+    final prefs = await OwnedPrefs.instance(captureOwner);
+    final Object? raw;
     try {
       raw = prefs.get(key);
-      if (raw == null || (raw is String && raw.isEmpty)) {
-        return const ConfinedSpaceLoad([]);
-      }
+    } catch (_) {
+      return const ConfinedSpaceLoad([], unreadable: true, readFailed: true);
+    }
+    if (raw == null || (raw is String && raw.isEmpty)) {
+      return const ConfinedSpaceLoad([]);
+    }
+    try {
       if (raw is! String) throw const FormatException('not a string');
       final parsed = confinedSpaceRecordsFromJson(jsonDecode(raw), now: _now());
-      if (parsed.damaged) await _backup(prefs, raw);
+      final backedUp = !parsed.damaged || await _backup(prefs, raw);
       return ConfinedSpaceLoad(
         sortConfinedSpaceRecords(parsed.records),
+        backupFailed: !backedUp,
         droppedRecords: parsed.droppedRecords,
         droppedMeasurements: parsed.droppedMeasurements,
       );
     } catch (_) {
-      if (raw != null) await _backup(prefs, raw);
-      return const ConfinedSpaceLoad([], unreadable: true);
+      final backedUp = await _backup(prefs, raw);
+      return ConfinedSpaceLoad([], unreadable: true, backupFailed: !backedUp);
     }
   }
 
-  /// Pierwsza kopia zostaje na zawsze; inny, późniejszy uszkodzony zapis
-  /// trafia do [corruptLastBackupKey].
-  static Future<void> _backup(SharedPreferences prefs, Object raw) async {
+  /// Obie kopie pozostają nienadpisane; trzeci uszkodzony zapis zostaje
+  /// w kluczu głównym i blokuje nowy zapis.
+  static Future<bool> _backup(SharedPreferences prefs, Object raw) async {
     final text = raw.toString();
-    final first = prefs.get(corruptBackupKey);
-    if (first == null) {
-      await prefs.setString(corruptBackupKey, text);
-    } else if (first != text && prefs.get(corruptLastBackupKey) != text) {
-      await prefs.setString(corruptLastBackupKey, text);
+    try {
+      final first = prefs.get(corruptBackupKey);
+      if (first == text) return true;
+      final last = prefs.get(corruptLastBackupKey);
+      if (last == text) return true;
+      if (first == null) {
+        return await prefs.setString(corruptBackupKey, text) &&
+            prefs.get(corruptBackupKey) == text;
+      }
+      if (last == null) {
+        return await prefs.setString(corruptLastBackupKey, text) &&
+            prefs.get(corruptLastBackupKey) == text;
+      }
+    } catch (_) {
+      return false;
+    }
+    return false;
+  }
+
+  bool _damaged(Object raw) {
+    if (raw is! String) return true;
+    try {
+      return confinedSpaceRecordsFromJson(jsonDecode(raw), now: _now()).damaged;
+    } catch (_) {
+      return true;
     }
   }
 
   /// Zapis całej listy — bez przycinania (limit pilnuje [_upsertNow]).
   Future<void> _write(List<ConfinedSpaceRecord> list) async {
-    final prefs = await OwnedPrefs.instance();
+    final prefs = await OwnedPrefs.instance(captureOwner);
+    final raw = prefs.get(key);
+    if (raw != null && (raw is! String || raw.isNotEmpty) && _damaged(raw)) {
+      if (!await _backup(prefs, raw)) {
+        throw StateError('Could not preserve damaged $key before writing');
+      }
+    }
     final ok = await prefs.setString(key,
         jsonEncode(confinedSpaceRecordsToJson(sortConfinedSpaceRecords(list))));
     if (!ok) throw StateError('SharedPreferences.setString($key) failed');
@@ -146,7 +184,9 @@ class ConfinedSpaceStore {
   /// skasowałby protokół bez słowa.
   Future<void> _upsertNow(ConfinedSpaceRecord record,
       {bool allowOverLimit = false}) async {
-    final list = [...(await _loadNow()).records];
+    final load = await _loadNow();
+    if (load.readFailed) throw StateError('Could not read $key');
+    final list = [...load.records];
     final existed = list.any((r) => r.id == record.id);
     list.removeWhere((r) => r.id == record.id);
     if (!record.isBlank) {
@@ -203,7 +243,9 @@ class ConfinedSpaceStore {
     ConfinedSpaceRecord? orElse,
   }) =>
       _serial(() async {
-        final records = (await _loadNow()).records;
+        final load = await _loadNow();
+        if (load.readFailed) throw StateError('Could not read $key');
+        final records = load.records;
         final current = records.where((r) => r.id == id);
         final base = current.isNotEmpty ? current.first : orElse;
         if (base == null) return;
@@ -212,8 +254,9 @@ class ConfinedSpaceStore {
       });
 
   Future<void> delete(String id) => _serial(() async {
-        final list = [...(await _loadNow()).records]
-          ..removeWhere((r) => r.id == id);
+        final load = await _loadNow();
+        if (load.readFailed) throw StateError('Could not read $key');
+        final list = [...load.records]..removeWhere((r) => r.id == id);
         await _write(list);
       });
 }

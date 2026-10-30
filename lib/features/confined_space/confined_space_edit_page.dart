@@ -33,6 +33,7 @@ import '../../i18n/app_language.dart';
 import '../../services/confined_space_export.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/haptic.dart';
+import '../../widgets/local_record_scope.dart';
 import '../../widgets/number_field.dart';
 import '../quotes/quote_widgets.dart' show FieldPair, QuoteNotice, QuoteSection;
 import 'confined_space_store.dart';
@@ -50,8 +51,11 @@ Future<void> confinedSpaceDefaultShareText(String text, String subject) async {
 }
 
 Future<void> confinedSpaceDefaultSharePdf(
-        ConfinedSpaceRecord record, bool english) =>
-    ConfinedSpaceExport.sharePdf(record, english: english);
+    ConfinedSpaceRecord record, bool english) {
+  final session = LocalRecordSession.capture();
+  return ConfinedSpaceExport.sharePdf(record,
+      english: english, canShare: () => session.isCurrent);
+}
 
 /// Kolor stanu: czerwony tylko „STOP”, zielony tylko gotowe / zamknięte
 /// DZIŚ; protokół z innego dnia — szary (nigdy zielony).
@@ -81,14 +85,25 @@ typedef ConfinedSpacePickTime = Future<TimeOfDay?> Function(
     BuildContext context, TimeOfDay initial);
 
 Future<TimeOfDay?> confinedSpaceDefaultPickTime(
-        BuildContext context, TimeOfDay initial) =>
-    showTimePicker(context: context, initialTime: initial);
+    BuildContext context, TimeOfDay initial) {
+  final session = LocalRecordSession.capture();
+  return showTimePicker(
+    context: context,
+    initialTime: initial,
+    builder: (_, child) => LocalRecordScope(
+      originSession: session,
+      restartOnAccountChange: false,
+      builder: (_, __) => child!,
+    ),
+  );
+}
 
 class ConfinedSpaceEditPage extends StatefulWidget {
   const ConfinedSpaceEditPage({
     super.key,
     required this.initial,
-    this.store = const ConfinedSpaceStore(),
+    this.store,
+    this.session,
     this.now = DateTime.now,
     this.shareText = confinedSpaceDefaultShareText,
     this.sharePdf = confinedSpaceDefaultSharePdf,
@@ -96,7 +111,8 @@ class ConfinedSpaceEditPage extends StatefulWidget {
   });
 
   final ConfinedSpaceRecord initial;
-  final ConfinedSpaceStore store;
+  final ConfinedSpaceStore? store;
+  final LocalRecordSession? session;
   final DateTime Function() now;
   final ConfinedSpaceShareText shareText;
   final ConfinedSpaceSharePdf sharePdf;
@@ -110,11 +126,12 @@ class ConfinedSpaceEditPage extends StatefulWidget {
 bool _hasUnits(CsBound b) => b.gas.units.length > 1;
 
 class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
+  late final LocalRecordSession _session;
   late ConfinedSpaceRecord _r = widget.initial;
   bool _busy = false;
 
   /// Magazyn z zegarem ekranu (pomiary „z przyszłości” przy odczycie).
-  late final ConfinedSpaceStore _store = widget.store.withClock(widget.now);
+  late final ConfinedSpaceStore _store;
 
   /// Licznik do identyfikatorów pomiarów wpisanych w tej samej milisekundzie.
   int _seq = 0;
@@ -165,8 +182,12 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
   @override
   void initState() {
     super.initState();
+    _session = widget.session ?? LocalRecordSession.capture();
+    _store = (widget.store ??
+            ConfinedSpaceStore(captureOwner: _session.captureOwner))
+        .withClock(widget.now);
     _tick = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (mounted) setState(() {});
+      if (mounted && _session.isCurrent) setState(() {});
     });
   }
 
@@ -196,8 +217,9 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
   // ── Zmiany i zapis ─────────────────────────────────────────────────────
 
   void _set(ConfinedSpaceRecord Function(ConfinedSpaceRecord r) change) {
-    setState(() => _r = change(_r)
-        .copyWith(updatedAt: widget.now().millisecondsSinceEpoch));
+    if (!mounted || !_session.isCurrent) return;
+    setState(() => _r =
+        change(_r).copyWith(updatedAt: widget.now().millisecondsSinceEpoch));
     final snapshot = _r;
     unawaited(_store.upsert(snapshot).catchError((Object e) {
       debugPrint('[confined_space] save failed: $e');
@@ -210,7 +232,7 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
   /// Raz na ekran: protokół bezpieczeństwa, który się nie zapisuje, nie może
   /// tego robić po cichu.
   void _reportSaveFailure({bool full = false}) {
-    if (!mounted || _saveFailureShown) return;
+    if (!mounted || !_session.isCurrent || _saveFailureShown) return;
     _saveFailureShown = true;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       key: ValueKey(full ? 'cs-store-full' : 'cs-save-failed'),
@@ -332,7 +354,8 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
     final raw = _meas[g]!.text;
     if (raw.trim().isEmpty || _parseReading(g, raw) != null) return null;
     return switch (g) {
-      CsGas.o2 || CsGas.lel =>
+      CsGas.o2 ||
+      CsGas.lel =>
         en ? 'Enter a number 0–100' : 'Wpisz liczbę 0–100',
       _ => en ? 'Enter a number ≥ 0' : 'Wpisz liczbę ≥ 0',
     };
@@ -397,40 +420,47 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
   /// Ręcznie wpisana godzina, która wypada wczoraj — pytanie, czy to na
   /// pewno wczoraj. `true` = potwierdzone.
   Future<bool> _confirmYesterday(String time, DateTime at) async {
+    if (!_session.isCurrent) return false;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title: Text(context.tr(
-            pl: 'Pomiar wczoraj?', en: 'Reading from yesterday?')),
-        content: Text(context.tr(
-          pl: 'Godzina $time jest późniejsza niż teraz, więc pomiar byłby '
-              'z wczoraj (${hotWorkDate(at)}). Czy to na pewno wczoraj?',
-          en: '$time is later than now, so the reading would be from '
-              'yesterday (${hotWorkDate(at)}). Is it really from yesterday?',
-        )),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogCtx, false),
-            child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
-          ),
-          FilledButton(
-            key: const ValueKey('cs-yesterday-confirm'),
-            onPressed: () => Navigator.pop(dialogCtx, true),
-            child: Text(context.tr(pl: 'Tak, wczoraj', en: 'Yes, yesterday')),
-          ),
-        ],
+      builder: (_) => LocalRecordScope(
+        originSession: _session,
+        restartOnAccountChange: false,
+        builder: (dialogCtx, __) => AlertDialog(
+          title: Text(
+              context.tr(pl: 'Pomiar wczoraj?', en: 'Reading from yesterday?')),
+          content: Text(context.tr(
+            pl: 'Godzina $time jest późniejsza niż teraz, więc pomiar byłby '
+                'z wczoraj (${hotWorkDate(at)}). Czy to na pewno wczoraj?',
+            en: '$time is later than now, so the reading would be from '
+                'yesterday (${hotWorkDate(at)}). Is it really from yesterday?',
+          )),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx, false),
+              child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+            ),
+            FilledButton(
+              key: const ValueKey('cs-yesterday-confirm'),
+              onPressed: () => Navigator.pop(dialogCtx, true),
+              child: Text(context.tr(pl: 'Tak, wczoraj', en: 'Yes, yesterday')),
+            ),
+          ],
+        ),
       ),
     );
-    return ok == true;
+    return ok == true && _session.isCurrent;
   }
 
   void _snack(String key, String message) {
+    if (!mounted || !_session.isCurrent) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(key: ValueKey(key), content: Text(message)));
   }
 
   Future<void> _addMeasurement() async {
+    if (!_session.isCurrent) return;
     final values = _formValues();
     if (values == null) return;
     var now = widget.now();
@@ -453,7 +483,7 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
       }
       if (hotWorkDate(at) != hotWorkDate(now)) {
         if (!await _confirmYesterday(time, at)) return;
-        if (!mounted) return;
+        if (!mounted || !_session.isCurrent) return;
         now = widget.now();
       }
     }
@@ -519,6 +549,7 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
   /// Usunięcie z „Cofnij”. Cofnięcie zapisuje przez magazyn (działa także
   /// po zamknięciu ekranu); stan ekranu poprawia tylko, gdy ekran istnieje.
   void _removeMeasurement(CsMeasurement m) {
+    if (!mounted || !_session.isCurrent) return;
     final before = _r;
     _set((r) => r.removeMeasurement(m));
     final store = _store;
@@ -526,23 +557,27 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
-        content: Text(context.tr(
-            pl: 'Pomiar usunięty.', en: 'Reading removed.')),
+        content:
+            Text(context.tr(pl: 'Pomiar usunięty.', en: 'Reading removed.')),
         action: SnackBarAction(
           label: context.tr(pl: 'Cofnij', en: 'Undo'),
           onPressed: () {
+            if (!_session.isCurrent) return;
             unawaited(store
                 .update(id, (r) => r.restoreMeasurement(m), orElse: before)
                 .catchError((Object e) {
               debugPrint('[confined_space] undo failed: $e');
             }));
-            if (mounted) setState(() => _r = _r.restoreMeasurement(m));
+            if (mounted && _session.isCurrent) {
+              setState(() => _r = _r.restoreMeasurement(m));
+            }
           },
         ),
       ));
   }
 
   Future<void> _pickDate() async {
+    if (!_session.isCurrent) return;
     final first = DateTime(2020);
     final last = DateTime(2100);
     var current = DateTime.tryParse(_r.date) ?? widget.now();
@@ -554,13 +589,19 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
       initialDate: current,
       firstDate: first,
       lastDate: last,
+      builder: (_, child) => LocalRecordScope(
+        originSession: _session,
+        restartOnAccountChange: false,
+        builder: (_, __) => child!,
+      ),
     );
-    if (picked == null || !mounted) return;
+    if (picked == null || !mounted || !_session.isCurrent) return;
     _set((r) => r.copyWith(date: hotWorkDate(picked)));
   }
 
   /// Wybór godziny; `null` = anulowano.
   Future<String?> _pickTime(String current) async {
+    if (!_session.isCurrent) return null;
     TimeOfDay initial = TimeOfDay.fromDateTime(widget.now());
     final parts = current.split(':');
     if (parts.length == 2) {
@@ -569,7 +610,7 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
       if (h != null && m != null) initial = TimeOfDay(hour: h, minute: m);
     }
     final picked = await widget.pickTime(context, initial);
-    if (picked == null) return null;
+    if (picked == null || !_session.isCurrent) return null;
     String two(int v) => v.toString().padLeft(2, '0');
     return '${two(picked.hour)}:${two(picked.minute)}';
   }
@@ -577,6 +618,7 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
   // ── Udostępnianie ──────────────────────────────────────────────────────
 
   Future<void> _shareText() async {
+    if (!_session.isCurrent) return;
     final en = context.language == AppLanguage.en;
     unawaited(Haptic.tap());
     await widget.shareText(
@@ -585,14 +627,14 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
   }
 
   Future<void> _sharePdf() async {
-    if (_busy) return;
+    if (_busy || !_session.isCurrent) return;
     final en = context.language == AppLanguage.en;
     setState(() => _busy = true);
     try {
       await widget.sharePdf(_r, en);
     } catch (e) {
       debugPrint('[confined_space] pdf export failed: $e');
-      if (mounted) {
+      if (mounted && _session.isCurrent) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(context.tr(
               pl: 'Nie udało się przygotować PDF.',
@@ -600,7 +642,7 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
         ));
       }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted && _session.isCurrent) setState(() => _busy = false);
     }
   }
 
@@ -613,8 +655,7 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
     final today = hotWorkDate(widget.now());
     return Scaffold(
       appBar: AppBar(
-        title: Text(context.tr(
-            pl: 'Protokół wejścia', en: 'Entry record')),
+        title: Text(context.tr(pl: 'Protokół wejścia', en: 'Entry record')),
         actions: [
           IconButton(
             key: const ValueKey('cs-share-text'),
@@ -732,7 +773,9 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
           pl: 'Dane z pisemnego pozwolenia. Protokół zapisuje się sam.',
           en: 'Details from the written permit. The record saves itself.'),
       children: [
-        _text('permitNo', _permitNo,
+        _text(
+            'permitNo',
+            _permitNo,
             context.tr(pl: 'Nr pozwolenia', en: 'Permit no.'),
             (t) => _set((r) => r.copyWith(permitNo: t))),
         _text(
@@ -742,7 +785,9 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
                 pl: 'Przestrzeń (zbiornik, aparat, rurociąg, studzienka; właz)',
                 en: 'Space (tank, vessel, pipe, manhole; entry point)'),
             (t) => _set((r) => r.copyWith(location: t))),
-        _text('description', _description,
+        _text(
+            'description',
+            _description,
             context.tr(pl: 'Opis pracy', en: 'Work description'),
             (t) => _set((r) => r.copyWith(description: t)),
             maxLines: 4),
@@ -804,7 +849,9 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
           ),
         ),
         const SizedBox(height: 12),
-        _text('entrants', _entrants,
+        _text(
+            'entrants',
+            _entrants,
             context.tr(pl: 'Wchodzący', en: 'Entrants'),
             (t) => _set((r) => r.copyWith(entrants: t))),
         _text(
@@ -813,10 +860,14 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
             context.tr(
                 pl: 'Asekurujący (na zewnątrz)', en: 'Attendant (outside)'),
             (t) => _set((r) => r.copyWith(attendant: t))),
-        _text('supervisor', _supervisor,
+        _text(
+            'supervisor',
+            _supervisor,
             context.tr(pl: 'Nadzór / kierujący', en: 'Supervisor'),
             (t) => _set((r) => r.copyWith(supervisor: t))),
-        _text('issuer', _issuer,
+        _text(
+            'issuer',
+            _issuer,
             context.tr(pl: 'Wydający pozwolenie', en: 'Permit issuer'),
             (t) => _set((r) => r.copyWith(issuer: t))),
         _text(
@@ -851,8 +902,7 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.warning_amber_rounded,
-                    color: kWarn, size: 20),
+                const Icon(Icons.warning_amber_rounded, color: kWarn, size: 20),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(
@@ -920,8 +970,7 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
         side: const BorderSide(color: kBorder),
       ),
       onPressed: onTap,
-      child: Text(label,
-          style: const TextStyle(fontWeight: FontWeight.w700)),
+      child: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
     );
   }
 
@@ -1012,8 +1061,7 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
               'decides; a missing reading is never OK.'),
       children: [
         for (final v in a.gases)
-          _GasSummary(
-              verdict: v, limits: limits, recordDate: _r.date, en: en),
+          _GasSummary(verdict: v, limits: limits, recordDate: _r.date, en: en),
         const SizedBox(height: 6),
         _SubHeader(context.tr(
             pl: 'Progi wg pozwolenia (tylko ostrzej niż domyślne)',
@@ -1024,7 +1072,8 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
           right: _limitField(CsBound.o2Max,
               context.tr(pl: 'O₂ najwyżej', en: 'O₂ at most'), en),
         ),
-        _limitField(CsBound.lelMax,
+        _limitField(
+            CsBound.lelMax,
             context.tr(pl: 'Gazy palne najwyżej', en: 'Flammables at most'),
             en),
         _limitField(
@@ -1039,8 +1088,8 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
             keyboardType: numberKeyboard(decimal: false),
             inputFormatters: numberInputFormatters(decimal: false),
             decoration: InputDecoration(
-              labelText: context.tr(
-                  pl: 'Pomiar ważny przez', en: 'Reading valid for'),
+              labelText:
+                  context.tr(pl: 'Pomiar ważny przez', en: 'Reading valid for'),
               suffixText: 'min',
               hintText: '$kCsMeasurementMaxAgeMin',
               helperText: context.tr(
@@ -1133,8 +1182,8 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
         const SizedBox(height: 10),
         FilledButton.icon(
           key: const ValueKey('cs-meas-add'),
-          style: FilledButton.styleFrom(
-              minimumSize: const Size(0, kMinTapTarget)),
+          style:
+              FilledButton.styleFrom(minimumSize: const Size(0, kMinTapTarget)),
           onPressed: canAdd ? _addMeasurement : null,
           icon: const Icon(Icons.add),
           label: Text(context.tr(pl: 'Dodaj pomiar', en: 'Add reading')),
@@ -1168,8 +1217,8 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
             padding: const EdgeInsets.only(bottom: 8),
             child: Text(
               '• ${s.label(en: en)}',
-              style: const TextStyle(
-                  fontSize: 12.5, color: kTextSec, height: 1.4),
+              style:
+                  const TextStyle(fontSize: 12.5, color: kTextSec, height: 1.4),
             ),
           ),
       ],
@@ -1341,7 +1390,9 @@ class _GasSummary extends StatelessWidget {
     } else {
       final state = csStateLabel(v.state!, v.gas, en: en);
       final stale = v.stale && !v.stop
-          ? (en ? ' — out of date, test again' : ' — nieaktualny, zmierz ponownie')
+          ? (en
+              ? ' — out of date, test again'
+              : ' — nieaktualny, zmierz ponownie')
           : '';
       value = '${formatCsQty(v.gas, v.value!, en: en)} '
           '${en ? 'at' : 'o'} ${csMeasurementTime(v.decisive!, recordDate)} — '
@@ -1360,7 +1411,9 @@ class _GasSummary extends StatelessWidget {
             width: 86,
             child: Text(v.gas.label(en: en),
                 style: const TextStyle(
-                    color: kTextSec, fontSize: 13, fontWeight: FontWeight.w700)),
+                    color: kTextSec,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700)),
           ),
           Expanded(
             child: Column(
@@ -1515,8 +1568,7 @@ class _CheckTile extends StatelessWidget {
                       TextButton(
                         key: ValueKey('cs-na-${check.id}'),
                         style: TextButton.styleFrom(
-                          minimumSize:
-                              const Size(kMinTapTarget, kMinTapTarget),
+                          minimumSize: const Size(kMinTapTarget, kMinTapTarget),
                           foregroundColor: na ? kArc : kTextSec,
                         ),
                         onPressed: onNa,

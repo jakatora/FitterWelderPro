@@ -44,7 +44,7 @@ class ConfinedSpaceExport {
   const ConfinedSpaceExport._();
 
   static Future<void> sharePdf(ConfinedSpaceRecord record,
-      {required bool english}) async {
+      {required bool english, bool Function()? canShare}) async {
     final doc = await buildPdfDocument(
       record: record,
       english: english,
@@ -59,6 +59,7 @@ class ConfinedSpaceExport {
     final dir = await getTemporaryDirectory();
     final file = File('${dir.path}/$name');
     await file.writeAsBytes(bytes, flush: true);
+    if (canShare != null && !canShare()) return;
     await Share.shareXFiles(
       [XFile(file.path, mimeType: 'application/pdf', name: name)],
       subject: confinedSpaceSubject(english: english),
@@ -140,8 +141,7 @@ class ConfinedSpaceExport {
     for (final phase in ConfinedSpacePhase.values) {
       final checks = confinedSpaceChecksIn(phase);
       final done = checks.where(r.isSettled).length;
-      checklist
-          .add(heading('${phase.label(en: en)} ($done/${checks.length})'));
+      checklist.add(heading('${phase.label(en: en)} ($done/${checks.length})'));
       checklist.add(pw.Table(
         border: pw.TableBorder.all(color: _kRule, width: 0.5),
         columnWidths: const {
@@ -227,7 +227,9 @@ class ConfinedSpaceExport {
           '${en ? 'Status' : 'Stan'}: '
           '${confinedSpaceReadinessText(a, r.limits, en: en)}',
           style: pw.TextStyle(
-              fontSize: 9.5, fontWeight: pw.FontWeight.bold, color: statusColor),
+              fontSize: 9.5,
+              fontWeight: pw.FontWeight.bold,
+              color: statusColor),
         ),
         for (final v in a.stops.skip(1))
           _pdfText(

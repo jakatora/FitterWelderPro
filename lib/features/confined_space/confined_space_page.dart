@@ -21,10 +21,10 @@ import 'confined_space_edit_page.dart';
 import 'confined_space_store.dart';
 import '../../widgets/local_record_scope.dart';
 
-class ConfinedSpacePage extends StatefulWidget {
+class ConfinedSpacePage extends StatelessWidget {
   const ConfinedSpacePage({
     super.key,
-    this.store = const ConfinedSpaceStore(),
+    this.store,
     this.now = DateTime.now,
     this.newId,
     this.shareText = confinedSpaceDefaultShareText,
@@ -32,7 +32,7 @@ class ConfinedSpacePage extends StatefulWidget {
     this.pickTime = confinedSpaceDefaultPickTime,
   });
 
-  final ConfinedSpaceStore store;
+  final ConfinedSpaceStore? store;
   final DateTime Function() now;
 
   /// Identyfikator nowego protokołu — wstrzykiwany w testach.
@@ -42,25 +42,61 @@ class ConfinedSpacePage extends StatefulWidget {
   final ConfinedSpacePickTime pickTime;
 
   @override
-  State<ConfinedSpacePage> createState() => _ConfinedSpacePageState();
+  Widget build(BuildContext context) => LocalRecordScope(
+        builder: (_, session) => _ConfinedSpaceBody(
+          session: session,
+          store:
+              store ?? ConfinedSpaceStore(captureOwner: session.captureOwner),
+          now: now,
+          newId: newId,
+          shareText: shareText,
+          sharePdf: sharePdf,
+          pickTime: pickTime,
+        ),
+      );
+}
+
+class _ConfinedSpaceBody extends StatefulWidget {
+  const _ConfinedSpaceBody({
+    required this.session,
+    required this.store,
+    required this.now,
+    required this.newId,
+    required this.shareText,
+    required this.sharePdf,
+    required this.pickTime,
+  });
+
+  final LocalRecordSession session;
+  final ConfinedSpaceStore store;
+  final DateTime Function() now;
+  final String Function()? newId;
+  final ConfinedSpaceShareText shareText;
+  final ConfinedSpaceSharePdf sharePdf;
+  final ConfinedSpacePickTime pickTime;
+
+  @override
+  State<_ConfinedSpaceBody> createState() => _ConfinedSpacePageState();
 }
 
 enum _ItemAction { duplicate, delete }
 
-class _ConfinedSpacePageState extends State<ConfinedSpacePage>
-    with ToolHandleHost<ConfinedSpacePage> {
+class _ConfinedSpacePageState extends State<_ConfinedSpaceBody>
+    with ToolHandleHost<_ConfinedSpaceBody> {
   @override
   String get toolId => 'confined_space';
   @override
   Set<String> get supportedFields => const {'record_id'};
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || !widget.session.isCurrent) return fields.keys.toSet();
     if (fields.length != 1 || fields['record_id'] is! String) {
       return fields.keys.toSet();
     }
     final load = await _store.load();
     final found = load.records.where((r) => r.id == fields['record_id']);
     if (!mounted ||
+        !widget.session.isCurrent ||
         load.damaged ||
         found.length != 1 ||
         ModalRoute.of(context)?.isCurrent != true) {
@@ -87,7 +123,7 @@ class _ConfinedSpacePageState extends State<ConfinedSpacePage>
   void initState() {
     super.initState();
     _tick = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (mounted) setState(() {});
+      if (mounted && widget.session.isCurrent) setState(() {});
     });
     ConfinedSpaceStore.changes.addListener(_onStoreChanged);
     unawaited(_reload());
@@ -104,23 +140,23 @@ class _ConfinedSpacePageState extends State<ConfinedSpacePage>
   /// odśwież listę, gdy jest na wierzchu (w trakcie edycji nie trzeba:
   /// powrót i tak przeładowuje).
   void _onStoreChanged() {
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     if (ModalRoute.of(context)?.isCurrent ?? true) unawaited(_reload());
   }
 
   Future<void> _reload() async {
     try {
       final load = await _store.load();
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       setState(() {
         _items = load.records;
-        _loadFailed = false;
+        _loadFailed = load.readFailed;
         if (load.damaged) _damage = load;
       });
       if (!load.damaged) markReady();
     } catch (e) {
       debugPrint('[confined_space] load failed: $e');
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       setState(() {
         _items = const [];
         _loadFailed = true;
@@ -149,22 +185,26 @@ class _ConfinedSpacePageState extends State<ConfinedSpacePage>
   }
 
   Future<void> _open(ConfinedSpaceRecord record) async {
+    if (!widget.session.isCurrent) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => LocalRecordScope(
+          originSession: widget.session,
           restartOnAccountChange: false,
-          builder: (_, __) => ConfinedSpaceEditPage(
+          builder: (_, session) => ConfinedSpaceEditPage(
                 initial: record,
                 store: _store,
+                session: session,
                 now: widget.now,
                 shareText: widget.shareText,
                 sharePdf: widget.sharePdf,
                 pickTime: widget.pickTime,
               )),
     ));
-    await _reload();
+    if (mounted && widget.session.isCurrent) await _reload();
   }
 
   Future<void> _new() async {
+    if (!widget.session.isCurrent) return;
     if (_refuseWhenFull()) return;
     await _open(ConfinedSpaceRecord.blank(id: _id(), now: widget.now()));
   }
@@ -172,15 +212,26 @@ class _ConfinedSpacePageState extends State<ConfinedSpacePage>
   /// „Jak wczoraj”: dane organizacyjne i progi zostają, pomiary,
   /// odhaczenia i wyłączone gazy — nie.
   Future<void> _duplicate(ConfinedSpaceRecord source) async {
+    if (!widget.session.isCurrent) return;
     if (_refuseWhenFull()) return;
     final copy = source.duplicateFor(newId: _id(), now: widget.now());
     try {
       await _store.upsert(copy);
     } catch (e) {
-      // Edycja i tak zapisuje się przy każdej zmianie — otwieramy kopię.
       debugPrint('[confined_space] duplicate save failed: $e');
+      if (mounted && widget.session.isCurrent) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          key: const ValueKey('cs-duplicate-failed'),
+          content: Text(context.tr(
+            pl: 'Nie udało się zapisać kopii. Protokół nie został otwarty.',
+            en: 'Could not save the copy. The record was not opened.',
+          )),
+        ));
+        await _reload();
+      }
+      return;
     }
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
@@ -193,31 +244,51 @@ class _ConfinedSpacePageState extends State<ConfinedSpacePage>
   }
 
   Future<void> _delete(ConfinedSpaceRecord record) async {
+    if (!widget.session.isCurrent) return;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title:
-            Text(context.tr(pl: 'Usunąć protokół?', en: 'Delete this record?')),
-        content: Text(_titleOf(record)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogCtx, false),
-            child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
-          ),
-          FilledButton(
-            key: const ValueKey('cs-delete-confirm'),
-            style: FilledButton.styleFrom(
-                backgroundColor: kFail, foregroundColor: Colors.white),
-            onPressed: () => Navigator.pop(dialogCtx, true),
-            child: Text(context.tr(pl: 'Usuń', en: 'Delete')),
-          ),
-        ],
+      builder: (_) => LocalRecordScope(
+        originSession: widget.session,
+        restartOnAccountChange: false,
+        builder: (dialogCtx, __) => AlertDialog(
+          title: Text(
+              context.tr(pl: 'Usunąć protokół?', en: 'Delete this record?')),
+          content: Text(_titleOf(record)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx, false),
+              child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+            ),
+            FilledButton(
+              key: const ValueKey('cs-delete-confirm'),
+              style: FilledButton.styleFrom(
+                  backgroundColor: kFail, foregroundColor: Colors.white),
+              onPressed: () => Navigator.pop(dialogCtx, true),
+              child: Text(context.tr(pl: 'Usuń', en: 'Delete')),
+            ),
+          ],
+        ),
       ),
     );
-    if (ok != true || !mounted) return;
-    await _store.delete(record.id);
+    if (ok != true || !mounted || !widget.session.isCurrent) return;
+    try {
+      await _store.delete(record.id);
+    } catch (e) {
+      debugPrint('[confined_space] delete failed: $e');
+      if (mounted && widget.session.isCurrent) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          key: const ValueKey('cs-delete-failed'),
+          content: Text(context.tr(
+            pl: 'Nie udało się usunąć protokołu — sprawdź historię.',
+            en: 'Could not delete the record — check the history.',
+          )),
+        ));
+        await _reload();
+      }
+      return;
+    }
     await _reload();
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     final store = _store;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -228,12 +299,13 @@ class _ConfinedSpacePageState extends State<ConfinedSpacePage>
           label: context.tr(pl: 'Cofnij', en: 'Undo'),
           // Zapis przez magazyn — działa także po opuszczeniu ekranu.
           onPressed: () async {
+            if (!widget.session.isCurrent) return;
             try {
               await store.restore(record);
             } catch (e) {
               debugPrint('[confined_space] undo delete failed: $e');
             }
-            if (mounted) await _reload();
+            if (mounted && widget.session.isCurrent) await _reload();
           },
         ),
       ));
@@ -283,21 +355,35 @@ class _ConfinedSpacePageState extends State<ConfinedSpacePage>
               key: const ValueKey('cs-load-damaged'),
               color: kFail,
               icon: Icons.report_gmailerrorred_outlined,
-              text: damage.unreadable
+              text: damage.readFailed
                   ? context.tr(
-                      pl: 'Zapisanej historii nie da się odczytać — kopia '
-                          'surowego zapisu została w telefonie.',
-                      en: 'The saved history could not be read — a raw copy '
-                          'is kept on the phone.')
-                  : context.tr(
-                      pl: 'Część zapisu była nieczytelna: pominięto '
-                          '${damage.droppedRecords} protokołów i '
-                          '${damage.droppedMeasurements} pomiarów. Kopia '
-                          'surowego zapisu została w telefonie.',
-                      en: 'Part of the saved data was unreadable: '
-                          '${damage.droppedRecords} record(s) and '
-                          '${damage.droppedMeasurements} reading(s) skipped. '
-                          'A raw copy is kept on the phone.'),
+                      pl: 'Nie udało się odczytać historii. Zapis nowych '
+                          'zmian jest wstrzymany, aby nie utracić danych.',
+                      en: 'Could not read the history. New changes cannot '
+                          'be saved until the data can be read.')
+                  : damage.backupFailed
+                      ? context.tr(
+                          pl: 'Uszkodzony zapis pozostaje w telefonie, ale nie '
+                              'udało się utworzyć jego kopii. Zapis nowych zmian '
+                              'jest wstrzymany, aby nie utracić danych.',
+                          en: 'The damaged data remains on this phone, but its '
+                              'backup could not be made. New changes cannot be '
+                              'saved until the data is protected.')
+                      : damage.unreadable
+                          ? context.tr(
+                              pl: 'Zapisanej historii nie da się odczytać — kopia '
+                                  'surowego zapisu została w telefonie.',
+                              en: 'The saved history could not be read — a raw copy '
+                                  'is kept on the phone.')
+                          : context.tr(
+                              pl: 'Część zapisu była nieczytelna: pominięto '
+                                  '${damage.droppedRecords} protokołów i '
+                                  '${damage.droppedMeasurements} pomiarów. Kopia '
+                                  'surowego zapisu została w telefonie.',
+                              en: 'Part of the saved data was unreadable: '
+                                  '${damage.droppedRecords} record(s) and '
+                                  '${damage.droppedMeasurements} reading(s) skipped. '
+                                  'A raw copy is kept on the phone.'),
             ),
           QuoteNotice(
             icon: Icons.gavel_outlined,
