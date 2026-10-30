@@ -291,16 +291,18 @@ void main() {
     expect(prefs.getString(kPowerSourcePlateCorruptPrefsKey), 'zepsute');
   });
 
-  testWidgets('zajęta kopia: zapis wstrzymany z komunikatem', (tester) async {
+  testWidgets('dwie zajęte kopie: zapis wstrzymany z komunikatem',
+      (tester) async {
     await _pump(tester, prefs: {
-      kPowerSourcePlatePrefsKey: 'drugie uszkodzenie',
+      kPowerSourcePlatePrefsKey: 'trzecie uszkodzenie',
       kPowerSourcePlateCorruptPrefsKey: 'pierwsze uszkodzenie',
+      '${kPowerSourcePlateCorruptPrefsKey}_2': 'drugie uszkodzenie',
     });
     await _enter(tester, 'ps-plate-i-1', '250');
     expect(
         find.textContaining('Nie udało się zapisać tabliczki'), findsOneWidget);
     final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getString(kPowerSourcePlatePrefsKey), 'drugie uszkodzenie');
+    expect(prefs.getString(kPowerSourcePlatePrefsKey), 'trzecie uszkodzenie');
   });
 
   testWidgets('EN: teksty i kropka dziesiętna, te same liczby', (tester) async {
