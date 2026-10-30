@@ -60,6 +60,30 @@ List<WeldEntry> _welds() => [
 Future<void> _noText(String text, String subject) async {}
 Future<void> _noPdf(PieceworkReport report, bool english) async {}
 
+class _FailOnceRatesStore extends PieceworkRatesStore {
+  bool failed = false;
+
+  @override
+  Future<void> save(PieceworkRates rates, {bool afterFailedRead = false}) {
+    if (!failed) {
+      failed = true;
+      return Future<void>.error(StateError('odmowa zapisu'));
+    }
+    return super.save(rates, afterFailedRead: afterFailedRead);
+  }
+}
+
+Future<void> _waitFor(WidgetTester tester, Finder finder,
+    {bool visible = true}) async {
+  for (var i = 0; i < 30; i++) {
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)));
+    await tester.pump(const Duration(milliseconds: 50));
+    if ((finder.evaluate().isNotEmpty) == visible) return;
+  }
+  fail('Nie doczekano się zmiany stanu: $finder');
+}
+
 Future<void> _pump(
   WidgetTester tester, {
   AppLanguage lang = AppLanguage.pl,
@@ -71,6 +95,7 @@ Future<void> _pump(
   int? hourlyMin,
   PieceworkShareText shareText = _noText,
   PieceworkSharePdf sharePdf = _noPdf,
+  PieceworkRatesStore? store,
 }) async {
   SharedPreferences.setMockInitialValues(prefs);
   tester.view.physicalSize = size;
@@ -81,6 +106,7 @@ Future<void> _pump(
           clock: _clock,
           loadIdentity: () async => identity,
           loadHourlyMinimum: () async => hourlyMin,
+          store: store,
           shareText: shareText,
           sharePdf: sharePdf,
         )
@@ -89,6 +115,7 @@ Future<void> _pump(
           loadWelds: () async => welds,
           loadIdentity: () async => identity,
           loadHourlyMinimum: () async => hourlyMin,
+          store: store,
           shareText: shareText,
           sharePdf: sharePdf,
         );
@@ -161,8 +188,8 @@ void main() {
           date: '2026-10-14', reason: 'brak przetopu', by: 'JK-12');
     });
     await _pump(tester,
-        prefs: _saved(_rates.copyWith(
-            rejectBp: 5000, repairPaid: true, repairBp: 2500)));
+        prefs: _saved(
+            _rates.copyWith(rejectBp: 5000, repairPaid: true, repairBp: 2500)));
 
     // j1 12 600 + j2 (19 800 − 50% + 25%) = 12 600 + 14 850.
     expect(_total('274,50${nb}zł'), findsOneWidget);
@@ -180,7 +207,8 @@ void main() {
     expect(find.text('• W-15 · 2026-10-14 · L-12 · Blok 4'), findsOneWidget);
   });
 
-  testWidgets('stawki → wynik: wpisana stawka i dopłata liczą kwotę i się zapisują',
+  testWidgets(
+      'stawki → wynik: wpisana stawka i dopłata liczą kwotę i się zapisują',
       (tester) async {
     await _pump(tester, welds: _welds());
     expect(_total('0,00${nb}zł'), findsOneWidget);
@@ -200,13 +228,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(_total('324,00${nb}zł'), findsOneWidget);
 
+    await _waitFor(tester, _key('piecework-rates-saving'), visible: false);
+
     final prefs = await SharedPreferences.getInstance();
-    final saved = decodePieceworkRates(prefs.getString(PieceworkRatesStore.key));
+    await prefs.reload();
+    final saved =
+        decodePieceworkRates(prefs.getString(PieceworkRatesStore.key));
     expect(saved.intact, isTrue);
     expect(saved.rates, _rates);
 
     // Tryb za spoinę: 45 zł/szt., spoina bez OD też płatna.
     await _tap(tester, 'piecework-mode-weld');
+    await _waitFor(tester, _key('piecework-rates-saving'), visible: false);
     expect(_key('piecework-skipped'), findsNothing);
     // j1 4500 + 20% + 20%, j2 4500 + 10%, j3 4500.
     expect(_total('157,50${nb}zł'), findsOneWidget);
@@ -231,7 +264,8 @@ void main() {
     expect(_key('piecework-skipped'), findsNothing);
   });
 
-  testWidgets('spoiny bez wymiaru widoczne jako pominięte, kwota ich nie zawiera',
+  testWidgets(
+      'spoiny bez wymiaru widoczne jako pominięte, kwota ich nie zawiera',
       (tester) async {
     await _pump(tester, welds: _welds(), prefs: _saved(_rates));
     expect(_key('piecework-skipped'), findsOneWidget);
@@ -245,11 +279,13 @@ void main() {
     expect(_total('324,00${nb}zł'), findsOneWidget);
     expect(
         find.descendant(
-            of: _key('piecework-total'), matching: find.text('2 SPOINY · 6 DI')),
+            of: _key('piecework-total'),
+            matching: find.text('2 SPOINY · 6 DI')),
         findsOneWidget);
   });
 
-  testWidgets('„ja" z tożsamości spawacza; cała brygada; bez tożsamości brygada',
+  testWidgets(
+      '„ja" z tożsamości spawacza; cała brygada; bez tożsamości brygada',
       (tester) async {
     await _pump(tester, welds: _welds(), prefs: _saved(_rates));
     expect(find.text('Ja (JK-12)'), findsOneWidget);
@@ -287,7 +323,8 @@ void main() {
     // 324 zł / 4 h = 81 zł/h.
     expect(
         find.descendant(
-            of: _key('piecework-per-hour'), matching: find.text('81,00${nb}zł')),
+            of: _key('piecework-per-hour'),
+            matching: find.text('81,00${nb}zł')),
         findsOneWidget);
     expect(
         find.text('Akord daje 81,00${nb}zł/h, a minimum z „Ile brać za '
@@ -329,7 +366,8 @@ void main() {
   });
 
   for (final lang in AppLanguage.values) {
-    testWidgets('320×640 i tekst 1,3 (${lang.name}): cały ekran bez przepełnień',
+    testWidgets(
+        '320×640 i tekst 1,3 (${lang.name}): cały ekran bez przepełnień',
         (tester) async {
       await _pump(
         tester,
@@ -367,7 +405,8 @@ void main() {
   testWidgets('cele dotyku ≥ 48 dp', (tester) async {
     await _pump(tester,
         welds: _welds(),
-        prefs: _saved(_rates.copyWith(wallRule: WallRule.mm, repairPaid: true)));
+        prefs:
+            _saved(_rates.copyWith(wallRule: WallRule.mm, repairPaid: true)));
     for (final k in [
       ...PieceworkPeriod.values.map((p) => 'piecework-period-${p.name}'),
       'piecework-welder',
@@ -449,8 +488,32 @@ void main() {
     expect(_total('0,00${nb}zł'), findsOneWidget);
     await tester.enterText(_field('piecework-rate-di'), '45');
     await tester.pumpAndSettle();
+    await _waitFor(tester, _key('piecework-rates-saving'), visible: false);
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(PieceworkRatesStore.corruptKey), '{"rate":"x"');
+    expect(
+        decodePieceworkRates(prefs.getString(PieceworkRatesStore.key))
+            .rates
+            .rateGrosze,
+        4500);
+  });
+
+  testWidgets('błąd zapisu stawek jest widoczny i można ponowić zapis',
+      (tester) async {
+    final store = _FailOnceRatesStore();
+    await _pump(tester, welds: _welds(), store: store);
+    await tester.enterText(_field('piecework-rate-di'), '45');
+    await _waitFor(tester, _key('piecework-rates-save-failed'));
+    expect(_total('270,00${nb}zł'), findsOneWidget);
+    var prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(prefs.getString(PieceworkRatesStore.key), isNull);
+
+    await _tap(tester, 'piecework-rates-retry');
+    await _waitFor(tester, _key('piecework-rates-saving'), visible: false);
+    expect(_key('piecework-rates-save-failed'), findsNothing);
+    prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
     expect(
         decodePieceworkRates(prefs.getString(PieceworkRatesStore.key))
             .rates
@@ -473,16 +536,16 @@ void main() {
         contains(('Spoiny', '2 · ≈ 4,24 DI')));
     expect(PieceworkExport.factRows(report, en: true),
         contains(('Welds', '2 · ≈ 4.24 DI')));
-    expect(PieceworkExport.weldCells(result.lines.first, en: false)[3],
-        '≈ 2,24');
+    expect(
+        PieceworkExport.weldCells(result.lines.first, en: false)[3], '≈ 2,24');
     expect(PieceworkExport.weldCells(result.lines.last, en: false)[3], '2');
   });
 
   test('PDF zestawienia renderuje się (PL i EN), także pusty okres', () async {
     pw.Font font(String f) => pw.Font.ttf(
         ByteData.sublistView(File('assets/fonts/$f').readAsBytesSync()));
-    final rates = _rates.copyWith(
-        minDayGrosze: 50000, rejectBp: 5000, repairPaid: true);
+    final rates =
+        _rates.copyWith(minDayGrosze: 50000, rejectBp: 5000, repairPaid: true);
     final result = computePiecework(
       entries: _welds(),
       rates: rates,

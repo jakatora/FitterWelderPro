@@ -150,6 +150,11 @@ class _PieceworkPageState extends State<_PieceworkBody>
   List<WeldEntry> _all = const [];
   PieceworkRates _rates = const PieceworkRates();
   bool _ratesDamaged = false;
+  bool _ratesReadFailed = false;
+  bool _ratesSaving = false;
+  bool _ratesSaveFailed = false;
+  int _ratesEditGeneration = 0;
+  Future<void> _ratesSaveTail = Future<void>.value();
   PieceworkPeriod _period = PieceworkPeriod.month;
   DateTime? _customFrom;
   DateTime? _customTo;
@@ -187,12 +192,14 @@ class _PieceworkPageState extends State<_PieceworkBody>
     }
     var rates = _rates;
     var damaged = _ratesDamaged;
+    var readFailed = _ratesReadFailed;
     String? identity;
     var hourly = _hourlyMin;
     if (first) {
       final load = await widget.store.load();
       rates = load.rates;
       damaged = load.damaged;
+      readFailed = load.readFailed;
       try {
         identity = (await widget.loadIdentity())?.trim();
       } catch (e) {
@@ -211,6 +218,7 @@ class _PieceworkPageState extends State<_PieceworkBody>
       _failed = failed;
       _rates = rates;
       _ratesDamaged = damaged;
+      _ratesReadFailed = readFailed;
       _hourlyMin = hourly;
       if (first) {
         final id = identity == null || identity.isEmpty ? null : identity;
@@ -232,8 +240,40 @@ class _PieceworkPageState extends State<_PieceworkBody>
     if (!widget.session.isCurrent) return;
     if (r == _rates) return;
     setState(() => _rates = r);
-    unawaited(widget.store.save(r).catchError(
-        (Object e) => debugPrint('[piecework] save rates failed: $e')));
+    _queueRatesSave(r);
+  }
+
+  void _queueRatesSave(PieceworkRates rates) {
+    final generation = ++_ratesEditGeneration;
+    setState(() {
+      _ratesSaving = true;
+      _ratesSaveFailed = false;
+    });
+    _ratesSaveTail = _ratesSaveTail.then((_) async {
+      if (!widget.session.isCurrent) return;
+      try {
+        await widget.store.save(rates, afterFailedRead: _ratesReadFailed);
+        if (!mounted || !widget.session.isCurrent) return;
+        setState(() {
+          _ratesReadFailed = false;
+          _ratesDamaged = false;
+          if (generation == _ratesEditGeneration) {
+            _ratesSaving = false;
+            _ratesSaveFailed = false;
+          }
+        });
+      } catch (e) {
+        debugPrint('[piecework] save rates failed: $e');
+        if (mounted &&
+            widget.session.isCurrent &&
+            generation == _ratesEditGeneration) {
+          setState(() {
+            _ratesSaving = false;
+            _ratesSaveFailed = true;
+          });
+        }
+      }
+    });
   }
 
   void _setPeriod(PieceworkPeriod p, {DateTime? from, DateTime? to}) {
@@ -679,10 +719,20 @@ class _PieceworkPageState extends State<_PieceworkBody>
     return QuoteSection(
       key: const ValueKey('piecework-rates'),
       title: _tr('Stawki', 'Rates'),
-      subtitle: _tr('Zapamiętane na telefonie. Kwoty przed podatkiem.',
-          'Kept on the phone. Amounts before tax.'),
+      subtitle: _tr('Kwoty przed podatkiem. Zmiany zapisują się na telefonie.',
+          'Amounts before tax. Changes are saved on the phone.'),
       children: [
-        if (_ratesDamaged)
+        if (_ratesReadFailed)
+          QuoteNotice(
+            key: const ValueKey('piecework-rates-read-failed'),
+            color: kFail,
+            text: _tr(
+                'Nie udało się odczytać zapisanych stawek. Widać wartości '
+                    'domyślne; przy zmianie spróbujemy zachować poprzedni zapis.',
+                'Saved rates could not be read. Default values are shown; '
+                    'the previous record will be preserved before a change.'),
+          )
+        else if (_ratesDamaged)
           QuoteNotice(
             key: const ValueKey('piecework-rates-damaged'),
             color: kFail,
@@ -694,6 +744,29 @@ class _PieceworkPageState extends State<_PieceworkBody>
                     'defaults. The raw record is kept under '
                     '"${PieceworkRatesStore.corruptKey}" on the first change.'),
           ),
+        if (_ratesSaving)
+          QuoteNotice(
+            key: const ValueKey('piecework-rates-saving'),
+            text: _tr('Zapisywanie stawek…', 'Saving rates…'),
+          ),
+        if (_ratesSaveFailed) ...[
+          QuoteNotice(
+            key: const ValueKey('piecework-rates-save-failed'),
+            color: kFail,
+            text: _tr(
+                'Nie udało się zapisać stawek. Wynik używa bieżących, '
+                    'niezapisanych kwot. Ponów zapis przed rozliczeniem.',
+                'Rates could not be saved. The result uses current, unsaved '
+                    'amounts. Retry saving before settlement.'),
+          ),
+          OutlinedButton.icon(
+            key: const ValueKey('piecework-rates-retry'),
+            onPressed: () => _queueRatesSave(_rates),
+            icon: const Icon(Icons.refresh),
+            label: Text(_tr('Ponów zapis stawek', 'Retry saving rates')),
+          ),
+          const SizedBox(height: 12),
+        ],
         Wrap(
           spacing: 6,
           runSpacing: 6,
