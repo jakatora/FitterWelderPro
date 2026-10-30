@@ -23,8 +23,19 @@ class _FailingStore extends FlangeCheckStore {
   const _FailingStore();
 
   @override
-  Future<void> save(List<FlangeCheck> checks) async =>
+  Future<void> save(List<FlangeCheck> checks,
+          {bool afterFailedRead = false}) async =>
       throw StateError('brak miejsca');
+}
+
+class _FlakyReadStore extends FlangeCheckStore {
+  var reads = 0;
+
+  @override
+  Future<Object?> readRaw() async {
+    if (reads++ == 0) throw StateError('chwilowy błąd odczytu');
+    return super.readRaw();
+  }
 }
 
 Future<void> _pump(
@@ -475,6 +486,41 @@ void main() {
     await _drainSnackBars(tester);
   });
 
+  testWidgets('błąd odczytu — osobny komunikat i kopia poprawnej historii',
+      (tester) async {
+    final original = encodeFlangeChecks([_saved('old', 'A_PRIVATE', 1)]);
+    await _pump(tester,
+        prefs: {FlangeCheckStore.key: original}, store: _FlakyReadStore());
+    await _tap(tester, 'flange-tab-history');
+    expect(_key('flange-history-read-failed'), findsOneWidget);
+    await _tap(tester, 'flange-tab-check');
+    await _enter(tester, 'flange-tag', 'NOWY');
+    await _tap(tester, 'flange-save');
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(FlangeCheckStore.corruptKey), original);
+    expect(decodeFlangeChecks(prefs.getString(FlangeCheckStore.key)).single.id,
+        isNot('old'));
+    await _drainSnackBars(tester);
+  });
+
+  testWidgets('błąd odczytu i pełne kopie — brak fałszywego sukcesu',
+      (tester) async {
+    final original = encodeFlangeChecks([_saved('old', 'A_PRIVATE', 1)]);
+    await _pump(tester,
+        prefs: {
+          FlangeCheckStore.key: original,
+          FlangeCheckStore.corruptKey: 'pierwsza kopia',
+          '${FlangeCheckStore.corruptKey}_2': 'druga kopia',
+        },
+        store: _FlakyReadStore());
+    await _enter(tester, 'flange-tag', 'NOWY');
+    await _tap(tester, 'flange-save');
+    expect(find.text('Nie udało się zapisać na telefonie.'), findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(FlangeCheckStore.key), original);
+    await _drainSnackBars(tester);
+  });
+
   testWidgets('tolerancje zakładu i „przywróć PCC-1”', (tester) async {
     await _pump(tester);
     await _enter(tester, 'flange-centerline', '1,2');
@@ -670,8 +716,11 @@ void main() {
       await tester.pumpAndSettle();
       await _tap(tester, 'flange-date');
       expect(tester.takeException(), isNull);
-      expect(tester.widget<DatePickerDialog>(find.byType(DatePickerDialog))
-          .initialDate, expected);
+      expect(
+          tester
+              .widget<DatePickerDialog>(find.byType(DatePickerDialog))
+              .initialDate,
+          expected);
     });
   }
 }

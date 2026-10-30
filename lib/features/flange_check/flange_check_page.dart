@@ -86,6 +86,7 @@ class _FlangeCheckPageState extends State<_FlangeCheckBody>
   /// Zapis historii był uszkodzony (kopia trafi pod
   /// [FlangeCheckStore.corruptKey] przed pierwszym nadpisaniem).
   bool _historyDamaged = false;
+  bool _historyReadFailed = false;
 
   final _tag = TextEditingController();
   final _rating = TextEditingController();
@@ -179,6 +180,7 @@ class _FlangeCheckPageState extends State<_FlangeCheckBody>
     setState(() {
       _history = loaded.checks;
       _historyDamaged = loaded.damaged;
+      _historyReadFailed = loaded.readFailed;
       _profileName = name;
       _loading = false;
       if (!_dirty) {
@@ -407,7 +409,11 @@ class _FlangeCheckPageState extends State<_FlangeCheckBody>
   Future<bool> _persist(List<FlangeCheck> list) async {
     if (!widget.session.isCurrent) return false;
     try {
-      await widget.store.save(list);
+      await widget.store.save(list, afterFailedRead: _historyReadFailed);
+      if (mounted && widget.session.isCurrent) {
+        _historyReadFailed = false;
+        _historyDamaged = false;
+      }
       return widget.session.isCurrent;
     } catch (_) {
       if (mounted && widget.session.isCurrent) {
@@ -467,17 +473,17 @@ class _FlangeCheckPageState extends State<_FlangeCheckBody>
         restartOnAccountChange: false,
         originSession: widget.session,
         builder: (_, __) => AlertDialog(
-        title: Text(title),
-        content: Text(body),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: Text(context.tr(pl: 'Anuluj', en: 'Cancel'))),
-          TextButton(
-              key: confirmKey,
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: Text(confirmLabel)),
-        ],
+          title: Text(title),
+          content: Text(body),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: Text(context.tr(pl: 'Anuluj', en: 'Cancel'))),
+            TextButton(
+                key: confirmKey,
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: Text(confirmLabel)),
+          ],
         ),
       ),
     );
@@ -497,8 +503,10 @@ class _FlangeCheckPageState extends State<_FlangeCheckBody>
   }
 
   Future<void> _openDraft(FlangeCheck next) async {
-    if (!widget.session.isCurrent || !await _confirmDiscard() ||
-        !mounted || !widget.session.isCurrent) {
+    if (!widget.session.isCurrent ||
+        !await _confirmDiscard() ||
+        !mounted ||
+        !widget.session.isCurrent) {
       return;
     }
     setState(() {
@@ -519,7 +527,9 @@ class _FlangeCheckPageState extends State<_FlangeCheckBody>
       date: _todayIso,
       now: _now.millisecondsSinceEpoch,
     );
-    if (!await _confirmDiscard() || !mounted || !widget.session.isCurrent) return;
+    if (!await _confirmDiscard() || !mounted || !widget.session.isCurrent) {
+      return;
+    }
     setState(() {
       _draft = copy;
       // Kopia nie jest jeszcze zapisana — wyjście bez zapisu pyta.
@@ -558,12 +568,15 @@ class _FlangeCheckPageState extends State<_FlangeCheckBody>
   }
 
   Future<void> _undoDelete(FlangeCheck c, int index) async {
-    if (!mounted || !widget.session.isCurrent ||
+    if (!mounted ||
+        !widget.session.isCurrent ||
         _history.any((h) => h.id == c.id)) {
       return;
     }
     final restored = [..._history]..insert(index.clamp(0, _history.length), c);
-    if (!await _persist(restored) || !mounted || !widget.session.isCurrent) return;
+    if (!await _persist(restored) || !mounted || !widget.session.isCurrent) {
+      return;
+    }
     setState(() {
       _history = restored;
       if (_draft.id == c.id) _dirty = false;
@@ -1294,7 +1307,18 @@ class _FlangeCheckPageState extends State<_FlangeCheckBody>
       key: const ValueKey('flange-history-list'),
       padding: _pagePadding,
       children: [
-        if (_historyDamaged)
+        if (_historyReadFailed)
+          QuoteNotice(
+            key: const ValueKey('flange-history-read-failed'),
+            color: kFail,
+            icon: Icons.report_problem_outlined,
+            text: context.tr(
+                pl: 'Nie udało się odczytać zapisanej historii. Przed zapisem '
+                    'aplikacja zachowa jej kopię albo wstrzyma zapis.',
+                en: 'Could not read saved history. Before saving, the app '
+                    'will preserve a copy or pause the write.'),
+          )
+        else if (_historyDamaged)
           QuoteNotice(
             key: const ValueKey('flange-history-damaged'),
             color: kFail,
