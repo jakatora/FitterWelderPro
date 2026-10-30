@@ -26,6 +26,28 @@ class _Spy {
   Future<void> pdf(HotWorkPermit p, bool en) async => pdfs.add((p, en));
 }
 
+class _FailingDuplicateStore extends HotWorkStore {
+  const _FailingDuplicateStore();
+
+  @override
+  HotWorkStore withClock(DateTime Function() clock) => this;
+
+  @override
+  Future<void> upsert(HotWorkPermit permit) async =>
+      throw StateError('simulated save failure');
+}
+
+class _FailingDeleteStore extends HotWorkStore {
+  const _FailingDeleteStore();
+
+  @override
+  HotWorkStore withClock(DateTime Function() clock) => this;
+
+  @override
+  Future<void> delete(String id) async =>
+      throw StateError('simulated delete failure');
+}
+
 Future<_Spy> _pump(
   WidgetTester tester, {
   AppLanguage language = AppLanguage.pl,
@@ -33,6 +55,7 @@ Future<_Spy> _pump(
   double textScale = 1.0,
   DateTime Function()? now,
   TimeOfDay? Function()? pickTime,
+  HotWorkStore? store,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -49,12 +72,12 @@ Future<_Spy> _pump(
         child: child!,
       ),
       home: HotWorkPage(
+        store: store ?? const HotWorkStore(),
         now: now ?? () => _now,
         newId: () => 'hw-${++n}',
         shareText: spy.text,
         sharePdf: spy.pdf,
-        pickTime: (_, initial) async =>
-            pickTime == null ? initial : pickTime(),
+        pickTime: (_, initial) async => pickTime == null ? initial : pickTime(),
       ),
     ),
   ));
@@ -140,8 +163,7 @@ HotWorkPermit _yesterday() => HotWorkPermit(
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets(
-      'nowy protokół: odhaczenie punktów, pomiar, zapis i historia',
+  testWidgets('nowy protokół: odhaczenie punktów, pomiar, zapis i historia',
       (tester) async {
     await _pump(tester);
     expect(find.text('Prace pożarowo niebezpieczne'), findsOneWidget);
@@ -226,7 +248,8 @@ void main() {
     await _tickAllBefore(tester);
     expect(await _status(tester),
         'Brak pomiaru atmosfery — wpisz wynik (% DGW) i godzinę.');
-    final card = tester.widget<Material>(find.byKey(const ValueKey('hw-status')));
+    final card =
+        tester.widget<Material>(find.byKey(const ValueKey('hw-status')));
     expect(card.color, isNot(kPass.withValues(alpha: 0.10)));
     expect(find.byIcon(Icons.verified_outlined), findsNothing);
     await _show(tester, 'hw-meas-empty');
@@ -260,8 +283,8 @@ void main() {
 
     // Wartość spoza skali — przycisk nieaktywny.
     await _enter(tester, 'hw-meas-dgw', '150');
-    final add = tester.widget<ButtonStyleButton>(
-        find.byKey(const ValueKey('hw-meas-add')));
+    final add = tester
+        .widget<ButtonStyleButton>(find.byKey(const ValueKey('hw-meas-add')));
     expect(add.onPressed, isNull);
     expect(find.text('Wpisz liczbę 0–100'), findsOneWidget);
   });
@@ -372,7 +395,8 @@ void main() {
     expect(await _status(tester),
         'No gas test result — enter the reading (% LEL) and its time.');
     final before = await _show(tester, 'hw-phase-before');
-    expect(find.descendant(of: before, matching: find.text('BEFORE WORK STARTS')),
+    expect(
+        find.descendant(of: before, matching: find.text('BEFORE WORK STARTS')),
         findsOneWidget);
   });
 
@@ -440,8 +464,7 @@ void main() {
     expect(await _status(tester), startsWith('STOP'));
     // Lista w kolejności czasu: 09:00 nad 10:30.
     final row0 = await _show(tester, 'hw-meas-0');
-    expect(
-        find.descendant(of: row0, matching: find.textContaining('09:00')),
+    expect(find.descendant(of: row0, matching: find.textContaining('09:00')),
         findsOneWidget);
   });
 
@@ -454,8 +477,7 @@ void main() {
     await _tapKey(tester, 'hw-meas-add');
     expect(await _status(tester), startsWith('Stanowisko przygotowane'));
     await _enter(tester, 'hw-limit', '100');
-    expect(
-        find.text('Wpisz 0–10 — przepis nie pozwala na więcej niż 10 % DGW'),
+    expect(find.text('Wpisz 0–10 — przepis nie pozwala na więcej niż 10 % DGW'),
         findsOneWidget);
     expect(await _status(tester), isNot(startsWith('Stanowisko przygotowane')));
   });
@@ -467,8 +489,8 @@ void main() {
     // Tylko pomiar — po usunięciu protokół jest pusty i wypada z historii.
     await _enter(tester, 'hw-meas-dgw', '0');
     await _tapKey(tester, 'hw-meas-add');
-    expect((await const HotWorkStore().load()).single.measurements,
-        hasLength(1));
+    expect(
+        (await const HotWorkStore().load()).single.measurements, hasLength(1));
     await _tapKey(tester, 'hw-meas-del-0');
     await _back(tester);
     expect(find.byKey(const ValueKey('hw-empty')), findsOneWidget);
@@ -496,17 +518,16 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('hw-delete-confirm')));
     await tester.pumpAndSettle();
-    final deleted = {
-      for (var i = 0; i < HotWorkStore.maxEntries; i++) 'p$i'
-    }.difference((await const HotWorkStore().load()).map((p) => p.id).toSet())
+    final deleted = {for (var i = 0; i < HotWorkStore.maxEntries; i++) 'p$i'}
+        .difference(
+            (await const HotWorkStore().load()).map((p) => p.id).toSet())
         .single;
     // W międzyczasie historia znów doszła do 200.
     await const HotWorkStore().upsert(
         HotWorkPermit.fromJson({..._yesterday().toJson(), 'id': 'inny'})!);
     await tester.tap(find.text('Cofnij'));
     await tester.pumpAndSettle();
-    final ids =
-        (await const HotWorkStore().load()).map((p) => p.id).toSet();
+    final ids = (await const HotWorkStore().load()).map((p) => p.id).toSet();
     expect(ids, contains(deleted));
     expect(ids, hasLength(HotWorkStore.maxEntries + 1));
   });
@@ -542,6 +563,70 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(HotWorkStore.corruptBackupKey), '[{"id": "x"');
     expect((await store.load()).single.id, 'old');
+  });
+
+  test('dwie zajęte kopie blokują nadpisanie trzeciego uszkodzenia', () async {
+    SharedPreferences.setMockInitialValues({
+      HotWorkStore.key: 'trzecie uszkodzenie',
+      HotWorkStore.corruptBackupKey: 'pierwsze uszkodzenie',
+      HotWorkStore.corruptLastBackupKey: 'drugie uszkodzenie',
+    });
+    const store = HotWorkStore();
+    await expectLater(store.upsert(_yesterday()), throwsA(isA<StateError>()));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(HotWorkStore.key), 'trzecie uszkodzenie');
+    expect(
+        prefs.getString(HotWorkStore.corruptBackupKey), 'pierwsze uszkodzenie');
+    expect(prefs.getString(HotWorkStore.corruptLastBackupKey),
+        'drugie uszkodzenie');
+  });
+
+  testWidgets('zajęte kopie: ekran zgłasza brak zapisu i zachowuje historię',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      HotWorkStore.key: 'trzecie uszkodzenie',
+      HotWorkStore.corruptBackupKey: 'pierwsze uszkodzenie',
+      HotWorkStore.corruptLastBackupKey: 'drugie uszkodzenie',
+    });
+    await _pump(tester);
+    expect(find.textContaining('nie udało się utworzyć jego kopii'),
+        findsOneWidget);
+    await _tapKey(tester, 'hw-new');
+    await _enter(tester, 'hw-f-location', 'Nowa praca');
+    expect(find.byKey(const ValueKey('hw-save-failed')), findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(HotWorkStore.key), 'trzecie uszkodzenie');
+    expect(prefs.getString(HotWorkStore.corruptBackupKey),
+        'pierwsze uszkodzenie');
+    expect(prefs.getString(HotWorkStore.corruptLastBackupKey),
+        'drugie uszkodzenie');
+  });
+
+  testWidgets('błąd powielenia nie otwiera niezapisanej kopii', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      HotWorkStore.key: jsonEncode(hotWorkPermitsToJson([_yesterday()])),
+    });
+    await _pump(tester, store: const _FailingDuplicateStore());
+    await _tapKey(tester, 'hw-dup-last');
+    expect(find.byKey(const ValueKey('hw-duplicate-failed')), findsOneWidget);
+    expect(find.text('Protokół prac pożarowych'), findsNothing);
+    expect((await const HotWorkStore().load()).map((p) => p.id), ['old']);
+  });
+
+  testWidgets('błąd usuwania zachowuje historię i pokazuje komunikat',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      HotWorkStore.key: jsonEncode(hotWorkPermitsToJson([_yesterday()])),
+    });
+    await _pump(tester, store: const _FailingDeleteStore());
+    await _tapKey(tester, 'hw-menu-0');
+    await tester.tap(find.byKey(const ValueKey('hw-menu-del')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('hw-delete-confirm')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('hw-delete-failed')), findsOneWidget);
+    expect(find.text('HISTORIA (1)'), findsOneWidget);
+    expect((await const HotWorkStore().load()).map((p) => p.id), ['old']);
   });
 
   testWidgets('pomiar starszy niż 30 min i protokół z wczoraj — bez zieleni',
@@ -590,7 +675,8 @@ void main() {
         findsOneWidget);
   });
 
-  testWidgets('ręczna godzina: z przyszłości odrzucona, z wczoraj po '
+  testWidgets(
+      'ręczna godzina: z przyszłości odrzucona, z wczoraj po '
       'potwierdzeniu', (tester) async {
     var clock = DateTime(2026, 10, 17, 14, 0);
     TimeOfDay? picked;
@@ -628,8 +714,8 @@ void main() {
     expect(find.text('Pomiar wczoraj?'), findsOneWidget);
     await tester.tap(find.text('Anuluj'));
     await tester.pumpAndSettle();
-    expect((await const HotWorkStore().load()).single.measurements,
-        hasLength(2));
+    expect(
+        (await const HotWorkStore().load()).single.measurements, hasLength(2));
     await _tapKey(tester, 'hw-meas-add');
     await tester.tap(find.byKey(const ValueKey('hw-yesterday-confirm')));
     await tester.pumpAndSettle();
@@ -638,7 +724,8 @@ void main() {
     expect(saved.map((m) => m.enteredAt), everyElement(isNotNull));
   });
 
-  testWidgets('uszkodzony i przyszły pomiar w zapisie: baner, kopia surowego '
+  testWidgets(
+      'uszkodzony i przyszły pomiar w zapisie: baner, kopia surowego '
       'zapisu', (tester) async {
     final json = _yesterday().toJson();
     json['measurements'] = [
@@ -662,7 +749,8 @@ void main() {
     await _show(tester, 'hw-damaged-notice');
   });
 
-  testWidgets('historia: ostrzeżenie od 180 protokołów, przy 200 nowy odrzucony',
+  testWidgets(
+      'historia: ostrzeżenie od 180 protokołów, przy 200 nowy odrzucony',
       (tester) async {
     List<HotWorkPermit> many(int n) => [
           for (var i = 0; i < n; i++)
@@ -687,7 +775,8 @@ void main() {
     expect(find.text('Protokół prac pożarowych'), findsNothing);
   });
 
-  test('pełna historia: zmiana zapisanego działa, nowy odrzucony, nic nie '
+  test(
+      'pełna historia: zmiana zapisanego działa, nowy odrzucony, nic nie '
       'wypada', () async {
     SharedPreferences.setMockInitialValues({
       HotWorkStore.key: jsonEncode(hotWorkPermitsToJson([
@@ -702,8 +791,8 @@ void main() {
     expect((await store.load()).firstWhere((p) => p.id == first.id).notes,
         'zmiana');
     await expectLater(
-        store.upsert(HotWorkPermit.fromJson(
-            {..._yesterday().toJson(), 'id': 'nowy'})!),
+        store.upsert(
+            HotWorkPermit.fromJson({..._yesterday().toJson(), 'id': 'nowy'})!),
         throwsA(isA<HotWorkStoreFull>()));
     final ids = (await store.load()).map((p) => p.id).toSet();
     expect(ids, hasLength(HotWorkStore.maxEntries));
@@ -714,8 +803,7 @@ void main() {
     ('2019-12-31', DateTime(2020)),
     ('2101-01-01', DateTime(2100)),
   ]) {
-    testWidgets('kalendarz otwiera zapis z datą $date',
-        (tester) async {
+    testWidgets('kalendarz otwiera zapis z datą $date', (tester) async {
       SharedPreferences.setMockInitialValues({
         HotWorkStore.key: jsonEncode(
             hotWorkPermitsToJson([_yesterday().copyWith(date: date)])),
@@ -724,7 +812,8 @@ void main() {
       await _tapKey(tester, 'hw-open-0');
       await _tapKey(tester, 'hw-date');
       expect(tester.takeException(), isNull);
-      final picker = tester.widget<DatePickerDialog>(find.byType(DatePickerDialog));
+      final picker =
+          tester.widget<DatePickerDialog>(find.byType(DatePickerDialog));
       expect(picker.initialDate, expected);
       expect((await const HotWorkStore().load()).single.date, date);
     });

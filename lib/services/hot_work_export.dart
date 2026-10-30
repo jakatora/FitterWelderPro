@@ -43,7 +43,7 @@ class HotWorkExport {
   const HotWorkExport._();
 
   static Future<void> sharePdf(HotWorkPermit permit,
-      {required bool english}) async {
+      {required bool english, bool Function()? canShare}) async {
     final now = DateTime.now();
     final doc = await buildPdfDocument(
       permit: permit,
@@ -59,6 +59,7 @@ class HotWorkExport {
     final dir = await getTemporaryDirectory();
     final file = File('${dir.path}/$name');
     await file.writeAsBytes(bytes, flush: true);
+    if (canShare != null && !canShare()) return;
     await Share.shareXFiles(
       [XFile(file.path, mimeType: 'application/pdf', name: name)],
       subject: hotWorkSubject(english: english),
@@ -84,9 +85,8 @@ class HotWorkExport {
         '${two(generatedAt.minute)}';
     // Stan w chwili wydruku: wiek pomiaru i data protokołu.
     final a = permit.assess(now: generatedAt);
-    final statusColor = a.readiness == HotWorkReadiness.overLimit
-        ? _kFail
-        : _kInk;
+    final statusColor =
+        a.readiness == HotWorkReadiness.overLimit ? _kFail : _kInk;
 
     pw.Widget cell(String t,
             {bool head = false, PdfColor? color, double size = 8}) =>
@@ -131,8 +131,7 @@ class HotWorkExport {
             for (final c in hotWorkChecksInGroup(g))
               pw.TableRow(children: [
                 cell(_markPdf(permit, c, en: en),
-                    head: true,
-                    color: permit.isSettled(c) ? _kInk : _kFail),
+                    head: true, color: permit.isSettled(c) ? _kInk : _kFail),
                 cell(c.source == null
                     ? c.label(en: en)
                     : '${c.label(en: en)}  [${c.source}]'),
@@ -215,7 +214,9 @@ class HotWorkExport {
         pw.Text(
           '${en ? 'Status' : 'Stan'}: ${hotWorkReadinessText(a, en: en)}',
           style: pw.TextStyle(
-              fontSize: 9.5, fontWeight: pw.FontWeight.bold, color: statusColor),
+              fontSize: 9.5,
+              fontWeight: pw.FontWeight.bold,
+              color: statusColor),
         ),
         heading(en ? 'Gas test' : 'Pomiar atmosfery'),
         if (permit.measurements.isEmpty)
@@ -260,7 +261,9 @@ class HotWorkExport {
           for (final (role, name) in [
             (en ? 'Performed by' : 'Wykonawca', permit.contractor),
             (
-              en ? 'Responsible for securing' : 'Odpowiedzialny za zabezpieczenie',
+              en
+                  ? 'Responsible for securing'
+                  : 'Odpowiedzialny za zabezpieczenie',
               permit.securedBy
             ),
             (en ? 'Fire watch' : 'Dozorujący', permit.fireWatch),

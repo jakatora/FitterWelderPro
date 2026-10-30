@@ -21,10 +21,10 @@ import 'hot_work_edit_page.dart';
 import 'hot_work_store.dart';
 import '../../widgets/local_record_scope.dart';
 
-class HotWorkPage extends StatefulWidget {
+class HotWorkPage extends StatelessWidget {
   const HotWorkPage({
     super.key,
-    this.store = const HotWorkStore(),
+    this.store,
     this.now = DateTime.now,
     this.newId,
     this.shareText = hotWorkDefaultShareText,
@@ -32,7 +32,7 @@ class HotWorkPage extends StatefulWidget {
     this.pickTime = hotWorkDefaultPickTime,
   });
 
-  final HotWorkStore store;
+  final HotWorkStore? store;
   final DateTime Function() now;
 
   /// Identyfikator nowego protokołu — wstrzykiwany w testach.
@@ -42,25 +42,60 @@ class HotWorkPage extends StatefulWidget {
   final HotWorkPickTime pickTime;
 
   @override
-  State<HotWorkPage> createState() => _HotWorkPageState();
+  Widget build(BuildContext context) => LocalRecordScope(
+        builder: (_, session) => _HotWorkBody(
+          session: session,
+          store: store ?? HotWorkStore(captureOwner: session.captureOwner),
+          now: now,
+          newId: newId,
+          shareText: shareText,
+          sharePdf: sharePdf,
+          pickTime: pickTime,
+        ),
+      );
+}
+
+class _HotWorkBody extends StatefulWidget {
+  const _HotWorkBody({
+    required this.session,
+    required this.store,
+    required this.now,
+    required this.newId,
+    required this.shareText,
+    required this.sharePdf,
+    required this.pickTime,
+  });
+
+  final LocalRecordSession session;
+  final HotWorkStore store;
+  final DateTime Function() now;
+  final String Function()? newId;
+  final HotWorkShareText shareText;
+  final HotWorkSharePdf sharePdf;
+  final HotWorkPickTime pickTime;
+
+  @override
+  State<_HotWorkBody> createState() => _HotWorkPageState();
 }
 
 enum _ItemAction { duplicate, delete }
 
-class _HotWorkPageState extends State<HotWorkPage>
-    with ToolHandleHost<HotWorkPage> {
+class _HotWorkPageState extends State<_HotWorkBody>
+    with ToolHandleHost<_HotWorkBody> {
   @override
   String get toolId => 'hot_work';
   @override
   Set<String> get supportedFields => const {'permit_id'};
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || !widget.session.isCurrent) return fields.keys.toSet();
     if (fields.length != 1 || fields['permit_id'] is! String) {
       return fields.keys.toSet();
     }
     final load = await _store.loadReport();
     final found = load.permits.where((p) => p.id == fields['permit_id']);
     if (!mounted ||
+        !widget.session.isCurrent ||
         load.damaged ||
         found.length != 1 ||
         ModalRoute.of(context)?.isCurrent != true) {
@@ -87,7 +122,7 @@ class _HotWorkPageState extends State<HotWorkPage>
   void initState() {
     super.initState();
     _tick = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (mounted) setState(() {});
+      if (mounted && widget.session.isCurrent) setState(() {});
     });
     HotWorkStore.changes.addListener(_onStoreChanged);
     unawaited(_reload());
@@ -103,23 +138,27 @@ class _HotWorkPageState extends State<HotWorkPage>
   /// Zapis spoza tego ekranu (np. „Cofnij” po zamknięciu protokołu) —
   /// odśwież listę, gdy jest na wierzchu.
   void _onStoreChanged() {
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     if (ModalRoute.of(context)?.isCurrent ?? true) unawaited(_reload());
   }
 
   Future<void> _reload() async {
     try {
       final load = await _store.loadReport();
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       setState(() {
         _items = load.permits;
-        _loadFailed = false;
-        if (load.damaged) _damage = load;
+        _loadFailed = load.readFailed;
+        if (load.readFailed) {
+          _damage = null;
+        } else if (load.damaged) {
+          _damage = load;
+        }
       });
-      if (!load.damaged) markReady();
+      if (!load.damaged && !load.readFailed) markReady();
     } catch (e) {
       debugPrint('[hot_work] load failed: $e');
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       setState(() {
         _items = const [];
         _loadFailed = true;
@@ -148,37 +187,52 @@ class _HotWorkPageState extends State<HotWorkPage>
   }
 
   Future<void> _open(HotWorkPermit permit) async {
+    if (!widget.session.isCurrent) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => LocalRecordScope(
+          originSession: widget.session,
           restartOnAccountChange: false,
-          builder: (_, __) => HotWorkEditPage(
+          builder: (_, session) => HotWorkEditPage(
                 initial: permit,
                 store: _store,
+                session: session,
                 now: widget.now,
                 shareText: widget.shareText,
                 sharePdf: widget.sharePdf,
                 pickTime: widget.pickTime,
               )),
     ));
-    await _reload();
+    if (mounted && widget.session.isCurrent) await _reload();
   }
 
   Future<void> _new() async {
+    if (!widget.session.isCurrent) return;
     if (_refuseWhenFull()) return;
     await _open(HotWorkPermit.blank(id: _id(), now: widget.now()));
   }
 
   /// „Jak wczoraj”: dane organizacyjne zostają, zaznaczenia i pomiary — nie.
   Future<void> _duplicate(HotWorkPermit source) async {
+    if (!widget.session.isCurrent) return;
     if (_refuseWhenFull()) return;
     final copy = source.duplicateFor(newId: _id(), now: widget.now());
     try {
       await _store.upsert(copy);
     } catch (e) {
-      // Edycja i tak zapisuje się przy każdej zmianie — otwieramy kopię.
       debugPrint('[hot_work] duplicate save failed: $e');
+      if (mounted && widget.session.isCurrent) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          key: const ValueKey('hw-duplicate-failed'),
+          content: Text(context.tr(
+            pl: 'Nie udało się zapisać kopii. Protokół nie został otwarty.',
+            en: 'Could not save the copy. The record was not opened.',
+          )),
+        ));
+        await _reload();
+      }
+      return;
     }
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
@@ -191,31 +245,51 @@ class _HotWorkPageState extends State<HotWorkPage>
   }
 
   Future<void> _delete(HotWorkPermit permit) async {
+    if (!widget.session.isCurrent) return;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title:
-            Text(context.tr(pl: 'Usunąć protokół?', en: 'Delete this record?')),
-        content: Text(_titleOf(permit)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogCtx, false),
-            child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
-          ),
-          FilledButton(
-            key: const ValueKey('hw-delete-confirm'),
-            style: FilledButton.styleFrom(
-                backgroundColor: kFail, foregroundColor: Colors.white),
-            onPressed: () => Navigator.pop(dialogCtx, true),
-            child: Text(context.tr(pl: 'Usuń', en: 'Delete')),
-          ),
-        ],
-      ),
+      builder: (_) => LocalRecordScope(
+          originSession: widget.session,
+          restartOnAccountChange: false,
+          builder: (dialogCtx, __) => AlertDialog(
+                title: Text(context.tr(
+                    pl: 'Usunąć protokół?', en: 'Delete this record?')),
+                content: Text(_titleOf(permit)),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogCtx, false),
+                    child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+                  ),
+                  FilledButton(
+                    key: const ValueKey('hw-delete-confirm'),
+                    style: FilledButton.styleFrom(
+                        backgroundColor: kFail, foregroundColor: Colors.white),
+                    onPressed: () => Navigator.pop(dialogCtx, true),
+                    child: Text(context.tr(pl: 'Usuń', en: 'Delete')),
+                  ),
+                ],
+              )),
     );
-    if (ok != true || !mounted) return;
-    await _store.delete(permit.id);
+    if (ok != true || !mounted || !widget.session.isCurrent) return;
+    try {
+      await _store.delete(permit.id);
+    } catch (e) {
+      debugPrint('[hot_work] delete failed: $e');
+      if (mounted && widget.session.isCurrent) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          key: const ValueKey('hw-delete-failed'),
+          content: Text(context.tr(
+            pl: 'Nie udało się usunąć protokołu — sprawdź historię.',
+            en: 'Could not delete the record — check the history.',
+          )),
+        ));
+        await _reload();
+      }
+      return;
+    }
     await _reload();
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
+    final store = _store;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
@@ -224,12 +298,13 @@ class _HotWorkPageState extends State<HotWorkPage>
         action: SnackBarAction(
           label: context.tr(pl: 'Cofnij', en: 'Undo'),
           onPressed: () async {
+            if (!widget.session.isCurrent) return;
             try {
-              await _store.restore(permit);
+              await store.restore(permit);
             } catch (e) {
               debugPrint('[hot_work] undo delete failed: $e');
             }
-            if (mounted) await _reload();
+            if (mounted && widget.session.isCurrent) await _reload();
           },
         ),
       ));
@@ -247,6 +322,7 @@ class _HotWorkPageState extends State<HotWorkPage>
   Widget build(BuildContext context) {
     final en = context.language == AppLanguage.en;
     final items = _items;
+    final damage = _damage;
     return Scaffold(
       appBar: AppBar(
         title: Text(context.tr(
@@ -271,26 +347,32 @@ class _HotWorkPageState extends State<HotWorkPage>
                     '(PDF) and delete old ones.',
               ),
             ),
-          if (_damage != null)
+          if (damage != null)
             QuoteNotice(
               key: const ValueKey('hw-load-damaged'),
               color: kFail,
               icon: Icons.report_gmailerrorred_outlined,
-              text: _damage!.unreadable
+              text: damage.backupFailed
                   ? context.tr(
-                      pl: 'Zapisanej historii nie da się odczytać — kopia '
-                          'surowego zapisu została w telefonie.',
-                      en: 'The saved history could not be read — a raw copy '
-                          'is kept on the phone.')
-                  : context.tr(
-                      pl: 'Część zapisu była nieczytelna: pominięto '
-                          '${_damage!.droppedPermits} protokołów i '
-                          '${_damage!.droppedMeasurements} pomiarów. Kopia '
-                          'surowego zapisu została w telefonie.',
-                      en: 'Part of the saved data was unreadable: '
-                          '${_damage!.droppedPermits} record(s) and '
-                          '${_damage!.droppedMeasurements} reading(s) '
-                          'skipped. A raw copy is kept on the phone.'),
+                      pl: 'Uszkodzony zapis zachowano, ale nie udało się '
+                          'utworzyć jego kopii. Nie nadpisuj historii.',
+                      en: 'Damaged data was preserved, but its backup could '
+                          'not be created. Do not overwrite the history.')
+                  : damage.unreadable
+                      ? context.tr(
+                          pl: 'Zapisanej historii nie da się odczytać — kopia '
+                              'surowego zapisu została w telefonie.',
+                          en: 'The saved history could not be read — a raw copy '
+                              'is kept on the phone.')
+                      : context.tr(
+                          pl: 'Część zapisu była nieczytelna: pominięto '
+                              '${damage.droppedPermits} protokołów i '
+                              '${damage.droppedMeasurements} pomiarów. Kopia '
+                              'surowego zapisu została w telefonie.',
+                          en: 'Part of the saved data was unreadable: '
+                              '${damage.droppedPermits} record(s) and '
+                              '${damage.droppedMeasurements} reading(s) '
+                              'skipped. A raw copy is kept on the phone.'),
             ),
           QuoteNotice(
             icon: Icons.gavel_outlined,

@@ -20,6 +20,7 @@ import '../../i18n/app_language.dart';
 import '../../services/hot_work_export.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/haptic.dart';
+import '../../widgets/local_record_scope.dart';
 import '../../widgets/number_field.dart';
 import '../quotes/quote_widgets.dart' show FieldPair, QuoteNotice, QuoteSection;
 import 'hot_work_store.dart';
@@ -35,16 +36,29 @@ Future<void> hotWorkDefaultShareText(String text, String subject) async {
   await Share.share(text, subject: subject);
 }
 
-Future<void> hotWorkDefaultSharePdf(HotWorkPermit permit, bool english) =>
-    HotWorkExport.sharePdf(permit, english: english);
+Future<void> hotWorkDefaultSharePdf(HotWorkPermit permit, bool english) {
+  final session = LocalRecordSession.capture();
+  return HotWorkExport.sharePdf(permit,
+      english: english, canShare: () => session.isCurrent);
+}
 
 /// Wybór godziny — wstrzykiwany w testach (domyślnie zegar Material).
 typedef HotWorkPickTime = Future<TimeOfDay?> Function(
     BuildContext context, TimeOfDay initial);
 
 Future<TimeOfDay?> hotWorkDefaultPickTime(
-        BuildContext context, TimeOfDay initial) =>
-    showTimePicker(context: context, initialTime: initial);
+    BuildContext context, TimeOfDay initial) {
+  final session = LocalRecordSession.capture();
+  return showTimePicker(
+    context: context,
+    initialTime: initial,
+    builder: (_, child) => LocalRecordScope(
+      originSession: session,
+      restartOnAccountChange: false,
+      builder: (_, __) => child!,
+    ),
+  );
+}
 
 /// Kolor stanu: czerwony tylko „STOP”, zielony tylko gotowe / zamknięte
 /// DZIŚ; protokół z innego dnia — szary (nigdy zielony).
@@ -68,7 +82,8 @@ class HotWorkEditPage extends StatefulWidget {
   const HotWorkEditPage({
     super.key,
     required this.initial,
-    this.store = const HotWorkStore(),
+    this.store,
+    this.session,
     this.now = DateTime.now,
     this.shareText = hotWorkDefaultShareText,
     this.sharePdf = hotWorkDefaultSharePdf,
@@ -76,7 +91,8 @@ class HotWorkEditPage extends StatefulWidget {
   });
 
   final HotWorkPermit initial;
-  final HotWorkStore store;
+  final HotWorkStore? store;
+  final LocalRecordSession? session;
   final DateTime Function() now;
   final HotWorkShareText shareText;
   final HotWorkSharePdf sharePdf;
@@ -91,13 +107,14 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
   bool _busy = false;
 
   /// Magazyn z zegarem ekranu (pomiary „z przyszłości” przy odczycie).
-  late final HotWorkStore _store = widget.store.withClock(widget.now);
+  late final LocalRecordSession _session;
+  late final HotWorkStore _store;
 
   /// Licznik do identyfikatorów pomiarów wpisanych w tej samej milisekundzie.
   int _seq = 0;
 
-  late final _maxAge = TextEditingController(
-      text: _p.measurementMaxAgeMin?.toString() ?? '');
+  late final _maxAge =
+      TextEditingController(text: _p.measurementMaxAgeMin?.toString() ?? '');
 
   /// Ocena teraz (wiek pomiaru, data protokołu).
   HotWorkAssessment _assess() => _p.assess(now: widget.now());
@@ -131,8 +148,11 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
   @override
   void initState() {
     super.initState();
+    _session = widget.session ?? LocalRecordSession.capture();
+    _store = (widget.store ?? HotWorkStore(captureOwner: _session.captureOwner))
+        .withClock(widget.now);
     _tick = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (mounted) setState(() {});
+      if (mounted && _session.isCurrent) setState(() {});
     });
   }
 
@@ -162,8 +182,9 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
   // ── Zmiany i zapis ─────────────────────────────────────────────────────
 
   void _set(HotWorkPermit Function(HotWorkPermit p) change) {
-    setState(() => _p = change(_p)
-        .copyWith(updatedAt: widget.now().millisecondsSinceEpoch));
+    if (!mounted || !_session.isCurrent) return;
+    setState(() => _p =
+        change(_p).copyWith(updatedAt: widget.now().millisecondsSinceEpoch));
     final snapshot = _p;
     unawaited(_store.upsert(snapshot).catchError((Object e) {
       debugPrint('[hot_work] save failed: $e');
@@ -176,7 +197,7 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
   /// Raz na ekran: protokół bezpieczeństwa, który się nie zapisuje, nie może
   /// tego robić po cichu.
   void _reportSaveFailure({bool full = false}) {
-    if (!mounted || _saveFailureShown) return;
+    if (!mounted || !_session.isCurrent || _saveFailureShown) return;
     _saveFailureShown = true;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       key: ValueKey(full ? 'hw-store-full' : 'hw-save-failed'),
@@ -276,34 +297,40 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
   /// Ręcznie wpisana godzina, która wypada wczoraj — pytanie, czy to na
   /// pewno wczoraj. `true` = potwierdzone.
   Future<bool> _confirmYesterday(String time, DateTime at) async {
+    if (!_session.isCurrent) return false;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title: Text(context.tr(
-            pl: 'Pomiar wczoraj?', en: 'Reading from yesterday?')),
-        content: Text(context.tr(
-          pl: 'Godzina $time jest późniejsza niż teraz, więc pomiar byłby '
-              'z wczoraj (${hotWorkDate(at)}). Czy to na pewno wczoraj?',
-          en: '$time is later than now, so the reading would be from '
-              'yesterday (${hotWorkDate(at)}). Is it really from yesterday?',
-        )),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogCtx, false),
-            child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
-          ),
-          FilledButton(
-            key: const ValueKey('hw-yesterday-confirm'),
-            onPressed: () => Navigator.pop(dialogCtx, true),
-            child: Text(context.tr(pl: 'Tak, wczoraj', en: 'Yes, yesterday')),
-          ),
-        ],
-      ),
+      builder: (_) => LocalRecordScope(
+          originSession: _session,
+          restartOnAccountChange: false,
+          builder: (dialogCtx, __) => AlertDialog(
+                title: Text(context.tr(
+                    pl: 'Pomiar wczoraj?', en: 'Reading from yesterday?')),
+                content: Text(context.tr(
+                  pl: 'Godzina $time jest późniejsza niż teraz, więc pomiar byłby '
+                      'z wczoraj (${hotWorkDate(at)}). Czy to na pewno wczoraj?',
+                  en: '$time is later than now, so the reading would be from '
+                      'yesterday (${hotWorkDate(at)}). Is it really from yesterday?',
+                )),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogCtx, false),
+                    child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+                  ),
+                  FilledButton(
+                    key: const ValueKey('hw-yesterday-confirm'),
+                    onPressed: () => Navigator.pop(dialogCtx, true),
+                    child: Text(
+                        context.tr(pl: 'Tak, wczoraj', en: 'Yes, yesterday')),
+                  ),
+                ],
+              )),
     );
-    return ok == true;
+    return ok == true && _session.isCurrent;
   }
 
   Future<void> _addMeasurement() async {
+    if (!_session.isCurrent) return;
     final v = _pct(_measDgw.text);
     if (v == null) return;
     var now = widget.now();
@@ -329,7 +356,7 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
       }
       if (hotWorkDate(at) != hotWorkDate(now)) {
         if (!await _confirmYesterday(time, at)) return;
-        if (!mounted) return;
+        if (!mounted || !_session.isCurrent) return;
         now = widget.now();
       }
     }
@@ -351,7 +378,8 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
     final after = _assess();
     final minute = m.at! ~/ 60000;
     // Remis w tej samej minucie — mówimy wprost, że decyduje gorszy.
-    if (after.tie && after.latestMeasurement?.at != null &&
+    if (after.tie &&
+        after.latestMeasurement?.at != null &&
         after.latestMeasurement!.at! ~/ 60000 == minute) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
@@ -364,8 +392,7 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
     }
     // Zaległy pomiar nie zmienia stanu — mówimy to wprost, żeby nikt nie
     // myślał, że „0 %” dopisane później zdjęło STOP.
-    if (latestBefore != null &&
-        !identical(after.latestMeasurement, m)) {
+    if (latestBefore != null && !identical(after.latestMeasurement, m)) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(
@@ -384,6 +411,7 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
   /// protokołu i pomiaru — działa także po zamknięciu ekranu; stan ekranu
   /// poprawia tylko, gdy ekran istnieje.
   void _removeMeasurement(HotWorkMeasurement removed) {
+    if (!mounted || !_session.isCurrent) return;
     final before = _p;
     _set((p) => p.removeMeasurement(removed));
     final store = _store;
@@ -391,18 +419,19 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
-        content: Text(context.tr(
-            pl: 'Pomiar usunięty.', en: 'Reading removed.')),
+        content:
+            Text(context.tr(pl: 'Pomiar usunięty.', en: 'Reading removed.')),
         action: SnackBarAction(
           label: context.tr(pl: 'Cofnij', en: 'Undo'),
           onPressed: () {
+            if (!_session.isCurrent) return;
             unawaited(store
                 .update(id, (p) => p.restoreMeasurement(removed),
                     orElse: before)
                 .catchError((Object e) {
               debugPrint('[hot_work] undo failed: $e');
             }));
-            if (mounted) {
+            if (mounted && _session.isCurrent) {
               setState(() => _p = _p.restoreMeasurement(removed));
             }
           },
@@ -411,6 +440,7 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
   }
 
   Future<void> _pickDate() async {
+    if (!_session.isCurrent) return;
     final first = DateTime(2020);
     final last = DateTime(2100);
     var current = DateTime.tryParse(_p.date) ?? widget.now();
@@ -422,13 +452,19 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
       initialDate: current,
       firstDate: first,
       lastDate: last,
+      builder: (_, child) => LocalRecordScope(
+        originSession: _session,
+        restartOnAccountChange: false,
+        builder: (_, __) => child!,
+      ),
     );
-    if (picked == null || !mounted) return;
+    if (picked == null || !mounted || !_session.isCurrent) return;
     _set((p) => p.copyWith(date: hotWorkDate(picked)));
   }
 
   /// Wybór godziny; `null` = anulowano.
   Future<String?> _pickTime(String current) async {
+    if (!_session.isCurrent) return null;
     TimeOfDay initial = TimeOfDay.fromDateTime(widget.now());
     final parts = current.split(':');
     if (parts.length == 2) {
@@ -437,7 +473,7 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
       if (h != null && m != null) initial = TimeOfDay(hour: h, minute: m);
     }
     final picked = await widget.pickTime(context, initial);
-    if (picked == null) return null;
+    if (picked == null || !_session.isCurrent) return null;
     String two(int v) => v.toString().padLeft(2, '0');
     return '${two(picked.hour)}:${two(picked.minute)}';
   }
@@ -445,6 +481,7 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
   // ── Udostępnianie ──────────────────────────────────────────────────────
 
   Future<void> _shareText() async {
+    if (!_session.isCurrent) return;
     final en = context.language == AppLanguage.en;
     unawaited(Haptic.tap());
     await widget.shareText(hotWorkProtocolText(_p, en: en, now: widget.now()),
@@ -452,14 +489,14 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
   }
 
   Future<void> _sharePdf() async {
-    if (_busy) return;
+    if (_busy || !_session.isCurrent) return;
     final en = context.language == AppLanguage.en;
     setState(() => _busy = true);
     try {
       await widget.sharePdf(_p, en);
     } catch (e) {
       debugPrint('[hot_work] pdf export failed: $e');
-      if (mounted) {
+      if (mounted && _session.isCurrent) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(context.tr(
               pl: 'Nie udało się przygotować PDF.',
@@ -467,7 +504,7 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
         ));
       }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted && _session.isCurrent) setState(() => _busy = false);
     }
   }
 
@@ -480,8 +517,8 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
     final today = hotWorkDate(widget.now());
     return Scaffold(
       appBar: AppBar(
-        title: Text(context.tr(
-            pl: 'Protokół prac pożarowych', en: 'Hot work record')),
+        title: Text(
+            context.tr(pl: 'Protokół prac pożarowych', en: 'Hot work record')),
         actions: [
           IconButton(
             key: const ValueKey('hw-share-text'),
@@ -620,15 +657,21 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
           pl: 'Dane z zezwolenia zakładu. Protokół zapisuje się sam.',
           en: 'Details from the site permit. The record saves itself.'),
       children: [
-        _text('permitNo', _permitNo,
+        _text(
+            'permitNo',
+            _permitNo,
             context.tr(pl: 'Nr zezwolenia', en: 'Permit no.'),
             (t) => _set((p) => p.copyWith(permitNo: t))),
-        _text('location', _location,
+        _text(
+            'location',
+            _location,
             context.tr(
                 pl: 'Miejsce (zakład, instalacja, stanowisko)',
                 en: 'Location (site, unit, work point)'),
             (t) => _set((p) => p.copyWith(location: t))),
-        _text('description', _description,
+        _text(
+            'description',
+            _description,
             context.tr(pl: 'Opis pracy', en: 'Work description'),
             (t) => _set((p) => p.copyWith(description: t)),
             maxLines: 4),
@@ -666,7 +709,7 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
             value: _p.validFrom.isEmpty ? '—' : _p.validFrom,
             onTap: () async {
               final t = await _pickTime(_p.validFrom);
-              if (t != null && mounted) {
+              if (t != null && mounted && _session.isCurrent) {
                 _set((p) => p.copyWith(validFrom: t));
               }
             },
@@ -678,25 +721,34 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
             value: _p.validTo.isEmpty ? '—' : _p.validTo,
             onTap: () async {
               final t = await _pickTime(_p.validTo);
-              if (t != null && mounted) _set((p) => p.copyWith(validTo: t));
+              if (t != null && mounted && _session.isCurrent) {
+                _set((p) => p.copyWith(validTo: t));
+              }
             },
           ),
         ),
         const SizedBox(height: 12),
-        _text('contractor', _contractor,
+        _text(
+            'contractor',
+            _contractor,
             context.tr(pl: 'Wykonawca', en: 'Performed by'),
             (t) => _set((p) => p.copyWith(contractor: t))),
-        _text('securedBy', _securedBy,
+        _text(
+            'securedBy',
+            _securedBy,
             context.tr(
                 pl: 'Odpowiedzialny za zabezpieczenie',
                 en: 'Responsible for securing the area'),
             (t) => _set((p) => p.copyWith(securedBy: t))),
-        _text('fireWatch', _fireWatch,
+        _text(
+            'fireWatch',
+            _fireWatch,
             context.tr(pl: 'Dozorujący', en: 'Fire watch'),
             (t) => _set((p) => p.copyWith(fireWatch: t))),
-        _text('issuer', _issuer,
-            context.tr(
-                pl: 'Wystawiający zezwolenie', en: 'Permit issuer'),
+        _text(
+            'issuer',
+            _issuer,
+            context.tr(pl: 'Wystawiający zezwolenie', en: 'Permit issuer'),
             (t) => _set((p) => p.copyWith(issuer: t))),
       ],
     );
@@ -773,8 +825,7 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
             helperMaxLines: 4,
             errorText: _limitError(_limit.text),
           ),
-          onChanged: (t) =>
-              _set((p) => p.copyWith(dgwLimitPct: _limitPct(t))),
+          onChanged: (t) => _set((p) => p.copyWith(dgwLimitPct: _limitPct(t))),
         ),
         const SizedBox(height: 12),
         if (_p.measurements.isEmpty)
@@ -838,7 +889,9 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
               suffixText: unit,
               errorText: _pctError(_measDgw.text),
             ),
-            onChanged: (_) => setState(() {}),
+            onChanged: (_) {
+              if (_session.isCurrent) setState(() {});
+            },
           ),
           right: _PickButton(
             key: const ValueKey('hw-meas-time'),
@@ -847,7 +900,9 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
             value: _measTime ?? context.tr(pl: 'teraz', en: 'now'),
             onTap: () async {
               final t = await _pickTime(_measTime ?? '');
-              if (t != null && mounted) setState(() => _measTime = t);
+              if (t != null && mounted && _session.isCurrent) {
+                setState(() => _measTime = t);
+              }
             },
           ),
         ),
@@ -864,8 +919,8 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
         const SizedBox(height: 10),
         FilledButton.icon(
           key: const ValueKey('hw-meas-add'),
-          style: FilledButton.styleFrom(
-              minimumSize: const Size(0, kMinTapTarget)),
+          style:
+              FilledButton.styleFrom(minimumSize: const Size(0, kMinTapTarget)),
           onPressed: newValue == null ? null : _addMeasurement,
           icon: const Icon(Icons.add),
           label: Text(context.tr(pl: 'Dodaj pomiar', en: 'Add reading')),
@@ -889,8 +944,8 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
             padding: const EdgeInsets.only(bottom: 8),
             child: Text(
               '• ${s.label(en: en)}',
-              style: const TextStyle(
-                  fontSize: 12.5, color: kTextSec, height: 1.4),
+              style:
+                  const TextStyle(fontSize: 12.5, color: kTextSec, height: 1.4),
             ),
           ),
       ],
@@ -957,7 +1012,8 @@ class _StatusCard extends StatelessWidget {
         en
             ? 'record dated ${a.recordDate} — out of date'
             : 'protokół z dnia ${a.recordDate} — nieaktualny',
-      if (a.measurementMissing) en ? 'no gas reading' : 'brak pomiaru atmosfery',
+      if (a.measurementMissing)
+        en ? 'no gas reading' : 'brak pomiaru atmosfery',
       if (!a.measurementMissing && a.measurementStale && !a.overLimit)
         en
             ? 'gas test out of date (over ${a.maxAgeMin} min)'
@@ -1140,8 +1196,7 @@ class _CheckTile extends StatelessWidget {
                       TextButton(
                         key: ValueKey('hw-na-${check.id}'),
                         style: TextButton.styleFrom(
-                          minimumSize:
-                              const Size(kMinTapTarget, kMinTapTarget),
+                          minimumSize: const Size(kMinTapTarget, kMinTapTarget),
                           foregroundColor: na ? kArc : kTextSec,
                         ),
                         onPressed: onNa,
