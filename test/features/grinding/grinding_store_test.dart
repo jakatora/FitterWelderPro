@@ -170,4 +170,19 @@ void main() {
     expect(prefs.getString(kGrindersCorruptPrefsKey), broken);
     expect((await store.load()).grinders, [_a]);
   });
+
+  test('zajęta kopia blokuje nadpisanie innego uszkodzonego zapisu', () async {
+    const broken = 'drugie uszkodzenie';
+    const earlier = 'pierwsze uszkodzenie';
+    SharedPreferences.setMockInitialValues({
+      kGrindersPrefsKey: broken,
+      kGrindersCorruptPrefsKey: earlier,
+    });
+
+    await expectLater(store.save([_a]), throwsA(isA<StateError>()));
+    await expectLater(store.upsert(_b), throwsA(isA<StateError>()));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(kGrindersPrefsKey), broken);
+    expect(prefs.getString(kGrindersCorruptPrefsKey), earlier);
+  });
 }

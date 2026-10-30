@@ -19,23 +19,25 @@ import '../../domain/grinding/stripe_reference.dart';
 import '../../assistant/core/tool_bridge.dart';
 import '../../domain/grinding/grinding_checklist.dart';
 import '../../i18n/app_language.dart';
+import '../../services/owned_prefs.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/local_record_scope.dart';
 import '../flange_check/flange_check_widgets.dart' show ChoiceRow;
 import '../quotes/quote_widgets.dart'
     show FieldPair, QuoteNotice, QuoteNumberField, QuoteSection;
 import 'grinding_store.dart';
 import 'grinding_widgets.dart';
 
-class GrindingPage extends StatefulWidget {
+class GrindingPage extends StatelessWidget {
   const GrindingPage({
     super.key,
-    this.store = const GrinderStore(),
+    this.store,
     this.now = DateTime.now,
     this.newId,
   });
 
   /// „Moje szlifierki” — test podmienia klucze.
-  final GrinderStore store;
+  final GrinderStore? store;
 
   /// „Dziś” — do sprawdzenia daty ważności (wstrzykiwane w testach).
   final DateTime Function() now;
@@ -44,11 +46,37 @@ class GrindingPage extends StatefulWidget {
   final String Function()? newId;
 
   @override
-  State<GrindingPage> createState() => _GrindingPageState();
+  Widget build(BuildContext context) => LocalRecordScope(
+        builder: (_, session) => _GrindingBody(
+          session: session,
+          store: store ??
+              GrinderStore(
+                  openPrefs: () => OwnedPrefs.instance(session.captureOwner)),
+          now: now,
+          newId: newId,
+        ),
+      );
 }
 
-class _GrindingPageState extends State<GrindingPage>
-    with SingleTickerProviderStateMixin, ToolHandleHost<GrindingPage> {
+class _GrindingBody extends StatefulWidget {
+  const _GrindingBody({
+    required this.session,
+    required this.store,
+    required this.now,
+    required this.newId,
+  });
+
+  final LocalRecordSession session;
+  final GrinderStore store;
+  final DateTime Function() now;
+  final String Function()? newId;
+
+  @override
+  State<_GrindingBody> createState() => _GrindingPageState();
+}
+
+class _GrindingPageState extends State<_GrindingBody>
+    with SingleTickerProviderStateMixin, ToolHandleHost<_GrindingBody> {
   SpeedStripe? _referenceStripe;
   final _checkScroll = ScrollController();
   @override
@@ -57,6 +85,7 @@ class _GrindingPageState extends State<GrindingPage>
   Set<String> get supportedFields => const {'reference_stripe'};
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || !widget.session.isCurrent) return fields.keys.toSet();
     final stripe = SpeedStripe.values
         .where((v) => v.name == fields['reference_stripe'])
         .firstOrNull;
@@ -66,7 +95,9 @@ class _GrindingPageState extends State<GrindingPage>
       _tabs.index = 0;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _checkScroll.hasClients) _checkScroll.jumpTo(0);
+      if (mounted && widget.session.isCurrent && _checkScroll.hasClients) {
+        _checkScroll.jumpTo(0);
+      }
     });
     return {};
   }
@@ -137,7 +168,7 @@ class _GrindingPageState extends State<GrindingPage>
 
   Future<void> _loadGrinders() async {
     final r = await widget.store.load();
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     setState(() {
       _grinders = r.grinders;
       // Uszkodzony zapis zostaje zgłoszony do końca wizyty na ekranie.
@@ -179,6 +210,7 @@ class _GrindingPageState extends State<GrindingPage>
       );
 
   void _snack(String text, {SnackBarAction? action}) {
+    if (!mounted || !widget.session.isCurrent) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(text), action: action));
@@ -195,6 +227,7 @@ class _GrindingPageState extends State<GrindingPage>
       _grinderD! <= kMaxDiameterMm;
 
   void _useGrinder(GrinderProfile g) {
+    if (!mounted || !widget.session.isCurrent) return;
     // Pole z fokusem nie przyjmuje wartości z zewnątrz (QuoteNumberField) —
     // zdejmujemy fokus, zanim wczytamy szlifierkę.
     FocusManager.instance.primaryFocus?.unfocus();
@@ -211,19 +244,23 @@ class _GrindingPageState extends State<GrindingPage>
 
   void _saveFailed(Object e) {
     debugPrint('[grinding] save failed: $e');
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     _snack(e is GrinderStoreFull
         ? context.tr(
             pl: 'Najwyżej $kMaxGrinders szlifierek — usuń którąś.',
             en: 'At most $kMaxGrinders grinders — delete one first.')
         : context.tr(
-            pl: 'Nie udało się zapisać szlifierek — pamięć niedostępna.',
-            en: 'Could not save the grinders — storage unavailable.'));
+            pl: 'Nie udało się zapisać szlifierek — istniejące dane zachowano.',
+            en: 'Could not save the grinders — existing data was preserved.'));
   }
 
   Future<String?> _askName(String initial) => showDialog<String>(
         context: context,
-        builder: (_) => _NameDialog(initial: initial),
+        builder: (_) => LocalRecordScope(
+          originSession: widget.session,
+          restartOnAccountChange: false,
+          builder: (_, __) => _NameDialog(initial: initial),
+        ),
       );
 
   bool _requireComplete() {
@@ -244,7 +281,7 @@ class _GrindingPageState extends State<GrindingPage>
     final suggested =
         GrinderProfile.defaultName(_grinderD!, _grinderRpm!, en: _en);
     final name = await _askName(suggested);
-    if (name == null || !mounted) return;
+    if (name == null || !mounted || !widget.session.isCurrent) return;
     final g = GrinderProfile(
       id: _newId(),
       name: name.trim().isEmpty ? suggested : name.trim(),
@@ -261,7 +298,7 @@ class _GrindingPageState extends State<GrindingPage>
     final loaded = _loaded;
     if (loaded == null || !_requireComplete()) return;
     final name = await _askName(loaded.name);
-    if (name == null || !mounted) return;
+    if (name == null || !mounted || !widget.session.isCurrent) return;
     final g = GrinderProfile(
       id: loaded.id,
       name: name.trim().isEmpty ? loaded.name : name.trim(),
@@ -275,9 +312,10 @@ class _GrindingPageState extends State<GrindingPage>
   }
 
   Future<void> _upsert(GrinderProfile g, {required String done}) async {
+    if (!widget.session.isCurrent) return;
     try {
       final list = await widget.store.upsert(g);
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       setState(() {
         _grinders = list;
         _grindersUnavailable = false;
@@ -290,6 +328,7 @@ class _GrindingPageState extends State<GrindingPage>
   }
 
   Future<void> _deleteGrinder(GrinderProfile g) async {
+    if (!widget.session.isCurrent) return;
     // Magazyn liczy zmianę od listy zapisanej w chwili zapisu (kolejka) —
     // dwa szybkie usunięcia nie wskrzeszają pierwszego.
     final store = widget.store;
@@ -300,7 +339,7 @@ class _GrindingPageState extends State<GrindingPage>
       _saveFailed(e);
       return;
     }
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     setState(() {
       if (removal != null) _grinders = removal.remaining;
       if (_loadedId == g.id) _loadedId = null;
@@ -319,9 +358,10 @@ class _GrindingPageState extends State<GrindingPage>
   }
 
   Future<void> _undoDelete(GrinderStore store, GrinderRemoval r) async {
+    if (!widget.session.isCurrent) return;
     try {
       final list = await store.restore(r.profile, r.index);
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       setState(() => _grinders = list);
     } catch (e) {
       _saveFailed(e);

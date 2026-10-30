@@ -407,6 +407,24 @@ void main() {
     expect(prefs.getString(kGrindersCorruptPrefsKey), raw);
   });
 
+  testWidgets('zajęta kopia zatrzymuje zapis i pokazuje komunikat',
+      (tester) async {
+    const broken = 'drugie uszkodzenie';
+    const earlier = 'pierwsze uszkodzenie';
+    SharedPreferences.setMockInitialValues({
+      kGrindersPrefsKey: broken,
+      kGrindersCorruptPrefsKey: earlier,
+    });
+    await _pump(tester);
+    await _enter(tester, 'gr-grinder-rpm', '11000');
+    await _enter(tester, 'gr-grinder-d', '125');
+    await _saveAs(tester, 'Nowa');
+    expect(find.textContaining('istniejące dane zachowano'), findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(kGrindersPrefsKey), broken);
+    expect(prefs.getString(kGrindersCorruptPrefsKey), earlier);
+  });
+
   testWidgets(
       'pamięć niedostępna → osobny baner (nie „uszkodzony zapis”), '
       'sprawdzenie działa', (tester) async {

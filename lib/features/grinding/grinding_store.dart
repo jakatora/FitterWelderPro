@@ -187,18 +187,23 @@ class GrinderStore {
     if (!ok) throw StateError('SharedPreferences.setString($key) failed');
   }
 
-  /// Przed nadpisaniem: kopia, jeśli pod kluczem leży coś uszkodzonego,
-  /// a kopii jeszcze nie ma.
+  /// Przed nadpisaniem: zachowaj dokładnie bieżący uszkodzony zapis.
+  /// Jeśli miejsce kopii zawiera inną wartość albo zapis kopii się nie uda,
+  /// nie wolno nadpisać jedynej pozostałej surowej wartości.
   Future<void> _backupIfDamaged(SharedPreferences prefs) async {
-    final Object? raw;
-    try {
-      raw = prefs.get(key);
-    } catch (_) {
-      return;
-    }
+    final raw = prefs.get(key);
     if (raw == null) return;
     if (raw is String && !decodeGrinders(raw).lossy) return;
-    await _backup(prefs, raw is String ? raw : _describe(raw));
+    final copy = raw is String ? raw : _describe(raw);
+    final existing = prefs.get(corruptKey);
+    if (existing != null) {
+      if (existing == copy) return;
+      throw StateError('Backup for $key contains different data');
+    }
+    final ok = await prefs.setString(corruptKey, copy);
+    if (!ok || prefs.get(corruptKey) != copy) {
+      throw StateError('Could not preserve damaged $key before writing');
+    }
   }
 
   /// Zapis kopii tylko wtedy, gdy jej jeszcze nie ma — pierwsza uszkodzona
