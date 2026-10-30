@@ -3,6 +3,7 @@
 // zapis; inny typ wartości w SharedPreferences nie wywala odczytu.
 
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -22,6 +23,23 @@ class _RefuseWritePreferences extends InMemorySharedPreferencesStore {
   @override
   Future<bool> setValue(String valueType, String key, Object value) async {
     if (key == refusedKey) return false;
+    return super.setValue(valueType, key, value);
+  }
+}
+
+class _DelayFirstWritePreferences extends InMemorySharedPreferencesStore {
+  _DelayFirstWritePreferences() : super.empty();
+
+  final firstStarted = Completer<void>();
+  final releaseFirst = Completer<void>();
+  var writes = 0;
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    if (key == 'flutter.$kElectrodeBatchesPrefsKey' && writes++ == 0) {
+      firstStarted.complete();
+      await releaseFirst.future;
+    }
     return super.setValue(valueType, key, value);
   }
 }
@@ -106,6 +124,43 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload();
     expect(prefs.containsKey(kElectrodeBatchesPrefsKey), isFalse);
+  });
+
+  test('odczyt po odmowie zapisu pokazuje trwałą, starszą listę', () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = _RefuseWritePreferences();
+    SharedPreferencesStorePlatform.instance = disk;
+    await disk.setValue('String', 'flutter.$kElectrodeBatchesPrefsKey',
+        encodeBatches([_batch('stara')]));
+    disk.refusedKey = 'flutter.$kElectrodeBatchesPrefsKey';
+
+    await expectLater(store.save([_batch('nowa')]), throwsA(isA<StateError>()));
+    expect((await store.load()).single.id, 'stara');
+  });
+
+  test('późny pierwszy zapis nie zastępuje nowszej listy partii', () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = _DelayFirstWritePreferences();
+    SharedPreferencesStorePlatform.instance = disk;
+    addTearDown(() {
+      if (!disk.releaseFirst.isCompleted) {
+        disk.releaseFirst.complete();
+      }
+    });
+
+    final first = store.save([_batch('a')]);
+    await disk.firstStarted.future;
+    final second = store.save([_batch('a'), _batch('b')]);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    disk.releaseFirst.complete();
+    await Future.wait([first, second]);
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(
+        decodeBatches(prefs.getString(kElectrodeBatchesPrefsKey))
+            .map((batch) => batch.id),
+        ['a', 'b']);
   });
 
   test('inny typ wartości w prefs (liczba, lista) nie wywala odczytu',

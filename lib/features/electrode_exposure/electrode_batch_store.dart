@@ -29,12 +29,16 @@ class ElectrodeBatchStore {
   List<String> get _backupKeys =>
       [corruptKey, '${corruptKey}_2', '${corruptKey}_3'];
 
+  static Future<void>? _tail;
+  static int _inFlight = 0;
+
   Future<List<ElectrodeBatch>> load() async {
     final prefs = await OwnedPrefs.instance(captureOwner);
     // `get`, nie `getString`: pod kluczem może leżeć inny typ (ręczna
     // edycja, stara wersja) — `getString` by wtedy rzucił.
     final Object? raw;
     try {
+      await prefs.reload();
       raw = prefs.get(key);
     } catch (_) {
       return [];
@@ -49,8 +53,39 @@ class ElectrodeBatchStore {
     return result.batches;
   }
 
-  Future<void> save(List<ElectrodeBatch> batches) async {
-    final prefs = await OwnedPrefs.instance(captureOwner);
+  /// Zachowuje kolejność szybkich zmian, także gdy starszy zapis kończy się
+  /// później. Właściciel jest uchwycony przed oczekiwaniem w kolejce.
+  Future<void> save(List<ElectrodeBatch> batches) {
+    final ownerFuture = (captureOwner ?? LocalRecordOwner.capture)();
+    final previous = _inFlight > 0 ? _tail : null;
+    final snapshot = List<ElectrodeBatch>.of(batches);
+    _inFlight++;
+    final Future<void> result;
+    if (previous == null) {
+      result = _saveCaptured(snapshot, ownerFuture);
+    } else {
+      result = Future.wait<Object?>([previous, ownerFuture]).then((values) {
+        final owner = values[1]! as LocalRecordOwner;
+        owner.requireCurrent();
+        return _saveNow(snapshot, owner);
+      });
+    }
+    _tail = result
+        .then<void>((_) {}, onError: (Object _) {})
+        .whenComplete(() => _inFlight--);
+    return result;
+  }
+
+  Future<void> _saveCaptured(List<ElectrodeBatch> batches,
+      Future<LocalRecordOwner> ownerFuture) async {
+    final owner = await ownerFuture;
+    owner.requireCurrent();
+    await _saveNow(batches, owner);
+  }
+
+  Future<void> _saveNow(
+      List<ElectrodeBatch> batches, LocalRecordOwner owner) async {
+    final prefs = await OwnedPrefs.instance(() async => owner);
     // setString może zwrócić false, zostawiając w pamięci podręcznej
     // optymistyczną wartość. Przed ochroną starego zapisu czytamy dysk.
     await prefs.reload();

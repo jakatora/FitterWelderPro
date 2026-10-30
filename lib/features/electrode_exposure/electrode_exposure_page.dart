@@ -148,6 +148,8 @@ class _ElectrodeExposurePageState extends State<_ElectrodeExposureBody>
 
   List<ElectrodeBatch> _batches = const [];
   bool _loading = true;
+  bool _saving = false;
+  Completer<void>? _saveDone;
   bool _remindersOn = false;
   LogRange _range = LogRange.today;
   Timer? _ticker;
@@ -205,24 +207,41 @@ class _ElectrodeExposurePageState extends State<_ElectrodeExposureBody>
     // w ScaffoldMessengerze aplikacji) — żadnego setState; cofnięcie po
     // wyjściu idzie przez [_undoBatch] wprost na zapisie.
     if (!mounted || !widget.session.isCurrent) return false;
+    if (_saving) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          key: const ValueKey('electrode-save-in-progress'),
+          content: Text(context.tr(
+              pl: 'Trwa zapis partii. Ponów akcję za chwilę.',
+              en: 'Saving this batch. Try again in a moment.'))));
+      return false;
+    }
+    _saving = true;
+    final saveDone = Completer<void>();
+    _saveDone = saveDone;
     final previous = _batches;
     setState(() => _batches = next);
     try {
-      await widget.store.save(next);
-    } catch (_) {
-      if (mounted && widget.session.isCurrent) {
-        if (identical(_batches, next)) setState(() => _batches = previous);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            key: const ValueKey('electrode-save-failed'),
-            content: Text(context.tr(
-                pl: 'Nie udało się zapisać dziennika.',
-                en: 'Could not save the log.'))));
+      try {
+        await widget.store.save(next);
+      } catch (_) {
+        if (mounted && widget.session.isCurrent) {
+          setState(() => _batches = previous);
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              key: const ValueKey('electrode-save-failed'),
+              content: Text(context.tr(
+                  pl: 'Nie udało się zapisać dziennika.',
+                  en: 'Could not save the log.'))));
+        }
+        return false;
       }
-      return false;
+      if (!mounted || !widget.session.isCurrent) return false;
+      await _reschedule();
+      return true;
+    } finally {
+      _saving = false;
+      _saveDone = null;
+      saveDone.complete();
     }
-    if (!mounted || !widget.session.isCurrent) return false;
-    await _reschedule();
-    return true;
   }
 
   String _newId() {
@@ -306,6 +325,11 @@ class _ElectrodeExposurePageState extends State<_ElectrodeExposureBody>
     final english = _en;
     final session = widget.session;
     return () async {
+      if (!session.isCurrent) return;
+      // Akcja snackbar znika po kliknięciu. Jeśli inna partia właśnie się
+      // zapisuje, cofnięcie czeka zamiast zniknąć jako „zapis w toku”.
+      final pendingSave = _saveDone?.future;
+      if (pendingSave != null) await pendingSave;
       if (!session.isCurrent) return;
       if (mounted) {
         await _commit(restoreBatch(_batches, previous));

@@ -6,6 +6,7 @@
 // Zegar wstrzykiwany: E7018 wyjęte 07:00 → limit 4 h (AWS D1.1 Tab. 7.1)
 // → koniec 11:00, ostrzeżenie od 10:30.
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -53,6 +54,38 @@ class _FailingElectrodeBatchStore extends ElectrodeBatchStore {
   @override
   Future<void> save(List<ElectrodeBatch> batches) async {
     throw StateError('Zapis odmówiony');
+  }
+}
+
+class _DelayedFirstSaveStore extends ElectrodeBatchStore {
+  final firstStarted = Completer<void>();
+  final releaseFirst = Completer<void>();
+  var calls = 0;
+
+  @override
+  Future<void> save(List<ElectrodeBatch> batches) async {
+    if (calls++ == 0) {
+      firstStarted.complete();
+      await releaseFirst.future;
+      await super.save(batches);
+      return;
+    }
+    await super.save(batches);
+  }
+}
+
+class _DelayedSecondSaveStore extends ElectrodeBatchStore {
+  final secondStarted = Completer<void>();
+  final releaseSecond = Completer<void>();
+  var calls = 0;
+
+  @override
+  Future<void> save(List<ElectrodeBatch> batches) async {
+    if (calls++ == 1) {
+      secondStarted.complete();
+      await releaseSecond.future;
+    }
+    await super.save(batches);
   }
 }
 
@@ -256,6 +289,36 @@ void main() {
             .single
             .isClosed,
         isFalse);
+  });
+
+  testWidgets('kolejna akcja czeka na zapis i nie planuje fikcyjnego alarmu',
+      (tester) async {
+    await seed([_seed('b1')], remindersOn: true);
+    clock.now = at(8);
+    final store = _DelayedFirstSaveStore();
+    addTearDown(() {
+      if (!store.releaseFirst.isCompleted) store.releaseFirst.complete();
+    });
+    await pump(tester, store: store);
+
+    await tapKey(tester, 'electrode-oven-b1');
+    await store.firstStarted.future;
+    clock.now = at(8, 30);
+    await tapKey(tester, 'electrode-out-again-b1');
+    expect(store.calls, 1);
+    expect(find.byKey(const ValueKey('electrode-save-in-progress')),
+        findsOneWidget);
+
+    store.releaseFirst.complete();
+    await tester.pumpAndSettle();
+    expect(_state('b1', ExposureState.inOven), findsOneWidget);
+    expect(platform.scheduled.last, isEmpty);
+    final prefs = await SharedPreferences.getInstance();
+    expect(
+        decodeBatches(prefs.getString(kElectrodeBatchesPrefsKey))
+            .single
+            .isInOven,
+        isTrue);
   });
 
   testWidgets('przesunięcie zegara: OK → kończy się → przekroczony',
@@ -600,6 +663,33 @@ void main() {
     expect(_state('a', ExposureState.ok), findsOneWidget);
     expect(_state('b', ExposureState.inOven), findsOneWidget,
         reason: 'cofnięcie A nie rusza B');
+    final prefs = await SharedPreferences.getInstance();
+    final saved = decodeBatches(prefs.getString(kElectrodeBatchesPrefsKey));
+    expect(saved.firstWhere((x) => x.id == 'a').isClosed, isFalse);
+    expect(saved.firstWhere((x) => x.id == 'b').isInOven, isTrue);
+  });
+
+  testWidgets('Cofnij czeka na zapis innej partii zamiast znikać',
+      (tester) async {
+    await seed([_seed('a'), _seed('b')]);
+    clock.now = at(9);
+    final store = _DelayedSecondSaveStore();
+    addTearDown(() {
+      if (!store.releaseSecond.isCompleted) store.releaseSecond.complete();
+    });
+    await pump(tester, store: store);
+
+    await tapKey(tester, 'electrode-scrap-a');
+    expect(find.text('Cofnij'), findsOneWidget);
+    await tapKey(tester, 'electrode-oven-b');
+    await store.secondStarted.future;
+    await tester.tap(find.text('Cofnij'));
+    await tester.pumpAndSettle();
+
+    store.releaseSecond.complete();
+    await tester.pumpAndSettle();
+    expect(_state('a', ExposureState.ok), findsOneWidget);
+    expect(_state('b', ExposureState.inOven), findsOneWidget);
     final prefs = await SharedPreferences.getInstance();
     final saved = decodeBatches(prefs.getString(kElectrodeBatchesPrefsKey));
     expect(saved.firstWhere((x) => x.id == 'a').isClosed, isFalse);
