@@ -144,6 +144,7 @@ class _InterpassPageState extends State<_OwnedInterpassPage>
 
   List<InterpassWeld>? _items;
   bool _corrupt = false;
+  bool _backupFailed = false;
   bool _loadFailed = false;
   InterpassUnit _unit = InterpassUnit.c;
 
@@ -163,17 +164,18 @@ class _InterpassPageState extends State<_OwnedInterpassPage>
     }
     try {
       final load = await widget.store.load();
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       setState(() {
         _items = load.welds;
         _corrupt = load.corrupt;
-        _loadFailed = false;
+        _backupFailed = load.backupFailed;
+        _loadFailed = load.readFailed;
         _unit = unit;
       });
-      if (!load.corrupt) markReady();
+      if (!load.corrupt && !load.readFailed) markReady();
     } catch (e) {
       debugPrint('[interpass] load failed: $e');
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       setState(() {
         _items = const [];
         _loadFailed = true;
@@ -209,6 +211,19 @@ class _InterpassPageState extends State<_OwnedInterpassPage>
   }
 
   Future<void> _new() async {
+    if (!widget.session.isCurrent) return;
+    if (_backupFailed || _loadFailed) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          key: const ValueKey('ip-store-unavailable'),
+          content: Text(context.tr(
+            pl: 'Nie można bezpiecznie zapisać rejestru. Dane pozostają w telefonie; sprawdź historię.',
+            en: 'The log cannot be saved safely. The data remains on this phone; check the history.',
+          )),
+        ));
+      return;
+    }
     if ((_items?.length ?? 0) >= InterpassStore.maxWelds) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
@@ -256,14 +271,27 @@ class _InterpassPageState extends State<_OwnedInterpassPage>
                 ],
               )),
     );
-    if (ok != true || !mounted) return;
+    if (ok != true || !mounted || !widget.session.isCurrent) return;
     try {
       await widget.store.delete(weld.id);
     } catch (e) {
       debugPrint('[interpass] delete failed: $e');
+      if (mounted && widget.session.isCurrent) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            key: const ValueKey('ip-delete-failed'),
+            content: Text(context.tr(
+              pl: 'Nie udało się usunąć spoiny — sprawdź rejestr.',
+              en: 'Could not delete the weld — check the log.',
+            )),
+          ));
+        await _reload();
+      }
+      return;
     }
     await _reload();
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
@@ -271,12 +299,13 @@ class _InterpassPageState extends State<_OwnedInterpassPage>
         action: SnackBarAction(
           label: context.tr(pl: 'Cofnij', en: 'Undo'),
           onPressed: () async {
+            if (!widget.session.isCurrent) return;
             try {
               await widget.store.upsert(weld);
             } catch (e) {
               debugPrint('[interpass] undo failed: $e');
             }
-            await _reload();
+            if (mounted && widget.session.isCurrent) await _reload();
           },
         ),
       ));
@@ -309,18 +338,23 @@ class _InterpassPageState extends State<_OwnedInterpassPage>
             icon: Icons.thermostat_outlined,
             text: interpassDisclaimer(en: en),
           ),
-          if (_corrupt)
+          if (_corrupt && !_loadFailed)
             QuoteNotice(
               key: const ValueKey('ip-corrupt'),
               color: kFail,
               icon: Icons.report_problem_outlined,
-              text: context.tr(
-                pl: 'Część zapisu w telefonie była nieczytelna — surowa '
-                    'kopia została zachowana, nowe zmiany zapisują się '
-                    'normalnie.',
-                en: 'Part of the saved data could not be read — a raw copy '
-                    'was kept; new changes are saved normally.',
-              ),
+              text: _backupFailed
+                  ? context.tr(
+                      pl: 'Część zapisu była nieczytelna. Nie udało się zachować kopii, więc rejestr nie zostanie nadpisany.',
+                      en: 'Part of the saved data could not be read. A backup could not be kept, so the log will not be overwritten.',
+                    )
+                  : context.tr(
+                      pl: 'Część zapisu w telefonie była nieczytelna — surowa '
+                          'kopia została zachowana, nowe zmiany zapisują się '
+                          'normalnie.',
+                      en: 'Part of the saved data could not be read — a raw copy '
+                          'was kept; new changes are saved normally.',
+                    ),
             ),
           QuoteSection(
             title: context.tr(pl: 'Nowa spoina', en: 'New weld'),

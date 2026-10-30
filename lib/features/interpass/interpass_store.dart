@@ -19,10 +19,22 @@ import '../../domain/welding/interpass_log.dart';
 class InterpassLoad {
   final List<InterpassWeld> welds;
 
-  /// Zapis był (całkiem albo częściowo) nieczytelny — surowy tekst jest
-  /// w [InterpassStore.corruptBackupKey].
+  /// Zapis był (całkiem albo częściowo) nieczytelny. [backupFailed] mówi,
+  /// czy surowego tekstu nie udało się zachować w osobnym kluczu.
   final bool corrupt;
-  const InterpassLoad(this.welds, {this.corrupt = false});
+  final bool readFailed;
+  final bool backupFailed;
+  const InterpassLoad(this.welds,
+      {this.corrupt = false,
+      this.readFailed = false,
+      this.backupFailed = false});
+}
+
+/// Surowej historii nie udało się odczytać lub zachować przed zapisem.
+class InterpassStoreUnavailable implements Exception {
+  const InterpassStoreUnavailable();
+  @override
+  String toString() => 'InterpassStoreUnavailable';
 }
 
 /// Rejestr pełny — nowej spoiny nie zapisano (stare nie wypadają po cichu:
@@ -41,9 +53,8 @@ class InterpassStore {
   /// Kopia nieczytelnego zapisu — zanim pierwszy zapis go nadpisze.
   static const String corruptBackupKey = '${key}_corrupt';
 
-  /// Wszystkie miejsca na kopie (maks. 3): kolejna, INNA nieczytelna treść
-  /// trafia do następnego wolnego; przy komplecie zastępuje tylko ostatnią
-  /// (pierwsza — najstarsza uszkodzona treść — zostaje zawsze).
+  /// Trzy nienadpisywane kopie. Czwarta uszkodzona treść pozostaje w kluczu
+  /// głównym i blokuje nowy zapis, dopóki nie będzie bezpiecznej kopii.
   static const List<String> corruptBackupKeys = [
     corruptBackupKey,
     '${key}_corrupt_2',
@@ -117,48 +128,72 @@ class InterpassStore {
   Future<InterpassLoad> _loadNow(LocalRecordOwner owner) async {
     final prefs = await SharedPreferences.getInstance();
     owner.requireCurrent();
-    Object? raw;
+    final Object? raw;
     try {
+      await prefs.reload();
+      owner.requireCurrent();
       raw = prefs.get(ownerKey(key, owner));
-      if (raw == null || (raw is String && raw.isEmpty)) {
-        return const InterpassLoad([]);
-      }
+    } on AccountException {
+      rethrow;
+    } catch (_) {
+      return const InterpassLoad([], corrupt: true, readFailed: true);
+    }
+    if (raw == null || (raw is String && raw.isEmpty)) {
+      return const InterpassLoad([]);
+    }
+    try {
       if (raw is! String) throw const FormatException('not a string');
       final parsed = interpassLogFromJson(jsonDecode(raw));
       // Pominięte spoiny, pomiary albo nieczytelne pola — pierwszy zapis
       // usunąłby je na stałe, więc najpierw kopia surowego tekstu.
       if (parsed.lossy) {
-        await _backup(prefs, raw, owner);
-        return InterpassLoad(sortInterpassWelds(parsed.welds), corrupt: true);
+        final backedUp = await _backup(prefs, raw, owner);
+        return InterpassLoad(sortInterpassWelds(parsed.welds),
+            corrupt: true, backupFailed: !backedUp);
       }
       return InterpassLoad(sortInterpassWelds(parsed.welds));
     } on AccountException {
       rethrow;
     } catch (_) {
-      if (raw != null) await _backup(prefs, raw, owner);
-      return const InterpassLoad([], corrupt: true);
+      final backedUp = await _backup(prefs, raw, owner);
+      return InterpassLoad([], corrupt: true, backupFailed: !backedUp);
     }
   }
 
-  /// Kopia surowego tekstu: ta sama treść — bez nowej kopii; inna — do
-  /// następnego wolnego miejsca, a przy komplecie zamiast ostatniej.
-  static Future<void> _backup(
+  /// `true` tylko gdy bieżąca uszkodzona treść jest w jednej z trzech kopii.
+  static Future<bool> _backup(
       SharedPreferences prefs, Object raw, LocalRecordOwner owner) async {
     owner.requireCurrent();
     final text = raw.toString();
-    String? free;
-    for (final base in corruptBackupKeys) {
-      final k = ownerKey(base, owner);
-      final saved = prefs.get(k);
-      if (saved == null) {
-        free ??= k;
-      } else if (saved.toString() == text) {
-        return;
+    try {
+      String? free;
+      for (final base in corruptBackupKeys) {
+        final k = ownerKey(base, owner);
+        final saved = prefs.get(k);
+        if (saved == null) {
+          free ??= k;
+        } else if (saved == text) {
+          return true;
+        }
       }
+      if (free == null) return false;
+      final ok = await prefs.setString(free, text);
+      owner.requireCurrent();
+      if (!ok) return false;
+      await prefs.reload();
+      owner.requireCurrent();
+      return prefs.get(free) == text;
+    } on AccountException {
+      rethrow;
+    } catch (_) {
+      return false;
     }
-    await prefs.setString(
-        free ?? ownerKey(corruptBackupKeys.last, owner), text);
-    owner.requireCurrent();
+  }
+
+  static void _requireWritable(InterpassLoad load) {
+    if (load.readFailed || load.backupFailed) {
+      throw const InterpassStoreUnavailable();
+    }
   }
 
   Future<void> _write(List<InterpassWeld> list, LocalRecordOwner owner) async {
@@ -176,7 +211,9 @@ class InterpassStore {
   /// nie trafia do rejestru — a jeśli była zapisana, znika. Nowa spoina
   /// przy pełnym rejestrze → [InterpassStoreFull].
   Future<void> upsert(InterpassWeld weld) => _owned((owner) async {
-        final list = [...(await _loadNow(owner)).welds];
+        final load = await _loadNow(owner);
+        _requireWritable(load);
+        final list = [...load.welds];
         final existed = list.any((w) => w.id == weld.id);
         list.removeWhere((w) => w.id == weld.id);
         if (!weld.isBlank) {
@@ -193,7 +230,9 @@ class InterpassStore {
   Future<bool> update(
           String id, InterpassWeld Function(InterpassWeld w) change) =>
       _owned((owner) async {
-        final list = [...(await _loadNow(owner)).welds];
+        final load = await _loadNow(owner);
+        _requireWritable(load);
+        final list = [...load.welds];
         final i = list.indexWhere((w) => w.id == id);
         if (i < 0) return false;
         list[i] = change(list[i]);
@@ -226,8 +265,9 @@ class InterpassStore {
       }, expectedOwner: expectedOwner);
 
   Future<void> delete(String id) => _owned((owner) async {
-        final list = [...(await _loadNow(owner)).welds]
-          ..removeWhere((w) => w.id == id);
+        final load = await _loadNow(owner);
+        _requireWritable(load);
+        final list = [...load.welds]..removeWhere((w) => w.id == id);
         await _write(list, owner);
       });
 

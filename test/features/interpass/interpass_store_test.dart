@@ -8,6 +8,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import 'package:cut_list_app/domain/welding/interpass_log.dart';
 import 'package:cut_list_app/features/interpass/interpass_store.dart';
@@ -23,6 +24,20 @@ InterpassWeld _weld(String id, {int updatedAt = 1}) => InterpassWeld(
       createdAt: 1,
       updatedAt: updatedAt,
     );
+
+class _RefuseBackupPreferences extends InMemorySharedPreferencesStore {
+  _RefuseBackupPreferences() : super.empty();
+
+  bool refuse = false;
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    if (refuse && key.endsWith(InterpassStore.corruptBackupKey)) {
+      return false;
+    }
+    return super.setValue(valueType, key, value);
+  }
+}
 
 void main() {
   useGuestAccount();
@@ -119,7 +134,8 @@ void main() {
     expect(after.welds.single.assess().ok, isFalse);
   });
 
-  test('kopie uszkodzonego zapisu: ta sama treść raz, inna — kolejna, maks. 3',
+  test(
+      'trzy kopie pozostają nienadpisane; czwarty uszkodzony zapis blokuje nadpisanie',
       () async {
     const store = InterpassStore();
     final prefs = await SharedPreferences.getInstance();
@@ -133,11 +149,38 @@ void main() {
     expect(prefs.get(InterpassStore.corruptBackupKeys[1]), isNull);
     await corrupt('zły-2');
     await corrupt('zły-3');
-    await corrupt('zły-4'); // komplet — zastępuje ostatnią, pierwsza zostaje
+    await corrupt(
+        'zły-4'); // komplet — bieżąca wartość zostaje w kluczu głównym
     expect([for (final k in InterpassStore.corruptBackupKeys) prefs.get(k)],
-        ['zły-1', 'zły-2', 'zły-4']);
+        ['zły-1', 'zły-2', 'zły-3']);
+    await expectLater(
+        store.upsert(_weld('nowy')), throwsA(isA<InterpassStoreUnavailable>()));
+    expect(prefs.getString(InterpassStore.key), 'zły-4');
     await corrupt('zły-1'); // już zachowana
-    expect(prefs.get(InterpassStore.corruptBackupKeys.last), 'zły-4');
+    expect(prefs.get(InterpassStore.corruptBackupKeys.last), 'zły-3');
+  });
+
+  test('odmowa zapisu kopii blokuje zmianę i zachowuje surową historię',
+      () async {
+    final disk = _RefuseBackupPreferences();
+    const raw = '{uszkodzone';
+    await disk.setValue('String', 'flutter.${InterpassStore.key}', raw);
+    disk.refuse = true;
+    SharedPreferencesStorePlatform.instance = disk;
+    addTearDown(() => SharedPreferences.setMockInitialValues({}));
+
+    const store = InterpassStore();
+    final load = await store.load();
+    expect(load.corrupt, isTrue);
+    expect(load.backupFailed, isTrue);
+    await expectLater(
+        store.upsert(_weld('nowy')), throwsA(isA<InterpassStoreUnavailable>()));
+    await expectLater(
+        store.delete('missing'), throwsA(isA<InterpassStoreUnavailable>()));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(prefs.getString(InterpassStore.key), raw);
+    expect(prefs.getString(InterpassStore.corruptBackupKey), isNull);
   });
 
   test('update: zmiana zapisanej spoiny bez jej ekranu', () async {

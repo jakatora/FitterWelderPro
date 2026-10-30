@@ -734,6 +734,42 @@ void main() {
     expect(prefs.getString(InterpassStore.corruptBackupKey), '[zepsute');
   });
 
+  testWidgets(
+      'pełne kopie blokują nową spoinę i usunięcie bez fałszywego sukcesu',
+      (tester) async {
+    final kept =
+        InterpassWeld.blank(id: 'keep', now: _now).copyWith(weldNo: 'S-KEEP');
+    final raw = jsonEncode({
+      ...interpassLogToJson([kept]),
+      'welds': [
+        kept.toJson(),
+        {'bez': 'id'}
+      ],
+    });
+    SharedPreferences.setMockInitialValues({
+      InterpassStore.key: raw,
+      InterpassStore.corruptBackupKeys[0]: 'pierwsze',
+      InterpassStore.corruptBackupKeys[1]: 'drugie',
+      InterpassStore.corruptBackupKeys[2]: 'trzecie',
+    });
+    await _pump(tester);
+    expect(find.textContaining('Nie udało się zachować kopii'), findsOneWidget);
+    await _tapKey(tester, 'ip-new');
+    expect(find.byKey(const ValueKey('ip-store-unavailable')), findsOneWidget);
+    expect(find.byKey(const ValueKey('ip-edit-list')), findsNothing);
+
+    await _tapKey(tester, 'ip-del-0');
+    await tester.tap(find.byKey(const ValueKey('ip-delete-confirm')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('ip-delete-failed')), findsOneWidget);
+    expect(find.text('S-KEEP'), findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(InterpassStore.key), raw);
+    expect(
+        [for (final k in InterpassStore.corruptBackupKeys) prefs.getString(k)],
+        ['pierwsze', 'drugie', 'trzecie']);
+  });
+
   testWidgets('kalendarz międzyściegowy po cofnięciu zegara nadal się otwiera',
       (tester) async {
     var now = DateTime(2026, 10, 18, 9);
@@ -747,8 +783,11 @@ void main() {
     now = DateTime(2026, 10, 17, 9);
     await _tapKey(tester, 'ip-m-date');
     expect(tester.takeException(), isNull);
-    expect(tester.widget<DatePickerDialog>(find.byType(DatePickerDialog))
-        .initialDate, DateTime(2026, 10, 17));
+    expect(
+        tester
+            .widget<DatePickerDialog>(find.byType(DatePickerDialog))
+            .initialDate,
+        DateTime(2026, 10, 17));
   });
 }
 
