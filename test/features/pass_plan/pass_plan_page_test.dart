@@ -52,6 +52,16 @@ class _SlowStore extends PassPlanStore {
   }
 }
 
+class _FailingSaveStore extends PassPlanStore {
+  bool fail = true;
+
+  @override
+  Future<void> save(Map<String, String> form) {
+    if (fail) return Future.error(StateError('Zapis odmówiony'));
+    return super.save(form);
+  }
+}
+
 Future<void> _pump(
   WidgetTester tester, {
   AppLanguage language = AppLanguage.pl,
@@ -441,6 +451,24 @@ void main() {
     expect(_in('pp-passes', '4'), findsOneWidget);
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(kPassPlanCorruptPrefsKey), 'zepsute');
+  });
+
+  testWidgets('nieudany autozapis jest widoczny i można go ponowić',
+      (tester) async {
+    final store = _FailingSaveStore();
+    await _pump(tester, store: store);
+    await _enter(tester, 'pp-count', '3');
+
+    await _reveal(tester, 'pp-save-error');
+    expect(_key('pp-save-error'), findsOneWidget);
+    expect(find.textContaining('Nie udało się zapisać'), findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.containsKey(kPassPlanPrefsKey), isFalse);
+
+    store.fail = false;
+    await _tap(tester, 'pp-save-retry');
+    expect(_key('pp-save-error'), findsNothing);
+    expect((await store.load())!.form[PassPlanField.count], '3');
   });
 
   testWidgets('EN: teksty i kropka dziesiętna, te same liczby', (tester) async {

@@ -152,6 +152,8 @@ class _PassPlanPageState extends State<_PassPlanBody>
   /// Odczyt zapisu zakończony — do tego czasu nic nie zapisujemy.
   bool _loaded = false;
   bool _loadLossy = false;
+  bool _saveFailed = false;
+  int _saveRevision = 0;
   bool _sharing = false;
 
   @override
@@ -220,7 +222,27 @@ class _PassPlanPageState extends State<_PassPlanBody>
 
   void _save() {
     if (!widget.session.isCurrent) return;
-    unawaited(widget.store.save(_form).catchError((Object _) {}));
+    final revision = ++_saveRevision;
+    unawaited(_persist(_form, revision));
+  }
+
+  Future<void> _persist(Map<String, String> form, int revision) async {
+    try {
+      await widget.store.save(form);
+      if (mounted &&
+          widget.session.isCurrent &&
+          revision == _saveRevision &&
+          _saveFailed) {
+        setState(() => _saveFailed = false);
+      }
+    } catch (_) {
+      if (mounted &&
+          widget.session.isCurrent &&
+          revision == _saveRevision &&
+          !_saveFailed) {
+        setState(() => _saveFailed = true);
+      }
+    }
   }
 
   void _changed() {
@@ -355,6 +377,32 @@ class _PassPlanPageState extends State<_PassPlanBody>
         padding: EdgeInsets.fromLTRB(
             16, 12, 16, 24 + MediaQuery.viewPaddingOf(context).bottom),
         children: [
+          if (_saveFailed)
+            KeyedSubtree(
+              key: const ValueKey('pp-save-error'),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  QuoteNotice(
+                    color: kFail,
+                    icon: Icons.save_outlined,
+                    text: context.tr(
+                        pl: 'Nie udało się zapisać ostatnich zmian planu.',
+                        en: 'Could not save the latest plan changes.'),
+                  ),
+                  OutlinedButton.icon(
+                    key: const ValueKey('pp-save-retry'),
+                    onPressed: _save,
+                    icon: const Icon(Icons.refresh),
+                    label:
+                        Text(context.tr(pl: 'Ponów zapis', en: 'Retry save')),
+                    style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(0, 48)),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+              ),
+            ),
           if (_loadLossy)
             KeyedSubtree(
               key: const ValueKey('pp-load-notice'),
