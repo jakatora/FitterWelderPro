@@ -5,6 +5,7 @@
 // główny klucz.
 
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../database/local_record_owner.dart';
@@ -13,6 +14,7 @@ import '../../services/owned_prefs.dart';
 import '../../domain/welding/power_source.dart';
 
 class PowerSourcePlateStore {
+  static Future<void>? _writes;
   const PowerSourcePlateStore({
     this.key = kPowerSourcePlatePrefsKey,
     this.corruptKey = kPowerSourcePlateCorruptPrefsKey,
@@ -34,6 +36,8 @@ class PowerSourcePlateStore {
     final SharedPreferences prefs;
     final Object? raw;
     try {
+      final pending = _writes;
+      if (pending != null) await pending;
       prefs = await OwnedPrefs.instance(captureOwner);
       await prefs.reload();
       // `get`, nie `getString`: pod kluczem może leżeć inny typ.
@@ -51,8 +55,39 @@ class PowerSourcePlateStore {
     return result.points;
   }
 
-  Future<void> save(List<PlatePoint> points) async {
-    final prefs = await OwnedPrefs.instance(captureOwner);
+  Future<void> save(List<PlatePoint> points) {
+    Object? captureError;
+    StackTrace? captureStack;
+    final prefsReady =
+        OwnedPrefs.instance(captureOwner).then<SharedPreferences?>(
+      (prefs) => prefs,
+      onError: (Object error, StackTrace stack) {
+        captureError = error;
+        captureStack = stack;
+        return null;
+      },
+    );
+    final snapshot = List<PlatePoint>.of(points);
+    final previous = _writes;
+    final write = () async {
+      if (previous != null) await previous;
+      final prefs = await prefsReady;
+      if (prefs == null) {
+        Error.throwWithStackTrace(captureError!, captureStack!);
+      }
+      await _saveNow(prefs, snapshot);
+    }();
+    final settled =
+        write.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _writes = settled;
+    unawaited(settled.then((_) {
+      if (identical(_writes, settled)) _writes = null;
+    }));
+    return write;
+  }
+
+  Future<void> _saveNow(
+      SharedPreferences prefs, List<PlatePoint> points) async {
     await prefs.reload();
     final raw = prefs.get(key);
     if (raw != null && (raw is! String || decodePlateDetailed(raw).lossy)) {

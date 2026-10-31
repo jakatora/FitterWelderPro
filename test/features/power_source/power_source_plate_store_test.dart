@@ -2,7 +2,9 @@
 // surowy tekst trafia raz pod klucz kopii; inny typ wartości w prefs nie
 // wywala odczytu.
 
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:cut_list_app/database/local_record_owner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
@@ -24,7 +26,32 @@ class _ControlledPreferences extends InMemorySharedPreferencesStore {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   const store = PowerSourcePlateStore();
+
+  test('opóźniony właściciel nie przywraca starszej tabliczki', () async {
+    SharedPreferences.setMockInitialValues({});
+    final owner = await LocalRecordOwner.capture();
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    var calls = 0;
+    final delayed = PowerSourcePlateStore(captureOwner: () async {
+      if (++calls == 1) {
+        entered.complete();
+        await release.future;
+      }
+      return owner;
+    });
+    final older = delayed.save(const [PlatePoint(200, 35)]);
+    await entered.future;
+    final newer = delayed.save(const [PlatePoint(160, 60)]);
+    final reading = store.load();
+    await Future<void>.delayed(Duration.zero);
+    release.complete();
+    await Future.wait([older, newer]);
+    expect(await reading, const [PlatePoint(160, 60)]);
+    expect(await store.load(), const [PlatePoint(160, 60)]);
+  });
 
   test('zapis i odczyt tabliczki', () async {
     SharedPreferences.setMockInitialValues({});
