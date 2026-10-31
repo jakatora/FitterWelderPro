@@ -493,6 +493,46 @@ void main() {
       expect(localFx.keepsScreenOn, isFalse);
     });
 
+    test('permission completed after switching to stopwatch does not schedule', () async {
+      final localFx = _DelayedPermissionEffects();
+      final local = WeldTimerService(
+        now: () => now, effects: localFx,
+        startTicker: (_) => null, observeLifecycle: false,
+      );
+      addTearDown(local.dispose);
+      local.startPurge(const Duration(seconds: 60));
+      await flush();
+      expect(localFx.permissionRequests, 1);
+      local.didChangeAppLifecycleState(AppLifecycleState.paused);
+      local.setMode(WeldTimerMode.weld);
+      local.start();
+      localFx.permission.complete(true);
+      await flush();
+      expect(local.running, isTrue);
+      expect(local.remaining, isNull);
+      expect(localFx.scheduled, isEmpty);
+    });
+
+    test('permission completed after countdown deadline does not schedule', () async {
+      final localFx = _DelayedPermissionEffects();
+      final local = WeldTimerService(
+        now: () => now, effects: localFx,
+        startTicker: (_) => null, observeLifecycle: false,
+      );
+      addTearDown(local.dispose);
+      local.startPurge(const Duration(seconds: 60));
+      await flush();
+      expect(localFx.permissionRequests, 1);
+      local.didChangeAppLifecycleState(AppLifecycleState.paused);
+      now = now.add(const Duration(seconds: 61));
+      localFx.permission.complete(true);
+      await flush();
+      expect(localFx.scheduled, isEmpty);
+      local.tick();
+      expect(local.finished, isTrue);
+      expect(local.alarmActive, isTrue);
+    });
+
     test('permission completed after dispose cannot schedule an alarm', () async {
       final localFx = _DelayedPermissionEffects();
       final local = WeldTimerService(

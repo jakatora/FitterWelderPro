@@ -481,7 +481,9 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
     if (_notificationsGranted != true) return;
     // Mogło się zmienić w czasie await (powrót, pauza).
     if (_disposed || _inForeground || !running || _notificationScheduled) return;
-    final at = _now().add(remaining!);
+    final currentRemaining = remaining;
+    if (currentRemaining == null || currentRemaining <= Duration.zero) return;
+    final at = _now().add(currentRemaining);
     final text = weldTimerAlarmText(currentAlarm,
         english: AppLanguageController.isEnglish);
     _notificationScheduled = true;
