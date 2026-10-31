@@ -58,8 +58,7 @@ NameProblem? checkNamePart(String value) {
 
 /// Czy „Imię Nazwisko" przekracza [kFullNameMaxLength] znaków.
 bool fullNameTooLong(String firstName, String lastName) =>
-    '${firstName.trim()} ${lastName.trim()}'.trim().length >
-    kFullNameMaxLength;
+    '${firstName.trim()} ${lastName.trim()}'.trim().length > kFullNameMaxLength;
 
 class UserProfile {
   final String firstName;
@@ -114,7 +113,24 @@ class UserProfileService {
 
   bool get hasProfile => _cache != null;
 
-  Future<UserProfile?> get() async {
+  Future<void>? _operations;
+
+  Future<T> _serial<T>(Future<T> Function() operation) {
+    final previous = _operations;
+    final pending =
+        previous == null ? operation() : previous.then((_) => operation());
+    final settled =
+        pending.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _operations = settled;
+    settled.then((_) {
+      if (identical(_operations, settled)) _operations = null;
+    });
+    return pending;
+  }
+
+  Future<UserProfile?> get() => _serial(_getNow);
+
+  Future<UserProfile?> _getNow() async {
     if (!_hydrated) await _hydrate();
     return _cache;
   }
@@ -144,12 +160,17 @@ class UserProfileService {
   @visibleForTesting
   static Future<bool> Function(UserProfile profile)? debugSaveOverride;
 
-  Future<bool> save(UserProfile profile) async {
+  Future<bool> save(UserProfile profile) => _serial(() => _saveNow(profile));
+
+  Future<bool> _saveNow(UserProfile profile) async {
     final override = debugSaveOverride;
     if (override != null) return override(profile);
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_kPrefsKey, jsonEncode(profile.toJson()));
+      final raw = jsonEncode(profile.toJson());
+      if (!await prefs.setString(_kPrefsKey, raw)) return false;
+      await prefs.reload();
+      if (prefs.getString(_kPrefsKey) != raw) return false;
       _cache = profile;
       _hydrated = true;
       _changes.add(profile);
@@ -164,17 +185,25 @@ class UserProfileService {
   void resetForTest() {
     _cache = null;
     _hydrated = false;
+    _operations = null;
   }
 
-  Future<void> clear() async {
+  Future<bool> clear() => _serial(_clearNow);
+
+  Future<bool> _clearNow() async {
+    var cleared = false;
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_kPrefsKey);
+      if (await prefs.remove(_kPrefsKey)) {
+        await prefs.reload();
+        cleared = !prefs.containsKey(_kPrefsKey);
+      }
     } catch (_) {
       // Drop the in-memory cache regardless so the chat gate asks again.
     }
     _cache = null;
     _hydrated = true;
     _changes.add(null);
+    return cleared;
   }
 }

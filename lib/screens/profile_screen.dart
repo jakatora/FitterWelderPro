@@ -524,8 +524,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title: context.tr(
             pl: 'Niepełne usunięcie danych', en: 'Data deletion incomplete'),
         body: '${_serverSummary(server)}\n\n${context.tr(
-          pl: 'Nie udało się usunąć z telefonu całej historii asystenta, oznaczeń zgłoszonych wiadomości, blokad autorów, zgody skanera lub tożsamości i uprawnień spawacza. Ponów usunięcie danych.',
-          en: 'Could not delete reported message markers, blocked authors, assistant history, scanner consent or welder identity and qualifications from this phone. Retry data deletion.',
+          pl: 'Nie udało się usunąć z telefonu całej historii asystenta, oznaczeń zgłoszonych wiadomości, blokad autorów, zgody skanera lub tożsamości i uprawnień spawacza imienia i nazwiska lub zgody na zasady. Ponów usunięcie danych.',
+          en: 'Could not delete reported message markers, blocked authors, assistant history, scanner consent or welder identity and qualifications profile name or rules consent from this phone. Retry data deletion.',
         )}',
       );
       return;
@@ -749,8 +749,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   /// [resetIdentity] — identyfikator i sekret instalacji (nowa para powstanie
   /// dopiero przy następnym kontakcie z serwerem; nic nie leci na serwer).
   Future<bool> _eraseLocalData({required bool resetIdentity}) async {
-    await UserProfileService.instance.clear();
-    await LegalConsent.instance.clear();
+    final profileCleared = await UserProfileService.instance.clear();
+    final legalCleared = await LegalConsent.instance.clear();
     // Zgoda na wysyłkę zdjęć do skanera to osobna zgoda — bez tego skaner po
     // „usuń moje dane" dalej wysyłał zdjęcia bez pytania.
     final scanCleared = await ScanConsent.clear();
@@ -765,7 +765,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final identityCleared = await WelderIdentityService.instance.clear();
     final blockedCleared = await BlockedUsers.instance.clear();
     if (resetIdentity) await PremiumService.instance.resetIdentity();
-    return scanCleared &&
+    return legalCleared &&
+        profileCleared &&
+        scanCleared &&
         historyCleared &&
         reportedCleared &&
         blockedCleared &&
@@ -827,7 +829,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (scanner) {
       persisted = await ScanConsent.clear();
     } else {
-      await LegalConsent.instance.clear();
+      persisted = await LegalConsent.instance.clear();
     }
     if (!mounted) return;
     Haptic.saved();
@@ -1153,6 +1155,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       en: 'Rules (chat and assistant)'),
                   acceptedAt: LegalConsent.instance.acceptedAt,
                   accepted: LegalConsent.instance.isAccepted,
+                  withdrawalPending: LegalConsent.instance.withdrawalPending,
                   onWithdraw: () => _withdrawConsent(scanner: false),
                 ),
                 _consentTile(

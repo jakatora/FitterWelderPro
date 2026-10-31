@@ -114,6 +114,41 @@ void main() {
 
   tearDown(() => ApiClient.instance.debugSetClient(null));
 
+  testWidgets('profil ostrzega o nieusuniętej zgodzie na zasady',
+      (tester) async {
+    final values = await SharedPreferencesStorePlatform.instance.getAll();
+    final disk = _FailedMarkerRemoval(false, target: 'legal_consent_v1');
+    for (final entry in values.entries) {
+      await disk.setValue('String', entry.key, entry.value);
+    }
+    SharedPreferencesStorePlatform.instance = disk;
+    backend((_) async =>
+        _json(200, {'ok': true, 'deleted': {}, 'premium_retained': false}));
+    await _openProfile(tester);
+    await _confirmDelete(tester);
+    expect(find.text('Data deletion incomplete'), findsOneWidget);
+    expect(_inDialog('rules consent'), findsOneWidget);
+  });
+
+  testWidgets('profil ostrzega o nieusuniętym imieniu i nazwisku',
+      (tester) async {
+    final values = await SharedPreferencesStorePlatform.instance.getAll();
+    final disk = _FailedMarkerRemoval(false, target: 'user_profile_v1');
+    for (final entry in values.entries) {
+      await disk.setValue('String', entry.key, entry.value);
+    }
+    SharedPreferencesStorePlatform.instance = disk;
+    backend((_) async =>
+        _json(200, {'ok': true, 'deleted': {}, 'premium_retained': false}));
+    await _openProfile(tester);
+    await _confirmDelete(tester);
+    expect(find.text('Data deletion incomplete'), findsOneWidget);
+    expect(_inDialog('profile name'), findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(prefs.getString('user_profile_v1'), contains('Marek'));
+  });
+
   testWidgets('profil ostrzega o nieusuniętej tożsamości spawacza',
       (tester) async {
     final prefs = await SharedPreferences.getInstance();
@@ -172,6 +207,38 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload();
     expect(prefs.getString(ScanConsent.prefsKey), isNull);
+  });
+
+  testWidgets('nieutrwalone wycofanie zasad ostrzega i pozwala ponowić',
+      (tester) async {
+    LegalConsent.instance.resetForTest();
+    await LegalConsent.instance.accept();
+    final values = await SharedPreferencesStorePlatform.instance.getAll();
+    final disk = _FailedMarkerRemoval(false, target: 'legal_consent_v1');
+    for (final entry in values.entries) {
+      await disk.setValue('String', entry.key, entry.value);
+    }
+    SharedPreferencesStorePlatform.instance = disk;
+    await _openProfile(tester);
+    final withdraw = find.byKey(const ValueKey('consent-withdraw-rules'));
+    await tester.ensureVisible(withdraw);
+    await tester.tap(withdraw);
+    await _pumpFor(tester, 4);
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Withdraw'));
+    await _pumpFor(tester, 8);
+    expect(find.textContaining('Consent withdrawn for this session.'),
+        findsOneWidget);
+    expect(LegalConsent.instance.isAccepted, isFalse);
+    expect(find.text('Retry'), findsOneWidget);
+    disk.fail = false;
+    await tester.tap(withdraw);
+    await _pumpFor(tester, 4);
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Withdraw'));
+    await _pumpFor(tester, 8);
+    expect(withdraw, findsNothing);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(prefs.getString('legal_consent_v1'), isNull);
   });
 
   for (final refuse in [true, false]) {

@@ -20,6 +20,22 @@ class LegalConsent {
   int? _acceptedVersion;
   DateTime? _acceptedAt;
   bool _hydrated = false;
+  bool withdrawalPending = false;
+  int _revision = 0;
+  Future<void>? _writes;
+
+  Future<T> _serial<T>(Future<T> Function() operation) {
+    final previous = _writes;
+    final pending =
+        previous == null ? operation() : previous.then((_) => operation());
+    final settled =
+        pending.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _writes = settled;
+    settled.then((_) {
+      if (identical(_writes, settled)) _writes = null;
+    });
+    return pending;
+  }
 
   /// Dostęp synchroniczny dla `build()` — false, dopóki [load] nie przejdzie.
   bool get isAccepted =>
@@ -29,15 +45,21 @@ class LegalConsent {
 
   Future<void> load() async {
     if (_hydrated) return;
+    final revision = _revision;
     try {
       final prefs = await SharedPreferences.getInstance();
+      if (revision != _revision) return;
       final raw = prefs.getString(_kKey);
       if (raw != null && raw.isNotEmpty) {
         final decoded = jsonDecode(raw);
         if (decoded is Map) {
-          _acceptedVersion = (decoded['version'] as num?)?.toInt();
-          final at = decoded['acceptedAt'] as String?;
-          _acceptedAt = at == null ? null : DateTime.tryParse(at);
+          final version = decoded['version'];
+          final at = decoded['acceptedAt'];
+          final acceptedAt = at is String ? DateTime.tryParse(at) : null;
+          if (version is int && version > 0 && acceptedAt != null) {
+            _acceptedVersion = version;
+            _acceptedAt = acceptedAt;
+          }
         }
       }
     } catch (_) {
@@ -48,33 +70,47 @@ class LegalConsent {
     }
   }
 
-  Future<bool> accept() async {
+  Future<bool> accept() {
+    _revision++;
     final now = DateTime.now();
+    withdrawalPending = false;
     _acceptedVersion = kLegalVersion;
     _acceptedAt = now;
     _hydrated = true;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        _kKey,
-        jsonEncode({'version': kLegalVersion, 'acceptedAt': now.toIso8601String()}),
-      );
-      return true;
-    } catch (_) {
-      // Zgoda obowiązuje w tej sesji nawet, gdy zapis padnie — nie blokujemy
-      // użytkownika, ale przy następnym starcie zapytamy ponownie.
-      return false;
-    }
+    return _serial(() async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final raw = jsonEncode(
+            {'version': kLegalVersion, 'acceptedAt': now.toIso8601String()});
+        if (!await prefs.setString(_kKey, raw)) return false;
+        await prefs.reload();
+        return prefs.getString(_kKey) == raw;
+      } catch (_) {
+        // Zgoda obowiązuje w tej sesji nawet, gdy zapis padnie — nie blokujemy
+        // użytkownika, ale przy następnym starcie zapytamy ponownie.
+        return false;
+      }
+    });
   }
 
-  Future<void> clear() async {
+  Future<bool> clear() {
+    final revision = ++_revision;
+    withdrawalPending = true;
     _acceptedVersion = null;
     _acceptedAt = null;
     _hydrated = true;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_kKey);
-    } catch (_) {}
+    return _serial(() async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        if (!await prefs.remove(_kKey)) return false;
+        await prefs.reload();
+        final cleared = !prefs.containsKey(_kKey);
+        if (revision == _revision) withdrawalPending = !cleared;
+        return cleared;
+      } catch (_) {
+        return false;
+      }
+    });
   }
 
   /// Tylko do testów.
@@ -82,5 +118,8 @@ class LegalConsent {
     _acceptedVersion = null;
     _acceptedAt = null;
     _hydrated = false;
+    withdrawalPending = false;
+    _revision = 0;
+    _writes = null;
   }
 }
