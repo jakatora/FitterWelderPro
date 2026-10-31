@@ -374,10 +374,14 @@ class FerritePmiProtocol {
         'updatedAt': updatedAt,
       };
 
-  /// `null` dla wpisu bez id albo daty. Nieznane jednostki / reguła →
+  /// `null` dla wpisu bez id, daty lub z nieobsługiwaną wersją formatu.
+  /// Nieznane jednostki / reguła →
   /// wpis odrzucony (nie zgadujemy jednostki — to zmienia werdykt).
   static FerritePmiProtocol? fromJson(Object? raw) {
     if (raw is! Map) return null;
+    // Legacy records omitted v; an explicit unknown schema must never be
+    // interpreted using today's measurement rules. The store preserves raw JSON.
+    if (raw.containsKey('v') && raw['v'] != 1) return null;
     String s(Object? v) => v is String ? v : '';
     int i(Object? v) => v is num && v.isFinite ? v.toInt() : 0;
     final id = s(raw['id']);

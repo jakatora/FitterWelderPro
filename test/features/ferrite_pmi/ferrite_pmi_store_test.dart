@@ -43,6 +43,22 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const store = FerritePmiStore();
 
+  test(
+      'an unsupported protocol version is protected before editing the remaining history',
+      () async {
+    final future = {..._p(1).toJson(), 'v': 2};
+    final good = _p(2);
+    final raw = jsonEncode([future, good.toJson()]);
+    SharedPreferences.setMockInitialValues({FerritePmiStore.key: raw});
+    final report = await store.loadReport();
+    expect(report.droppedProtocols, 1);
+    expect(report.protocols.map((p) => p.id), [good.id]);
+    await store.upsert(good.copyWith(notes: 'edited'));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(FerritePmiStore.corruptBackupKey), raw);
+    expect((await store.load()).single.notes, 'edited');
+  });
+
   test('duplicate identity recovery cannot overwrite data without a raw backup',
       () async {
     final raw =

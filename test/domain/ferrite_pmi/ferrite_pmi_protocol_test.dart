@@ -47,6 +47,28 @@ FerritePmiProtocol _protocol() => FerritePmiProtocol(
     );
 
 void main() {
+  test('unknown protocol schema must not be assessed as the current schema',
+      () {
+    final current = _protocol().copyWith(sites: const [
+      FerriteSite(id: 's', location: FerriteLocation.weld, readings: ['45']),
+    ]).toJson();
+    for (final version in [2, 0, -1, '1', true, null]) {
+      final raw = {...current, 'v': version};
+      expect(FerritePmiProtocol.fromJson(raw), isNull,
+          reason:
+              'Unsupported version $version must not yield a passing assessment');
+      final parsed = ferritePmiParse([raw]);
+      expect(parsed.protocols, isEmpty);
+      expect(parsed.droppedProtocols, 1);
+      expect(parsed.damaged, isTrue);
+    }
+    expect(FerritePmiProtocol.fromJson(current)!.ferriteVerdict,
+        FerriteVerdict.pass);
+    final legacy = {...current}..remove('v');
+    expect(FerritePmiProtocol.fromJson(legacy)!.ferriteVerdict,
+        FerriteVerdict.pass);
+  });
+
   test('protocol recovery is deterministic and avoids all original identities',
       () {
     const p = FerritePmiProtocol(id: 'same', date: '2026-10-31', title: 'A');
