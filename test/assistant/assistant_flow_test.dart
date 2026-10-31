@@ -1,3 +1,4 @@
+import 'package:shared_preferences/shared_preferences.dart';
 // Przepływ „Wykonaj" na prawdziwym SQLite: tekst → (pytanie) → podsumowanie →
 // „Zapisz" → rekord w weld_params → „Cofnij" usuwa. Bez „Zapisz" nic się nie
 // zapisuje. Mikrofon i czytanie na głos to atrapy (bez platformy), serwer
@@ -143,6 +144,19 @@ void main() {
     AssistantHistoryStore.instance.resetForTest();
   });
 
+  testWidgets('historia ostrzega o nieczytelnym zapisie', (tester) async {
+    await (await SharedPreferences.getInstance())
+        .setString('assistant_history_v1', '{broken');
+    await _pump(tester);
+    await tester.tap(find.byTooltip('Historia operacji'));
+    await _settle(tester);
+    expect(find.byKey(const Key('assistant-history-persistence-warning')),
+        findsOneWidget);
+    expect(find.textContaining('Lista może być niepełna'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await _settle(tester);
+  });
+
   testWidgets('lokalne DN40 i kontynuacja nie wysyłają pytania na serwer',
       (tester) async {
     var requests = 0;
@@ -250,8 +264,8 @@ void main() {
     expect(await _rows(tester), isEmpty);
     expect(AssistantHistoryStore.instance.entries, isEmpty);
     expect(find.text('Sprawdź i zapisz'), findsNothing);
-    final field = tester.widget<TextField>(
-        find.byKey(const Key('assistant-command')));
+    final field =
+        tester.widget<TextField>(find.byKey(const Key('assistant-command')));
     expect(field.controller!.text, _spec);
   });
 
@@ -296,12 +310,13 @@ void main() {
     expect(find.textContaining('Nie rozpoznałem polecenia'), findsOneWidget);
     await tester.tap(find.text('Zadaj jako pytanie'));
     await _settle(tester);
-    final input = tester.widget<TextField>(
-        find.byKey(const Key('assistant-question-input')));
+    final input = tester
+        .widget<TextField>(find.byKey(const Key('assistant-question-input')));
     expect(input.controller!.text, 'zrób mi kawę');
   });
 
-  testWidgets('mikrofon: nasłuch widoczny, transkrypcja edytowalna, notatka „Głosowo"',
+  testWidgets(
+      'mikrofon: nasłuch widoczny, transkrypcja edytowalna, notatka „Głosowo"',
       (tester) async {
     await _clearRows(tester);
     final speech = _FakeSpeech();
@@ -331,8 +346,8 @@ void main() {
     await tester.enterText(find.byKey(const Key('assistant-command')),
         'Zapisz nierdzewka TIG bez drutu ścianka 2 mm 65 A');
     await tester.ensureVisible(find.byKey(const Key('assistant-go')));
-  await tester.pumpAndSettle();
-  await tester.tap(find.byKey(const Key('assistant-go')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('assistant-go')));
     await _settle(tester);
     expect(find.text('65 A'), findsOneWidget);
     await tester.tap(find.byKey(const Key('assistant-save')));
@@ -389,12 +404,10 @@ void main() {
     testWidgets('bez zgody na zasady → ekran zgody, nic nie wysłane',
         (tester) async {
       var sent = 0;
-      await _pump(tester,
-          mode: AssistantMode.answer,
-          chatSender: (t, h) async {
-            sent++;
-            return ChatMessage(role: ChatRole.assistant, text: 'x');
-          });
+      await _pump(tester, mode: AssistantMode.answer, chatSender: (t, h) async {
+        sent++;
+        return ChatMessage(role: ChatRole.assistant, text: 'x');
+      });
       await tester.enterText(
           find.byKey(const Key('assistant-question-input')), 'Preheat P91?');
       await tester.tap(find.byKey(const Key('assistant-send')));
@@ -403,7 +416,8 @@ void main() {
       expect(sent, 0);
     });
 
-    testWidgets('ze zgodą: odpowiedź widoczna; czytanie na głos tylko po włączeniu',
+    testWidgets(
+        'ze zgodą: odpowiedź widoczna; czytanie na głos tylko po włączeniu',
         (tester) async {
       seedOnboardedUser();
       final voice = _FakeVoice();

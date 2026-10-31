@@ -172,6 +172,40 @@ void main() {
     expect(prefs.getString('blocked_authors_v1'), '{broken');
   });
 
+  for (final refuse in [true, false]) {
+    testWidgets('profil ostrzega o nieusuniętej historii asystenta: $refuse',
+        (tester) async {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = jsonEncode([
+        {
+          'id': 'h1',
+          'kind': 'test',
+          'summary': 'Historia',
+          'recordId': 'r1',
+          'at': 1793404800000,
+          'byVoice': false,
+          'ownerScope': 'guest',
+        }
+      ]);
+      await prefs.setString('assistant_history_v1', raw);
+      AssistantHistoryStore.instance.resetForTest();
+      final values = await SharedPreferencesStorePlatform.instance.getAll();
+      final disk = _FailedMarkerRemoval(refuse, target: 'assistant_history_v1');
+      for (final entry in values.entries) {
+        await disk.setValue('String', entry.key, entry.value);
+      }
+      SharedPreferencesStorePlatform.instance = disk;
+      backend((_) async =>
+          _json(200, {'ok': true, 'deleted': {}, 'premium_retained': false}));
+      await _openProfile(tester);
+      await _confirmDelete(tester);
+      expect(find.text('Data deletion incomplete'), findsOneWidget);
+      expect(_inDialog('assistant history'), findsOneWidget);
+      await prefs.reload();
+      expect(prefs.getString('assistant_history_v1'), raw);
+    });
+  }
+
   testWidgets('okno potwierdzenia mówi o serwerze i o telefonie',
       (tester) async {
     backend((_) async => _json(500, {}));

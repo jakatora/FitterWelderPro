@@ -524,8 +524,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title: context.tr(
             pl: 'Niepełne usunięcie danych', en: 'Data deletion incomplete'),
         body: '${_serverSummary(server)}\n\n${context.tr(
-          pl: 'Nie udało się usunąć z telefonu wszystkich oznaczeń zgłoszonych wiadomości lub blokad autorów. Ponów usunięcie danych.',
-          en: 'Could not delete reported message markers or blocked authors from this phone. Retry data deletion.',
+          pl: 'Nie udało się usunąć z telefonu całej historii asystenta, oznaczeń zgłoszonych wiadomości lub blokad autorów. Ponów usunięcie danych.',
+          en: 'Could not delete reported message markers, blocked authors or assistant history from this phone. Retry data deletion.',
         )}',
       );
       return;
@@ -755,7 +755,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // „usuń moje dane" dalej wysyłał zdjęcia bez pytania.
     await ScanConsent.clear();
     // Historia asystenta trzyma opisy zapisanych operacji (parametry, notatki).
-    await AssistantHistoryStore.instance.clear();
+    final historyCleared = await AssistantHistoryStore.instance.clear();
     final reportedCleared = await ReportedMessages.instance.clear();
     // Tego brakowało. Bez tego wywołania „usuń moje dane" zostawiało na
     // telefonie komplet danych spawacza (stempel, nr WPQR, e-mail), a
@@ -765,7 +765,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await WelderIdentityService.instance.clear();
     final blockedCleared = await BlockedUsers.instance.clear();
     if (resetIdentity) await PremiumService.instance.resetIdentity();
-    return reportedCleared && blockedCleared;
+    return historyCleared && reportedCleared && blockedCleared;
   }
 
   // ───────────────────────────── Zgody ─────────────────────────────────────

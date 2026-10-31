@@ -3766,6 +3766,18 @@ class _HistoryPage extends StatelessWidget {
         listenable: Listenable.merge([store, AccountService.instance]),
         builder: (context, _) {
           final entries = store.entries;
+          return Column(children: [
+            if (store.persistenceFailed)
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  tr('Nie udało się odczytać lub trwale zapisać historii. Lista może być niepełna, a nowe wpisy mogą zniknąć po zamknięciu aplikacji.',
+                      'Could not read or persist history. The list may be incomplete and new entries may be lost after closing the app.'),
+                  key: const Key('assistant-history-persistence-warning'),
+                  style: const TextStyle(color: _kTextPrimary),
+                ),
+              ),
+            Expanded(child: Builder(builder: (context) {
           if (entries.isEmpty) {
             return Center(
               child: Padding(
@@ -3854,6 +3866,8 @@ class _HistoryPage extends StatelessWidget {
               );
             },
           );
+            })),
+          ]);
         },
       ),
     );

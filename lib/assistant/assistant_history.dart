@@ -1,6 +1,7 @@
 // Historia zatwierdzonych operacji asystenta (spec §3 pkt 3) i jego ustawienia.
 // Tylko lokalnie (SharedPreferences) — nic stąd nie wychodzi z telefonu.
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -107,6 +108,45 @@ class AssistantHistoryStore extends ChangeNotifier {
   List<AssistantHistoryEntry> _entries = const [];
   bool _speakReplies = false;
   bool _loaded = false;
+  bool _readFailed = false;
+  bool _saveFailed = false;
+  bool get persistenceFailed => _readFailed || _saveFailed;
+  Future<void>? _loading;
+  Future<void>? _writes;
+
+  Future<T> _serial<T>(Future<T> Function() operation) {
+    final previous = _writes;
+    final result =
+        previous == null ? operation() : previous.then((_) => operation());
+    final settled =
+        result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _writes = settled;
+    unawaited(settled.then((_) {
+      if (identical(_writes, settled)) _writes = null;
+    }));
+    return result;
+  }
+
+  Future<T> _serialOwned<T>(Future<T> Function(LocalRecordOwner) operation) {
+    Object? captureError;
+    StackTrace? captureStack;
+    final ownerReady = LocalRecordOwner.capture().then<LocalRecordOwner?>(
+      (owner) => owner,
+      onError: (Object error, StackTrace stack) {
+        captureError = error;
+        captureStack = stack;
+        return null;
+      },
+    );
+    return _serial(() async {
+      final owner = await ownerReady;
+      if (owner == null) {
+        Error.throwWithStackTrace(captureError!, captureStack!);
+      }
+      owner.requireCurrent();
+      return operation(owner);
+    });
+  }
 
   /// Operacje bieżącego konta, najnowsze pierwsze. Historia opisuje zapisy
   /// zawodowe (spoiny, protokoły, wyceny) — inne konto na tym telefonie jej
@@ -129,10 +169,15 @@ class AssistantHistoryStore extends ChangeNotifier {
   /// Czytanie odpowiedzi na głos — domyślnie WYŁĄCZONE.
   bool get speakReplies => _speakReplies;
 
-  Future<void> load() async {
-    if (_loaded) return;
+  Future<void> load() {
+    if (_loaded) return Future.value();
+    return _loading ??= _loadNow().whenComplete(() => _loading = null);
+  }
+
+  Future<void> _loadNow() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
       final raw = prefs.getString(_kKey);
       if (raw != null && raw.isNotEmpty) {
         final list = jsonDecode(raw);
@@ -141,20 +186,28 @@ class AssistantHistoryStore extends ChangeNotifier {
               .map(AssistantHistoryEntry.fromJson)
               .whereType<AssistantHistoryEntry>()
               .toList(growable: false);
+          _readFailed = _entries.length != list.length;
+        } else {
+          _readFailed = true;
         }
       }
       _speakReplies = prefs.getBool(_kSpeakKey) ?? false;
     } catch (e) {
+      _readFailed = true;
       debugPrint('AssistantHistoryStore.load: $e');
     }
     _loaded = true;
     notifyListeners();
   }
 
-  Future<void> add(AssistantHistoryEntry entry) async {
+  Future<void> add(AssistantHistoryEntry entry) {
     if (entry.ownerScope.isEmpty) {
-      entry = entry.withOwner((await LocalRecordOwner.capture()).key);
+      return _serialOwned((owner) => _addNow(entry.withOwner(owner.key)));
     }
+    return _serial(() => _addNow(entry));
+  }
+
+  Future<void> _addNow(AssistantHistoryEntry entry) async {
     await load();
     // [maxEntries] na konto — wpisy jednego konta nie wypychają drugiego.
     final perOwner = <String, int>{};
@@ -168,14 +221,15 @@ class AssistantHistoryStore extends ChangeNotifier {
     await _save();
   }
 
-  Future<void> markUndone(String entryId) async {
-    await load();
-    _entries = [
-      for (final e in _entries) e.id == entryId ? e.markUndone() : e,
-    ];
-    notifyListeners();
-    await _save();
-  }
+  Future<void> markUndone(String entryId) => _serialOwned((owner) async {
+        await load();
+        _entries = [
+          for (final e in _entries)
+            e.id == entryId && e.ownerScope == owner.key ? e.markUndone() : e,
+        ];
+        notifyListeners();
+        await _save();
+      });
 
   Future<void> setSpeakReplies(bool value) async {
     await load();
@@ -189,13 +243,24 @@ class AssistantHistoryStore extends ChangeNotifier {
     }
   }
 
-  Future<void> _save() async {
+  Future<bool> _save() async {
+    final saved = await _persistNow();
+    _saveFailed = !saved;
+    notifyListeners();
+    return saved;
+  }
+
+  Future<bool> _persistNow() async {
+    if (_readFailed) return false;
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-          _kKey, jsonEncode(_entries.map((e) => e.toJson()).toList()));
+      final encoded = jsonEncode(_entries.map((e) => e.toJson()).toList());
+      if (!await prefs.setString(_kKey, encoded)) return false;
+      await prefs.reload();
+      return prefs.getString(_kKey) == encoded;
     } catch (e) {
       debugPrint('AssistantHistoryStore.save: $e');
+      return false;
     }
   }
 
@@ -204,27 +269,35 @@ class AssistantHistoryStore extends ChangeNotifier {
   ///
   /// Tylko wpisy bieżącego konta — „moje dane” nie obejmują operacji innego
   /// konta na tym samym telefonie.
-  Future<void> clear() async {
-    await load();
-    final owner = _currentOwner();
-    _entries = [
-      for (final e in _entries)
-        if (e.ownerScope != owner) e
-    ];
-    notifyListeners();
-    if (_entries.isNotEmpty) return _save();
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_kKey);
-    } catch (e) {
-      debugPrint('AssistantHistoryStore.clear: $e');
-    }
-  }
+  Future<bool> clear() => _serialOwned((owner) async {
+        await load();
+        owner.requireCurrent();
+        if (_readFailed) return false;
+        _entries = [
+          for (final e in _entries)
+            if (e.ownerScope != owner.key) e
+        ];
+        notifyListeners();
+        if (_entries.isNotEmpty) return _save();
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final removed = await prefs.remove(_kKey);
+          await prefs.reload();
+          return removed && !prefs.containsKey(_kKey);
+        } catch (e) {
+          debugPrint('AssistantHistoryStore.clear: $e');
+          return false;
+        }
+      });
 
   @visibleForTesting
   void resetForTest() {
     _entries = const [];
     _speakReplies = false;
     _loaded = false;
+    _readFailed = false;
+    _saveFailed = false;
+    _loading = null;
+    _writes = null;
   }
 }
