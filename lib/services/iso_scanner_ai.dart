@@ -27,6 +27,7 @@ import '../data/elbow_takeouts.dart';
 import '../i18n/app_language.dart';
 import '../utils/decimal_parse.dart';
 import 'premium_service.dart';
+import 'scan_consent.dart';
 
 // Skaner celuje w BackendConfig.scannerBaseUrl — od 2026-09-25 ten sam
 // dedykowany backend co reszta apki (wymaga wdrożonej wersji z 2026-09-24,
@@ -1291,6 +1292,16 @@ Duration? _retryAfter(Map<String, String> headers) {
   return Duration(seconds: seconds);
 }
 
+void _requireScanConsent() {
+  if (!ScanConsent.isAccepted) {
+    throw IsoScannerAiException(
+      _tr('Zgoda na wysyłkę zdjęcia została wycofana. Nie wysłano zdjęcia.',
+          'Photo upload consent was withdrawn. No photo was sent.'),
+      code: 'SCAN_CONSENT_REQUIRED',
+    );
+  }
+}
+
 Future<AiScanResult> scanIsoImage(
   String imagePath, {
   // Sonnet vision over a 4-8 MB iso photo on a 4G connection routinely runs
@@ -1300,6 +1311,8 @@ Future<AiScanResult> scanIsoImage(
   PlatformImageDecoder? platformDecoder,
   DateTime Function() clock = DateTime.now,
 }) async {
+  await ScanConsent.load();
+  _requireScanConsent();
   final file = File(imagePath);
   if (!await file.exists()) {
     throw IsoScannerAiException('Plik nie istnieje: $imagePath');
@@ -1312,6 +1325,7 @@ Future<AiScanResult> scanIsoImage(
   // device_id; backend PrzetargAI nieznane nagłówki ignoruje.
   final identity = await PremiumService.instance.authHeaders();
   final deviceId = PremiumService.instance.deviceId;
+  _requireScanConsent();
   final uri = Uri.parse('$kIsoAiBase${BackendConfig.scanIso}');
   final resp = await http
       .post(

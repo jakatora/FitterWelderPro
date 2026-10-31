@@ -3,6 +3,9 @@
 // Transport to atrapa (http.runWithClient + MockClient) — zero połączeń.
 
 import 'dart:convert';
+import 'dart:async';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+import 'package:cut_list_app/services/scan_consent.dart';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -16,6 +19,19 @@ import 'package:cut_list_app/config/backend_config.dart';
 import 'package:cut_list_app/services/api_client.dart';
 import 'package:cut_list_app/services/iso_scanner_ai.dart';
 import 'package:cut_list_app/services/premium_service.dart';
+
+class _DelayedScanIdentity extends InMemorySharedPreferencesStore {
+  _DelayedScanIdentity() : super.empty();
+  final entered = Completer<void>(), release = Completer<void>();
+  @override
+  Future<bool> setValue(String type, String key, Object value) async {
+    if (key == 'flutter.fitter_device_id' && !entered.isCompleted) {
+      entered.complete();
+      await release.future;
+    }
+    return super.setValue(type, key, value);
+  }
+}
 
 const _deviceId = '0123456789abcdef0123456789abcdef';
 const _secret = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE';
@@ -127,8 +143,8 @@ void main() {
           _heicHeader(),
           platformDecoder: (_, __) async => throw Exception('brak kodeka'),
         ),
-        throwsA(isA<IsoScannerAiException>().having(
-            (e) => e.message, 'message', contains('JPEG'))),
+        throwsA(isA<IsoScannerAiException>()
+            .having((e) => e.message, 'message', contains('JPEG'))),
       );
     });
 
@@ -152,6 +168,8 @@ void main() {
         'fitter_install_secret': _secret,
       });
       PremiumService.instance.resetForTest();
+      ScanConsent.resetForTest();
+      await ScanConsent.accept();
     });
 
     tearDown(() async {
@@ -173,7 +191,75 @@ void main() {
       return file.path;
     }
 
-    test('PNG zapisany jako *.jpg idzie jako image/png, z nagłówkami', () async {
+    test('brak zgody blokuje upload; ponowna zgoda pozwala wysłać', () async {
+      final path = await writePng('drawing.png');
+      final response =
+          http.Response(jsonEncode({'result': {}, 'tookMs': 1}), 200);
+      await ScanConsent.clear();
+      await expectLater(
+          scan(path, response),
+          throwsA(isA<IsoScannerAiException>()
+              .having((error) => error.reachedModel, 'reachedModel', isFalse)));
+      expect(requests, isEmpty);
+      await ScanConsent.accept();
+      await scan(path, response);
+      expect(requests, hasLength(1));
+    });
+
+    test('cofnięcie zgody podczas przygotowania nagłówków blokuje HTTP',
+        () async {
+      final path = await writePng('drawing.png');
+      SharedPreferences.setMockInitialValues({});
+      final disk = _DelayedScanIdentity();
+      SharedPreferencesStorePlatform.instance = disk;
+      PremiumService.instance.resetForTest();
+      final scanning = scan(
+          path, http.Response(jsonEncode({'result': {}, 'tookMs': 1}), 200));
+      final rejected = expectLater(
+          scanning,
+          throwsA(isA<IsoScannerAiException>()
+              .having((error) => error.reachedModel, 'reachedModel', isFalse)));
+      await disk.entered.future;
+      await ScanConsent.clear();
+      disk.release.complete();
+      await rejected;
+      expect(requests, isEmpty);
+    });
+
+    test('wycofanie zgody podczas konwersji blokuje zdjęcie przed HTTP',
+        () async {
+      final file = File('${dir.path}${Platform.pathSeparator}drawing.heic');
+      await file.writeAsBytes(_heicHeader());
+      final entered = Completer<void>(), release = Completer<void>();
+      final scanning = http.runWithClient(
+        () => scanIsoImage(file.path, platformDecoder: (_, __) async {
+          entered.complete();
+          await release.future;
+          return (
+            rgba: Uint8List.fromList(List.filled(12 * 8 * 4, 200)),
+            width: 12,
+            height: 8
+          );
+        }),
+        () => MockClient((request) async {
+          requests.add(request);
+          return http.Response(jsonEncode({'result': {}, 'tookMs': 1}), 200);
+        }),
+      );
+      final rejected = expectLater(
+          scanning,
+          throwsA(isA<IsoScannerAiException>()
+              .having((error) => error.code, 'code', 'SCAN_CONSENT_REQUIRED')
+              .having((error) => error.reachedModel, 'reachedModel', isFalse)));
+      await entered.future;
+      await ScanConsent.clear();
+      release.complete();
+      await rejected;
+      expect(requests, isEmpty);
+    });
+
+    test('PNG zapisany jako *.jpg idzie jako image/png, z nagłówkami',
+        () async {
       final path = await writePng('rysunek.jpg');
       await scan(
         path,
@@ -200,7 +286,8 @@ void main() {
               jsonEncode({
                 'error': {
                   'code': 'INSTALL_SECRET_INVALID',
-                  'message': 'Nieprawidłowy sekret instalacji dla tego urządzenia.'
+                  'message':
+                      'Nieprawidłowy sekret instalacji dla tego urządzenia.'
                 }
               }),
               401,
@@ -257,8 +344,8 @@ void main() {
             .having((e) => e.statusCode, 'statusCode', 429)
             .having((e) => e.code, 'code', 'RATE_LIMITED')
             .having((e) => e.isDailyLimit, 'isDailyLimit', isTrue)
-            .having((e) => e.retryAfter, 'retryAfter',
-                const Duration(hours: 12))
+            .having(
+                (e) => e.retryAfter, 'retryAfter', const Duration(hours: 12))
             .having((e) => e.message, 'message', contains('Dzienny limit'))
             .having((e) => e.message, 'message', contains('02:00'))),
       );
@@ -305,7 +392,8 @@ void main() {
       );
     });
 
-    test('402 PREMIUM_REQUIRED → bez odsyłania do zakupu, gdy płatności wyłączone',
+    test(
+        '402 PREMIUM_REQUIRED → bez odsyłania do zakupu, gdy płatności wyłączone',
         () async {
       final path = await writePng('premium.png');
       await expectLater(
@@ -335,8 +423,7 @@ void main() {
         () async {
       final path = await writePng('old500.png');
       await expectLater(
-        scan(path,
-            jsonError(500, 'SERVER_ERROR', 'Wewnętrzny błąd serwera')),
+        scan(path, jsonError(500, 'SERVER_ERROR', 'Wewnętrzny błąd serwera')),
         throwsA(isA<IsoScannerAiException>()
             .having((e) => e.statusCode, 'statusCode', 500)
             .having((e) => e.message, 'message', contains('ręcznie'))
