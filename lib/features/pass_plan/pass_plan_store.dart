@@ -36,6 +36,8 @@ class PassPlanStore {
     final SharedPreferences prefs;
     final Object? raw;
     try {
+      final pending = _inFlight > 0 ? _tail : null;
+      if (pending != null) await pending;
       prefs = await OwnedPrefs.instance(captureOwner);
       await prefs.reload();
       // `get`, nie `getString`: pod kluczem może leżeć inny typ.
@@ -76,8 +78,8 @@ class PassPlanStore {
     return result;
   }
 
-  Future<void> _saveCaptured(Map<String, String> form,
-      Future<LocalRecordOwner> ownerFuture) async {
+  Future<void> _saveCaptured(
+      Map<String, String> form, Future<LocalRecordOwner> ownerFuture) async {
     final owner = await ownerFuture;
     owner.requireCurrent();
     await _saveNow(form, owner);

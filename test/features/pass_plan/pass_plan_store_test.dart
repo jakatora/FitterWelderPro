@@ -36,6 +36,20 @@ class _ControlledPreferences extends InMemorySharedPreferencesStore {
 void main() {
   const store = PassPlanStore();
 
+  test('odczyt podczas autozapisu czeka na aktualny formularz', () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = _ControlledPreferences()..delayFirstMainWrite = true;
+    SharedPreferencesStorePlatform.instance = disk;
+    final form = {...passPlanDefaultForm(), 'od': '114,3', 'count': '12'};
+    final writing = store.save(form);
+    await disk.firstWriteStarted.future;
+    final reading = store.load();
+    await Future<void>.delayed(Duration.zero);
+    disk.releaseFirstWrite.complete();
+    await writing;
+    expect((await reading)?.form, form);
+  });
+
   test('zapis i odczyt formularza', () async {
     SharedPreferences.setMockInitialValues({});
     expect(await store.load(), isNull);
