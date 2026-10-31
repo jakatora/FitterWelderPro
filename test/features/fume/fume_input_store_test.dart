@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:cut_list_app/database/local_record_owner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:cut_list_app/domain/fume/fume_inputs.dart';
@@ -27,6 +29,29 @@ class _Disk extends InMemorySharedPreferencesStore {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const store = FumeInputStore();
+
+  test('opóźnione ustalenie właściciela nie odwraca kolejności zmian',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final owner = await LocalRecordOwner.capture();
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    var calls = 0;
+    final delayed = FumeInputStore(captureOwner: () async {
+      if (++calls == 1) {
+        entered.complete();
+        await release.future;
+      }
+      return owner;
+    });
+    final older = delayed.save(const FumeInputs(flow: 500));
+    await entered.future;
+    final newer = delayed.save(const FumeInputs(flow: 900));
+    await Future<void>.delayed(Duration.zero);
+    release.complete();
+    await Future.wait([older, newer]);
+    expect((await store.load()).inputs.flow, 900);
+  });
 
   test('pozorny sukces zapisu jest wykrywany, poprzednie dane zostają',
       () async {

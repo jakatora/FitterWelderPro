@@ -1,7 +1,9 @@
 // Zapis ostatnich danych kalkulatora zawiesi w SharedPreferences: brak
 // zapisu, zapis i odczyt, uszkodzony JSON, wartość innego typu.
 
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:cut_list_app/database/local_record_owner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
@@ -25,6 +27,29 @@ class _RefusingPreferences extends InMemorySharedPreferencesStore {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const store = RiggingStore();
+
+  test('opóźnione ustalenie właściciela zachowuje kolejność ustawień',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final owner = await LocalRecordOwner.capture();
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    var calls = 0;
+    final delayed = RiggingStore(captureOwner: () async {
+      if (++calls == 1) {
+        entered.complete();
+        await release.future;
+      }
+      return owner;
+    });
+    final older = delayed.save(const RiggingSavedInputs(unit: MassUnit.kg));
+    await entered.future;
+    final newer = delayed.save(const RiggingSavedInputs(unit: MassUnit.t));
+    await Future<void>.delayed(Duration.zero);
+    release.complete();
+    await Future.wait([older, newer]);
+    expect((await store.load()).inputs!.unit, MassUnit.t);
+  });
 
   test('pozorny sukces zapisu jest wykrywany po odczycie z urządzenia',
       () async {

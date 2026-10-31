@@ -4,6 +4,7 @@
 // mówi o tym spawaczowi. Lista kontrolna nie jest zapisywana.
 
 import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/owned_prefs.dart';
 import '../../database/local_record_owner.dart';
 
@@ -36,12 +37,26 @@ class FumeInputStore {
     return decodeFumeInputs(raw);
   }
 
-  Future<void> save(FumeInputs inputs) async {
-    final prefs = await OwnedPrefs.instance(captureOwner);
+  Future<void> save(FumeInputs inputs) {
+    Object? captureError;
+    StackTrace? captureStack;
+    final prefsReady =
+        OwnedPrefs.instance(captureOwner).then<SharedPreferences?>(
+      (prefs) => prefs,
+      onError: (Object error, StackTrace stack) {
+        captureError = error;
+        captureStack = stack;
+        return null;
+      },
+    );
     final encoded = encodeFumeInputs(inputs);
     final previous = _writes;
     final write = () async {
       if (previous != null) await previous;
+      final prefs = await prefsReady;
+      if (prefs == null) {
+        Error.throwWithStackTrace(captureError!, captureStack!);
+      }
       if (!await prefs.setString(key, encoded)) {
         throw StateError('Could not save fume settings');
       }

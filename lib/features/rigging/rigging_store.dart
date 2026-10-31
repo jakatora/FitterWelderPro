@@ -9,6 +9,7 @@
 library;
 
 import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:flutter/foundation.dart' show debugPrint;
 import '../../database/local_record_owner.dart';
@@ -51,12 +52,26 @@ class RiggingStore {
     }
   }
 
-  Future<void> save(RiggingSavedInputs inputs) async {
-    final prefs = await OwnedPrefs.instance(captureOwner);
+  Future<void> save(RiggingSavedInputs inputs) {
+    Object? captureError;
+    StackTrace? captureStack;
+    final prefsReady =
+        OwnedPrefs.instance(captureOwner).then<SharedPreferences?>(
+      (prefs) => prefs,
+      onError: (Object error, StackTrace stack) {
+        captureError = error;
+        captureStack = stack;
+        return null;
+      },
+    );
     final encoded = encodeRiggingInputs(inputs);
     final previous = _writes;
     final write = () async {
       if (previous != null) await previous;
+      final prefs = await prefsReady;
+      if (prefs == null) {
+        Error.throwWithStackTrace(captureError!, captureStack!);
+      }
       if (!await prefs.setString(key, encoded)) {
         throw StateError('Could not save rigging settings');
       }
