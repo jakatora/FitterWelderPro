@@ -5,6 +5,13 @@ Nie powtarzaj wpisów — każda iteracja dodaje TYLKO nowe informacje.
 
 ---
 
+## Pipe size basics — 2026-10-31
+
+### DN — rozmiar nominalny rury / nominal pipe size
+- **PL:** DN to oznaczenie nominalnego rozmiaru elementu rurociągu: litery DN oraz bezwymiarowa liczba całkowita. Liczby tej nie należy odczytywać jako zmierzonej średnicy zewnętrznej (OD) ani wewnętrznej (ID) w mm. Rzeczywiste wymiary sprawdza się w odpowiedniej normie wymiarowej i specyfikacji.
+- **EN:** DN identifies nominal pipework size, rather than a measured OD or ID in millimetres. The letters are followed by a whole-number designation. NPS means Nominal Pipe Size; actual pipe dimensions require the applicable dimensional standard.
+- **Sources:** [ISO 6708:1995 — definition of DN](https://www.iso.org/standard/21274.html), definition 2.1 also reproduced in the [ISO terminology platform](https://www.iso.org/obp/ui#iso:std:iso:16137:ed-1:v1:en); [ASME B36.10M overview](https://www.asme.org/codes-standards/find-codes-standards/b36-10m-welded-seamless-wrought-steel-pipe). Verified 2026-10-31.
+
 ## Iteration 1 — 2026-05-25
 
 ### A. Reading Piping Isometrics (basics)
