@@ -176,6 +176,7 @@ class QualificationReminders {
       QualificationReminders(ownerScoped: true);
 
   final ReminderPlatform _platform;
+  int _enableRevision = 0;
 
   static const String enabledPrefsKey = 'welder_cert_reminders_enabled_v1';
   static const String idsPrefsKey = 'welder_cert_reminder_ids_v1';
@@ -236,9 +237,12 @@ class QualificationReminders {
   /// przełącznik zostaje wyłączony.
   Future<bool> enable(List<PlannedReminder> plan) async {
     if (!supported) return false;
+    final revision = ++_enableRevision;
     // Permission UI may stay open while the user switches accounts. Capture
     // the owner before that await so an A plan never enables B's switch.
     LocalRecordOwner? requestedBy;
+    bool currentRequest() => revision == _enableRevision &&
+        (requestedBy?.isCurrent ?? true);
     if (ownerScoped) {
       try {
         requestedBy = await _captureOwner();
@@ -246,6 +250,7 @@ class QualificationReminders {
         return false;
       }
     }
+    if (!currentRequest()) return false;
     bool granted;
     try {
       granted = await _platform.requestPermission();
@@ -254,24 +259,25 @@ class QualificationReminders {
       granted = false;
     }
     if (!granted) return false;
-    if (requestedBy != null && !requestedBy.isCurrent) return false;
+    if (!currentRequest()) return false;
     final current = await _enabledKeyNow();
-    if (current == null) return false;
+    if (current == null || !currentRequest()) return false;
     try {
       final prefs = await SharedPreferences.getInstance();
-      if (requestedBy != null && !requestedBy.isCurrent) return false;
+      if (!currentRequest()) return false;
       await prefs.setBool(current.key, true);
     } catch (_) {
       return false;
     }
-    if (requestedBy != null && !requestedBy.isCurrent) return false;
+    if (!currentRequest()) return false;
     await reschedule(plan);
-    return true;
+    return currentRequest();
   }
 
   /// Wyłącza (dla bieżącego właściciela) i anuluje wszystko, co
   /// zaplanowaliśmy.
   Future<void> disable() async {
+    _enableRevision++;
     final current = await _enabledKeyNow();
     try {
       final prefs = await SharedPreferences.getInstance();

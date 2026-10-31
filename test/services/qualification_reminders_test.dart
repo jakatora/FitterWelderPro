@@ -1,6 +1,8 @@
 // Włącznik przypomnień: zgoda dopiero przy włączeniu, anulowanie starego
 // planu, platformy bez powiadomień — na atrapie platformy.
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -32,6 +34,21 @@ class _FakePlatform implements ReminderPlatform {
   @override
   Future<void> cancel(Iterable<int> ids) async {
     cancelled.addAll(ids);
+  }
+}
+
+class _DelayedPermissionPlatform extends _FakePlatform {
+  final requested = Completer<void>();
+  final permission = Completer<bool>();
+
+  @override
+  Future<bool> requestPermission() {
+    permissionRequests++;
+    if (permissionRequests == 1) {
+      requested.complete();
+      return permission.future;
+    }
+    return Future.value(false);
   }
 }
 
@@ -96,6 +113,30 @@ void main() {
     expect(await reminders.isEnabled(), isFalse);
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getStringList(QualificationReminders.idsPrefsKey), isNull);
+  });
+
+  test('disable while permission is pending wins over a late grant', () async {
+    final platform = _DelayedPermissionPlatform();
+    final reminders = QualificationReminders(platform: platform);
+    final enabling = reminders.enable([_r(1)]);
+    await platform.requested.future;
+    await reminders.disable();
+    platform.permission.complete(true);
+    expect(await enabling, isFalse);
+    expect(await reminders.isEnabled(), isFalse);
+    expect(platform.scheduled, isEmpty);
+  });
+
+  test('later denied enable cannot be replaced by an older granted request', () async {
+    final platform = _DelayedPermissionPlatform();
+    final reminders = QualificationReminders(platform: platform);
+    final first = reminders.enable([_r(1)]);
+    await platform.requested.future;
+    expect(await reminders.enable([_r(2)]), isFalse);
+    platform.permission.complete(true);
+    expect(await first, isFalse);
+    expect(await reminders.isEnabled(), isFalse);
+    expect(platform.scheduled, isEmpty);
   });
 
   test('wtyczka: powiadomienia tylko na Androidzie i iOS', () {
