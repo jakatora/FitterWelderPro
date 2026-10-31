@@ -1013,6 +1013,9 @@ class InterpassLogParse {
 /// w [InterpassLogParse.damaged].
 InterpassLogParse interpassLogFromJson(Object? raw) {
   if (raw is! Map) throw const FormatException('interpass log: not a map');
+  if (raw.containsKey('v') && raw['v'] != 1 && raw['v'] != 2) {
+    throw const FormatException('interpass log: unsupported version');
+  }
   final list = raw['welds'];
   if (list is! List) throw const FormatException('interpass log: no welds');
   final welds = <InterpassWeld>[];
