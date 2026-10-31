@@ -76,7 +76,8 @@ bool spoolWithin(double deviationMm, double toleranceMm) =>
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Tekst pola w jednostce [u] → mm. `null` dla pustego, nieczytelnego albo
-/// ujemnego wpisu (nigdy cichy zero).
+/// ujemnego wpisu albo wyniku konwersji spoza zakresu liczb skończonych
+/// (nigdy ciche zero).
 ///
 /// mm: liczba z przecinkiem albo kropką („1253,5”).
 /// Cale: „98”, „98,5”, „98 1/2”, „98-1/2”, „1/2”, „8' 2 1/2"”, „8 ft 2.5 in”,
@@ -90,8 +91,10 @@ double? parseSpoolLength(String text, SpoolUnit u) {
     return v;
   }
   final inch = parseSpoolInches(raw);
-  return inch == null ? null : inch * kSpoolMmPerInch;
+  return inch == null ? null : _finiteLength(inch * kSpoolMmPerInch);
 }
+
+double? _finiteLength(double value) => value.isFinite ? value : null;
 
 /// Cale (liczba cali) z tekstu — patrz [parseSpoolLength]. `null`, gdy
 /// tekst nie jest długością albo mianownik = 0.
@@ -113,28 +116,32 @@ double? parseSpoolInches(String text) {
     if (f == null) return null;
     feet = f;
     s = ft.group(2)!.trim();
-    if (s.isEmpty) return feet * 12;
+    if (s.isEmpty) return _finiteLength(feet * 12);
   }
   s = s.replaceFirst(RegExp(r'\s*(?:"|inches|inch|in)$'), '').trim();
   if (s.isEmpty) return null;
   final inches = _inchPart(s);
   if (inches == null) return null;
-  return feet * 12 + inches;
+  return _finiteLength(feet * 12 + inches);
 }
 
 double? _inchPart(String s) {
+  // Numeric parts may exceed int64 even when the resulting fraction is small.
   final mixed =
       RegExp(r'^(\d+)(?:\s+|\s*-\s*)(\d+)\s*/\s*(\d+)$').firstMatch(s);
   if (mixed != null) {
-    final den = int.parse(mixed.group(3)!);
-    if (den == 0) return null;
-    return int.parse(mixed.group(1)!) + int.parse(mixed.group(2)!) / den;
+    final whole = parseDecimal(mixed.group(1));
+    final num = parseDecimal(mixed.group(2));
+    final den = parseDecimal(mixed.group(3));
+    if (whole == null || num == null || den == null || den == 0) return null;
+    return _finiteLength(whole + num / den);
   }
   final frac = RegExp(r'^(\d+)\s*/\s*(\d+)$').firstMatch(s);
   if (frac != null) {
-    final den = int.parse(frac.group(2)!);
-    if (den == 0) return null;
-    return int.parse(frac.group(1)!) / den;
+    final num = parseDecimal(frac.group(1));
+    final den = parseDecimal(frac.group(2));
+    if (num == null || den == null || den == 0) return null;
+    return _finiteLength(num / den);
   }
   if (!RegExp(r'^\d+(?:[.,]\d+)?$|^[.,]\d+$').hasMatch(s)) return null;
   return parseDecimal(s);
@@ -156,9 +163,10 @@ String spoolNum(double v, {required bool en, int decimals = 6}) {
 /// Cale jako ułamek do 1/64 („98 1/2”, „1/16”, „3”), `null`, gdy wartość nie
 /// jest wielokrotnością 1/64″.
 String? spoolInchFraction(double inch) {
-  if (inch < 0) return null;
+  if (!inch.isFinite || inch < 0) return null;
   const den = 64;
   final n = inch * den;
+  if (!n.isFinite) return null;
   if ((n - n.round()).abs() > 1e-6) return null;
   final total = n.round();
   final whole = total ~/ den;

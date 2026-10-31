@@ -6,6 +6,31 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cut_list_app/domain/spool_check/spool_units.dart';
 
 void main() {
+  test('large fraction components are parsed without integer overflow', () {
+    const large = '9223372036854775808';
+    expect(parseSpoolInches('$large/$large'), 1);
+    expect(parseSpoolInches('2 $large/$large'), 3);
+    expect(parseSpoolLength('$large/$large', SpoolUnit.inch), 25.4);
+    expect(parseSpoolInches('$large 1/2'), double.parse(large));
+  });
+
+  test('unrepresentable lengths stay invalid after every unit conversion', () {
+    final huge = '1${'0' * 308}';
+    final beyond = '${huge}0';
+    expect(parseSpoolInches('$huge ft'), isNull);
+    expect(parseSpoolInches('$huge ft 1'), isNull);
+    expect(parseSpoolInches('$huge $huge/1'), isNull);
+    expect(parseSpoolInches('$beyond/2'), isNull);
+    expect(parseSpoolLength(huge, SpoolUnit.inch), isNull);
+  });
+
+  test('fraction formatting cannot round a non-finite scaled length', () {
+    for (final value in [double.maxFinite, double.infinity, double.nan]) {
+      expect(spoolInchFraction(value), isNull);
+    }
+    expect(spoolFormatInch(double.maxFinite, en: true), startsWith('≈'));
+  });
+
   test(
       'cale: ułamki do 1/64″ przeliczają się dokładnie (1/16″ = 1,5875 mm, '
       '1/8″ = 3,175 mm, 1/32″ = 0,79375 mm)', () {

@@ -98,6 +98,26 @@ Future<SpoolCheck> _saved() async {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  for (final language in AppLanguage.values) {
+    testWidgets('large fractions and overflowing inches do not break the form: $language',
+        (tester) async {
+      await _pump(tester, language: language);
+      await _tapKey(tester, 'sc-unit-inch');
+      await _tapKey(tester, 'sc-add-faceToFace');
+      const fraction = '9223372036854775808/9223372036854775808';
+      await _enter(tester, 'sc-i-0-drawing', fraction);
+      await _enter(tester, 'sc-i-0-measured', '1');
+      await _enter(tester, 'sc-i-0-tol', '1/8');
+      expect((await _saved()).items.single.drawingMm, 25.4);
+      expect((await _saved()).evaluate().items.single.verdict, SpoolVerdict.ok);
+      await _enter(tester, 'sc-i-0-measured', '1${'0' * 308}');
+      expect(tester.takeException(), isNull);
+      expect((await _saved()).items.single.measuredMm, isNull);
+      expect((await _saved()).evaluate().items.single.verdict, SpoolVerdict.none);
+      expect(await _field(tester, 'sc-i-0-measured'), '1${'0' * 308}');
+    });
+  }
+
   testWidgets(
       'pozycja F–F DN150: 1253 przy 1250 — w tolerancji, 1253,5 — '
       'poza; zapis w historii', (tester) async {
