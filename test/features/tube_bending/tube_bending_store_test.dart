@@ -5,9 +5,20 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import 'package:cut_list_app/domain/fitter/tube_bending.dart';
 import 'package:cut_list_app/features/tube_bending/tube_bending_store.dart';
+
+class _UnpersistedDisk extends InMemorySharedPreferencesStore {
+  _UnpersistedDisk() : super.empty();
+  String? pretendKey;
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    if (pretendKey == null || pretendKey == key) return true;
+    return super.setValue(valueType, key, value);
+  }
+}
 
 class _FlakyStore extends TubeBendingStore {
   _FlakyStore();
@@ -37,6 +48,28 @@ const _tube = TubeBendingSaved(
 );
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('pozorny sukces zapisu rurki jest zgłaszany jako błąd', () async {
+    SharedPreferences.setMockInitialValues({});
+    SharedPreferencesStorePlatform.instance = _UnpersistedDisk();
+    await expectLater(const TubeBendingStore().save(_tube), throwsStateError);
+  });
+
+  test('nieutrwalona kopia nie pozwala nadpisać uszkodzonego oryginału',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = _UnpersistedDisk()
+      ..pretendKey = 'flutter.${TubeBendingStore.corruptKey}';
+    SharedPreferencesStorePlatform.instance = disk;
+    const damaged = '{broken tube';
+    await disk.setValue('String', 'flutter.${TubeBendingStore.key}', damaged);
+    await expectLater(const TubeBendingStore().save(_tube), throwsStateError);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(prefs.get(TubeBendingStore.key), damaged);
+    expect(prefs.get(TubeBendingStore.corruptKey), isNull);
+  });
   test('zapis i odczyt (puste pola zostają puste)', () async {
     SharedPreferences.setMockInitialValues({});
     const store = TubeBendingStore();

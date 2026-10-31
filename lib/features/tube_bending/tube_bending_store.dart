@@ -183,8 +183,11 @@ class TubeBendingStore {
 
   /// Surowa wartość spod [key] (punkt podmiany w teście).
   @protected
-  Future<Object?> readRaw() async =>
-      (await OwnedPrefs.instance(captureOwner)).get(key);
+  Future<Object?> readRaw() async {
+    final prefs = await OwnedPrefs.instance(captureOwner);
+    await prefs.reload();
+    return prefs.get(key);
+  }
 
   /// Nigdy nie rzuca.
   Future<TubeBendingLoad> load() async {
@@ -206,6 +209,7 @@ class TubeBendingStore {
   Future<void> save(TubeBendingSaved state,
       {bool afterFailedRead = false}) async {
     final prefs = await OwnedPrefs.instance(captureOwner);
+    await prefs.reload();
     final raw = prefs.get(key);
     if (raw != null) {
       final damaged = raw is! String || !decodeTubeBending(raw).intact;
@@ -219,10 +223,19 @@ class TubeBendingStore {
         if (existing == null && !await prefs.setString(corruptKey, copy)) {
           throw StateError('Could not back up tube bending record');
         }
+        await prefs.reload();
+        if (prefs.get(corruptKey) != copy) {
+          throw StateError('Tube bending backup was not persisted');
+        }
       }
     }
-    if (!await prefs.setString(key, encodeTubeBending(state))) {
+    final encoded = encodeTubeBending(state);
+    if (!await prefs.setString(key, encoded)) {
       throw StateError('Could not save tube bending record');
+    }
+    await prefs.reload();
+    if (prefs.get(key) != encoded) {
+      throw StateError('Tube bending record was not persisted');
     }
   }
 
