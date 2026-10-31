@@ -6,6 +6,17 @@ import 'package:cut_list_app/domain/exam/exam_session.dart';
 import 'package:cut_list_app/features/welder_exam/welder_exam_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+
+class _UnpersistedDisk extends InMemorySharedPreferencesStore {
+  _UnpersistedDisk() : super.empty();
+  String? pretendKey;
+  @override
+  Future<bool> setValue(String type, String key, Object value) async {
+    if (pretendKey == null || pretendKey == key) return true;
+    return super.setValue(type, key, value);
+  }
+}
 
 /// Magazyn, którego pierwszy odczyt rzuca (chwilowy błąd platformy).
 class _FlakyStore extends WelderExamStore {
@@ -27,6 +38,29 @@ ExamStats _someStats() {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('pozorny sukces zapisu statystyk jest wykrywany', () async {
+    SharedPreferences.setMockInitialValues({});
+    SharedPreferencesStorePlatform.instance = _UnpersistedDisk();
+    await expectLater(
+        const WelderExamStore().save(_someStats()), throwsStateError);
+  });
+
+  test('nieutrwalona kopia blokuje nadpisanie uszkodzonych statystyk',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = _UnpersistedDisk()
+      ..pretendKey = 'flutter.${WelderExamStore.corruptKey}';
+    SharedPreferencesStorePlatform.instance = disk;
+    const damaged = '{broken exam';
+    await disk.setValue('String', 'flutter.${WelderExamStore.key}', damaged);
+    await expectLater(
+        const WelderExamStore().save(_someStats()), throwsStateError);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(prefs.get(WelderExamStore.key), damaged);
+    expect(prefs.get(WelderExamStore.corruptKey), isNull);
+  });
 
   test('brak zapisu: puste statystyki bez flagi uszkodzenia', () async {
     SharedPreferences.setMockInitialValues({});

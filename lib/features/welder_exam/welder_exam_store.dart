@@ -44,8 +44,11 @@ class WelderExamStore {
 
   /// Surowa wartość spod [key] (punkt podmiany w teście).
   @protected
-  Future<Object?> readRaw() async =>
-      (await OwnedPrefs.instance(captureOwner)).get(key);
+  Future<Object?> readRaw() async {
+    final prefs = await OwnedPrefs.instance(captureOwner);
+    await prefs.reload();
+    return prefs.get(key);
+  }
 
   /// Nigdy nie rzuca.
   Future<WelderExamLoad> load() async {
@@ -65,6 +68,7 @@ class WelderExamStore {
 
   Future<void> save(ExamStats stats, {bool afterFailedRead = false}) async {
     final prefs = await OwnedPrefs.instance(captureOwner);
+    await prefs.reload();
     final raw = prefs.get(key);
     if (raw != null &&
         (afterFailedRead || raw is! String || !decodeExamStats(raw).intact)) {
@@ -76,9 +80,18 @@ class WelderExamStore {
       if (existing == null && !await prefs.setString(corruptKey, copy)) {
         throw StateError('Could not back up exam stats');
       }
+      await prefs.reload();
+      if (prefs.get(corruptKey) != copy) {
+        throw StateError('Exam stats backup was not persisted');
+      }
     }
-    if (!await prefs.setString(key, encodeExamStats(stats))) {
+    final encoded = encodeExamStats(stats);
+    if (!await prefs.setString(key, encoded)) {
       throw StateError('Could not save exam stats');
+    }
+    await prefs.reload();
+    if (prefs.get(key) != encoded) {
+      throw StateError('Exam stats were not persisted');
     }
   }
 
