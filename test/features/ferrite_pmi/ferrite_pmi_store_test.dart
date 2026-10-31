@@ -6,10 +6,21 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import 'package:cut_list_app/domain/ferrite_pmi/ferrite.dart';
 import 'package:cut_list_app/domain/ferrite_pmi/ferrite_pmi_protocol.dart';
 import 'package:cut_list_app/features/ferrite_pmi/ferrite_pmi_store.dart';
+
+class _Disk extends InMemorySharedPreferencesStore {
+  _Disk() : super.empty();
+  String? pretendKey;
+  @override
+  Future<bool> setValue(String type, String key, Object value) async {
+    if (pretendKey == null || pretendKey == key) return true;
+    return super.setValue(type, key, value);
+  }
+}
 
 FerritePmiProtocol _p(int i, {String date = '2026-10-18'}) =>
     FerritePmiProtocol(
@@ -31,6 +42,25 @@ String _encoded(int n) =>
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const store = FerritePmiStore();
+
+  test('pozorny sukces zapisu protokołu jest wykrywany', () async {
+    SharedPreferences.setMockInitialValues({});
+    SharedPreferencesStorePlatform.instance = _Disk();
+    await expectLater(store.upsert(_p(1)), throwsStateError);
+  });
+
+  test('pozorna kopia nie pozwala nadpisać uszkodzonej historii', () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = _Disk()
+      ..pretendKey = 'flutter.${FerritePmiStore.corruptBackupKey}';
+    SharedPreferencesStorePlatform.instance = disk;
+    const damaged = '{broken ferrite';
+    await disk.setValue('String', 'flutter.${FerritePmiStore.key}', damaged);
+    await expectLater(store.upsert(_p(1)), throwsStateError);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(prefs.get(FerritePmiStore.key), damaged);
+  });
 
   test('zapis i odczyt: najnowsze na górze, pusty protokół pominięty',
       () async {
