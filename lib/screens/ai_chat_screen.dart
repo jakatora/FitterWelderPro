@@ -3015,9 +3015,16 @@ class _AiChatScreenState extends State<AiChatScreen>
                 tooltip: on
                     ? _tr('Czytanie na głos: włączone', 'Read aloud: on')
                     : _tr('Czytanie na głos: wyłączone', 'Read aloud: off'),
-                onPressed: () {
+                onPressed: () async {
                   if (on) _voice.stop();
-                  _history.setSpeakReplies(!on);
+                  final saved = await _history.setSpeakReplies(!on);
+                  if (!mounted || saved) return;
+                  ScaffoldMessenger.of(this.context).showSnackBar(SnackBar(
+                    content: Text(_tr(
+                      'Czytanie zmieniono w tej sesji. Nie udało się zapisać ustawienia na później.',
+                      'Read-aloud changed for this session. Could not save the preference for later.',
+                    )),
+                  ));
                 },
               );
             },

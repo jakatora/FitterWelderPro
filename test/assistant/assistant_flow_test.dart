@@ -1,3 +1,4 @@
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 // Przepływ „Wykonaj" na prawdziwym SQLite: tekst → (pytanie) → podsumowanie →
 // „Zapisz" → rekord w weld_params → „Cofnij" usuwa. Bez „Zapisz" nic się nie
@@ -21,6 +22,15 @@ import 'package:cut_list_app/services/ai_chat_service.dart';
 
 import '../support/test_database.dart';
 import '../test_prefs.dart';
+
+class _RefusedSpeechPreferenceDisk extends InMemorySharedPreferencesStore {
+  _RefusedSpeechPreferenceDisk() : super.empty();
+  @override
+  Future<bool> setValue(String type, String key, Object value) async {
+    if (key == 'flutter.assistant_speak_replies_v1') return false;
+    return super.setValue(type, key, value);
+  }
+}
 
 class _FakeSpeech implements SpeechInput {
   _FakeSpeech({this.supported = true, this.granted = true});
@@ -142,6 +152,25 @@ void main() {
   setUp(() {
     seedFreshInstall();
     AssistantHistoryStore.instance.resetForTest();
+  });
+
+  testWidgets('błąd zapisu preferencji głosu jest widoczny', (tester) async {
+    final values = await SharedPreferencesStorePlatform.instance.getAll();
+    final disk = _RefusedSpeechPreferenceDisk();
+    for (final entry in values.entries) {
+      await disk.setValue('String', entry.key, entry.value);
+    }
+    SharedPreferencesStorePlatform.instance = disk;
+    await _pump(tester);
+    await tester.tap(find.byTooltip('Czytanie na głos: wyłączone'));
+    await _settle(tester);
+    expect(
+        find.text(
+            'Czytanie zmieniono w tej sesji. Nie udało się zapisać ustawienia na później.'),
+        findsOneWidget);
+    expect(find.byTooltip('Czytanie na głos: włączone'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await _settle(tester);
   });
 
   testWidgets('historia ostrzega o nieczytelnym zapisie', (tester) async {

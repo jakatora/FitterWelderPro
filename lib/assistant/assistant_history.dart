@@ -231,17 +231,20 @@ class AssistantHistoryStore extends ChangeNotifier {
         await _save();
       });
 
-  Future<void> setSpeakReplies(bool value) async {
-    await load();
-    _speakReplies = value;
-    notifyListeners();
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_kSpeakKey, value);
-    } catch (e) {
-      debugPrint('AssistantHistoryStore.setSpeakReplies: $e');
-    }
-  }
+  Future<bool> setSpeakReplies(bool value) => _serial(() async {
+        await load();
+        _speakReplies = value;
+        notifyListeners();
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          if (!await prefs.setBool(_kSpeakKey, value)) return false;
+          await prefs.reload();
+          return prefs.getBool(_kSpeakKey) == value;
+        } catch (e) {
+          debugPrint('AssistantHistoryStore.setSpeakReplies: $e');
+          return false;
+        }
+      });
 
   Future<bool> _save() async {
     final saved = await _persistNow();

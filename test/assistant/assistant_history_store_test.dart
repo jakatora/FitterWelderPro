@@ -15,12 +15,13 @@ AssistantHistoryEntry entry(String id) => AssistantHistoryEntry(
     ownerScope: 'guest');
 
 class _DelayedHistoryDisk extends InMemorySharedPreferencesStore {
-  _DelayedHistoryDisk() : super.empty();
+  _DelayedHistoryDisk({this.key = 'assistant_history_v1'}) : super.empty();
+  final String key;
   final entered = Completer<void>(), release = Completer<void>();
   var writes = 0;
   @override
   Future<bool> setValue(String type, String key, Object value) async {
-    if (key == 'flutter.assistant_history_v1' && ++writes == 1) {
+    if (key == 'flutter.${this.key}' && ++writes == 1) {
       entered.complete();
       await release.future;
     }
@@ -43,6 +44,17 @@ class _FailedHistoryDisk extends InMemorySharedPreferencesStore {
   Future<bool> remove(String key) async {
     if (key == 'flutter.assistant_history_v1' && failRemovals) return !refuse;
     return super.remove(key);
+  }
+}
+
+class _FailedSpeechPreferenceDisk extends InMemorySharedPreferencesStore {
+  _FailedSpeechPreferenceDisk(this.refuse) : super.empty();
+  final bool refuse;
+  bool fail = true;
+  @override
+  Future<bool> setValue(String type, String key, Object value) async {
+    if (key == 'flutter.assistant_speak_replies_v1' && fail) return !refuse;
+    return super.setValue(type, key, value);
   }
 }
 
@@ -127,6 +139,41 @@ void main() {
       expect(prefs.getString('assistant_history_v1'), isNotNull);
     });
   }
+
+  for (final refuse in [false, true]) {
+    test('preferencja głosu wykrywa brak trwałości i pozwala ponowić: $refuse',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final disk = _FailedSpeechPreferenceDisk(refuse);
+      SharedPreferencesStorePlatform.instance = disk;
+      final store = AssistantHistoryStore.instance;
+      store.resetForTest();
+      expect(await store.setSpeakReplies(true), isFalse);
+      expect(store.speakReplies, isTrue);
+      disk.fail = false;
+      expect(await store.setSpeakReplies(true), isTrue);
+      store.resetForTest();
+      await store.load();
+      expect(store.speakReplies, isTrue);
+    });
+  }
+
+  test('wyłączenie czytania wygrywa z opóźnionym włączeniem', () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = _DelayedHistoryDisk(key: 'assistant_speak_replies_v1');
+    SharedPreferencesStorePlatform.instance = disk;
+    final store = AssistantHistoryStore.instance;
+    store.resetForTest();
+    final enabling = store.setSpeakReplies(true);
+    await disk.entered.future;
+    final disabling = store.setSpeakReplies(false);
+    disk.release.complete();
+    expect(await enabling, isTrue);
+    expect(await disabling, isTrue);
+    store.resetForTest();
+    await store.load();
+    expect(store.speakReplies, isFalse);
+  });
 
   test('równoległe pierwsze wpisy nie znikają podczas wczytywania historii',
       () async {
