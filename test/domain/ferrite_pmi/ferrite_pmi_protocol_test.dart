@@ -47,31 +47,110 @@ FerritePmiProtocol _protocol() => FerritePmiProtocol(
     );
 
 void main() {
+  test('opaque-only data is retained, and known failures remain failures', () {
+    const opaque = FerritePmiProtocol(
+        id: 'r',
+        date: '2026-10-31',
+        unreadableSites: [null],
+        unreadablePmi: [false]);
+    expect(opaque.isBlank, isFalse);
+    expect(opaque.hasFerrite, isTrue);
+    expect(opaque.hasPmi, isTrue);
+    expect(opaque.ferriteVerdict, FerriteVerdict.none);
+    expect(FerritePmiProtocol.fromJson(opaque.toJson())!.toJson(),
+        opaque.toJson());
+    final failing =
+        opaque.copyWith(customMin: '30', customMax: '70', sites: const [
+      FerriteSite(id: 's', location: FerriteLocation.weld, readings: ['12']),
+    ]);
+    expect(failing.ferriteVerdict, FerriteVerdict.fail);
+    expect(failing.incomplete, isTrue);
+  });
+
+  test('unreadable whole locations cannot disappear into a passing protocol',
+      () {
+    final broken = {
+      'id': 'future',
+      'loc': 'unknown-location',
+      'readings': ['12']
+    };
+    final raw = _protocol().copyWith(sites: const [
+      FerriteSite(id: 's', location: FerriteLocation.weld, readings: ['45']),
+    ]).toJson();
+    raw['sites'] = [
+      {
+        'id': 's',
+        'loc': 'weld',
+        'readings': ['45']
+      },
+      broken,
+    ];
+    final restored = FerritePmiProtocol.fromJson(raw)!;
+    expect(restored.ferriteVerdict, FerriteVerdict.none);
+    expect(ferritePmiProtocolText(restored, en: true, now: _now),
+        contains('Incomplete record'));
+    final saved = restored.copyWith(title: 'Edited').toJson();
+    expect(saved.toString(), contains('unknown-location'));
+    final reloaded = FerritePmiProtocol.fromJson(saved)!;
+    expect(reloaded.ferriteVerdict, FerriteVerdict.none);
+    expect(reloaded.droppedOnLoad, 0,
+        reason:
+            'Preserved opaque data must not repeatedly consume backup slots');
+  });
+
+  test('malformed measurement containers are retained in the saved protocol',
+      () {
+    for (final field in ['sites', 'pmi']) {
+      final raw = _protocol().toJson();
+      raw[field] = {
+        'unreadable-original': [12, false]
+      };
+      final restored = FerritePmiProtocol.fromJson(raw)!;
+      expect(restored.droppedOnLoad, 1, reason: field);
+      expect(restored.toJson().toString(), contains('unreadable-original'));
+      expect(ferritePmiProtocolText(restored, en: false, now: _now),
+          contains('Niepełny protokół'));
+      final reloaded = FerritePmiProtocol.fromJson(restored.toJson())!;
+      expect(reloaded.toJson(), restored.toJson());
+      expect(reloaded.droppedOnLoad, 0);
+    }
+  });
+
   test('unreadable restored ferrite readings cannot disappear into a pass', () {
     for (final invalid in [null, 45, true, <String, Object?>{}, <Object?>[]]) {
       final raw = _protocol().copyWith(sites: const [
         FerriteSite(id: 's', location: FerriteLocation.weld, readings: ['45']),
       ]).toJson();
       raw['sites'] = [
-        {'id': 's', 'loc': 'weld', 'readings': ['45', invalid]},
+        {
+          'id': 's',
+          'loc': 'weld',
+          'readings': ['45', invalid]
+        },
       ];
       final restored = FerritePmiProtocol.fromJson(raw)!;
       expect(restored.droppedOnLoad, 1);
       expect(restored.ferriteVerdict, FerriteVerdict.none);
       expect(restored.sites.single.readings.length, 2);
-      expect(restored.evaluateFerrite().single.reason, FerriteNoVerdict.invalidReading);
+      expect(restored.evaluateFerrite().single.reason,
+          FerriteNoVerdict.invalidReading);
       expect(ferritePmiProtocolText(restored, en: false, now: _now),
           contains('Wynik ferrytu: BRAK WERDYKTU'));
       expect(FerritePmiProtocol.fromJson(restored.toJson())!.ferriteVerdict,
-          FerriteVerdict.none, reason: 'Saving cannot erase the invalid measurement');
-      expect(restored.copyWith(sites: [
-        restored.sites.single.copyWith(readings: ['45']),
-      ]).ferriteVerdict, FerriteVerdict.pass,
+          FerriteVerdict.none,
+          reason: 'Saving cannot erase the invalid measurement');
+      expect(
+          restored.copyWith(sites: [
+            restored.sites.single.copyWith(readings: ['45']),
+          ]).ferriteVerdict,
+          FerriteVerdict.pass,
           reason: 'An explicit correction must allow a new valid assessment');
     }
   });
 
-  test('restored invalid requirements cannot become open limits or default rules', () {
+  test(
+      'restored invalid requirements cannot become open limits or default rules',
+      () {
     for (final field in ['min', 'max', 'n', 'preset']) {
       final raw = _protocol().copyWith(sites: const [
         FerriteSite(id: 's', location: FerriteLocation.weld, readings: ['45']),
@@ -81,15 +160,26 @@ void main() {
       expect(restored.ferriteVerdict, FerriteVerdict.none, reason: field);
       expect(restored.droppedOnLoad, 1, reason: field);
       expect(FerritePmiProtocol.fromJson(restored.toJson())!.ferriteVerdict,
-          FerriteVerdict.none, reason: field);
+          FerriteVerdict.none,
+          reason: field);
     }
   });
 
-  test('restored malformed reading container cannot remove a failed measurement site', () {
+  test(
+      'restored malformed reading container cannot remove a failed measurement site',
+      () {
     final raw = _protocol().toJson();
     raw['sites'] = [
-      {'id': 'good', 'loc': 'weld', 'readings': ['45']},
-      {'id': 'broken', 'loc': 'hazA', 'readings': {'value': '45'}},
+      {
+        'id': 'good',
+        'loc': 'weld',
+        'readings': ['45']
+      },
+      {
+        'id': 'broken',
+        'loc': 'hazA',
+        'readings': {'value': '45'}
+      },
     ];
     final restored = FerritePmiProtocol.fromJson(raw)!;
     expect(restored.ferriteVerdict, FerriteVerdict.none);
@@ -97,33 +187,55 @@ void main() {
     expect(restored.filledSites.length, 2);
   });
 
-  test('invalid restored PMI values and uncertainties are not silently absent or zero', () {
+  test(
+      'invalid restored PMI values and uncertainties are not silently absent or zero',
+      () {
     const valid = PmiItem(id: 'pmi', gradeId: '1.4404', readings: {
-      PmiElement.cr: '17', PmiElement.ni: '11', PmiElement.mo: '2.2',
+      PmiElement.cr: '17',
+      PmiElement.ni: '11',
+      PmiElement.mo: '2.2',
     });
     expect(valid.evaluate().verdict, PmiVerdict.conformingNoCarbon);
     for (final field in ['r', 'u']) {
-      for (final invalid in [null, 0.2, true, <String, Object?>{}, <Object?>[]]) {
+      for (final invalid in [
+        null,
+        0.2,
+        true,
+        <String, Object?>{},
+        <Object?>[]
+      ]) {
         final raw = valid.toJson();
-        raw[field] = {...raw[field] as Map,
-          (field == 'r' ? 'cu' : 'cr'): invalid};
+        raw[field] = {
+          ...raw[field] as Map,
+          (field == 'r' ? 'cu' : 'cr'): invalid
+        };
         final (item, lost) = PmiItem.fromJson(raw);
         expect(lost, 1);
         expect(item!.evaluate().verdict, PmiVerdict.none);
         expect(item.evaluate().reason, PmiNoVerdict.invalidInput);
-        expect(PmiItem.fromJson(item.toJson()).$1!.evaluate().verdict, PmiVerdict.none);
-        expect(item.copyWith(readings: valid.readings, uncertainty: {}).evaluate().verdict,
+        expect(PmiItem.fromJson(item.toJson()).$1!.evaluate().verdict,
+            PmiVerdict.none);
+        expect(
+            item
+                .copyWith(readings: valid.readings, uncertainty: {})
+                .evaluate()
+                .verdict,
             PmiVerdict.conformingNoCarbon);
       }
     }
-    final (badMap, lost) = PmiItem.fromJson({...valid.toJson(), 'u': ['0.2']});
+    final (badMap, lost) = PmiItem.fromJson({
+      ...valid.toJson(),
+      'u': ['0.2']
+    });
     expect(lost, 1);
     expect(badMap!.evaluate().verdict, PmiVerdict.none);
     expect(badMap.evaluate().reason, PmiNoVerdict.invalidInput);
-    final (badSpec, specLost) = PmiItem.fromJson({...valid.toJson(), 'spec': 123});
+    final (badSpec, specLost) =
+        PmiItem.fromJson({...valid.toJson(), 'spec': 123});
     expect(specLost, 1);
     expect(badSpec!.evaluate().verdict, PmiVerdict.none,
-        reason: 'An unreadable specification must not select the default standard');
+        reason:
+            'An unreadable specification must not select the default standard');
   });
 
   test('JSON w obie strony: odczyty jako tekst, bez zmian', () {
@@ -162,8 +274,7 @@ void main() {
       PmiElement.cr: '17',
     });
     expect(unknownGrade.evaluate().reason, PmiNoVerdict.noGrade);
-    final unknownSpec =
-        _protocol().pmi.single.copyWith(specKey: 'astm-1999');
+    final unknownSpec = _protocol().pmi.single.copyWith(specKey: 'astm-1999');
     expect(unknownSpec.spec, isNull);
     expect(unknownSpec.evaluate().verdict, PmiVerdict.none);
   });
@@ -220,21 +331,23 @@ void main() {
       expect(t, contains(preset.sourcePl));
     });
 
-    test('preset IOGP S-705 przy 1 odczycie: „specyfikacja wymaga ≥ 3 '
+    test(
+        'preset IOGP S-705 przy 1 odczycie: „specyfikacja wymaga ≥ 3 '
         'odczytów”', () {
       final p = FerritePmiProtocol(
         id: 'i',
         date: '2026-10-18',
         presetId: 'iogp_s705_fn3_10',
         sites: const [
-          FerriteSite(
-              id: 's', location: FerriteLocation.weld, readings: ['6']),
+          FerriteSite(id: 's', location: FerriteLocation.weld, readings: ['6']),
         ],
       );
       expect(p.ferriteVerdict, FerriteVerdict.none);
       final t = ferritePmiProtocolText(p, en: false, now: _now);
-      expect(t, contains('za mało odczytów: 1 — specyfikacja wymaga ≥ 3 '
-          'odczytów'));
+      expect(
+          t,
+          contains('za mało odczytów: 1 — specyfikacja wymaga ≥ 3 '
+              'odczytów'));
       expect(t, contains('min. odczytów na miejsce: 3'));
     });
 

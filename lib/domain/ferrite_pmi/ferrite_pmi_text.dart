@@ -9,6 +9,13 @@ import 'pmi.dart';
 
 String _t(bool en, String pl, String e) => en ? e : pl;
 
+String ferritePmiIncompleteText(FerritePmiProtocol p, {required bool en}) => _t(
+    en,
+    'Niepełny protokół — nieczytelne wpisy: ferryt ${p.unreadableSites.length}, PMI ${p.unreadablePmi.length}. '
+        'Dane zachowano. Odtwórz pomiary z dokumentacji źródłowej; brak pełnej oceny protokołu.',
+    'Incomplete record — unreadable entries: ferrite ${p.unreadableSites.length}, PMI ${p.unreadablePmi.length}. '
+        'Data retained. Reconstruct measurements from the source documentation; no complete assessment of this record.');
+
 // ═══════════════════════════════════════════════════════════════════════════
 // FERRYT
 // ═══════════════════════════════════════════════════════════════════════════
@@ -20,19 +27,20 @@ String ferriteRuleLabel(FerriteRule r, {required bool en}) => switch (r) {
         _t(en, 'Średnia z N odczytów', 'Average of N readings'),
     };
 
-String ferriteVerdictLabel(FerriteVerdict v, {required bool en}) =>
-    switch (v) {
+String ferriteVerdictLabel(FerriteVerdict v, {required bool en}) => switch (v) {
       FerriteVerdict.pass => _t(en, 'W ZAKRESIE', 'IN RANGE'),
       FerriteVerdict.fail => _t(en, 'POZA ZAKRESEM', 'OUT OF RANGE'),
       FerriteVerdict.none => _t(en, 'BRAK WERDYKTU', 'NO VERDICT'),
     };
 
 String ferriteNoVerdictText(FerriteNoVerdict r,
-        {required bool en, FerriteUnit? readingUnit, FerriteUnit? reqUnit,
-        int? minCount, int? count}) =>
+        {required bool en,
+        FerriteUnit? readingUnit,
+        FerriteUnit? reqUnit,
+        int? minCount,
+        int? count}) =>
     switch (r) {
-      FerriteNoVerdict.noReadings =>
-        _t(en, 'brak odczytów', 'no readings'),
+      FerriteNoVerdict.noReadings => _t(en, 'brak odczytów', 'no readings'),
       FerriteNoVerdict.invalidReading => _t(
           en,
           'odczyt nieczytelny, ujemny albo > 100 % — popraw albo usuń',
@@ -109,8 +117,8 @@ String ferriteSiteSummary(FerriteSiteResult r, FerriteRequirement? req,
 
 String pmiVerdictLabel(PmiVerdict v, {required bool en}) => switch (v) {
       PmiVerdict.conforming => _t(en, 'ZGODNY', 'CONFORMING'),
-      PmiVerdict.conformingNoCarbon => _t(en, 'ZGODNY (bez weryfikacji C)',
-          'CONFORMING (carbon not verified)'),
+      PmiVerdict.conformingNoCarbon => _t(
+          en, 'ZGODNY (bez weryfikacji C)', 'CONFORMING (carbon not verified)'),
       PmiVerdict.toVerify => _t(en, 'DO WERYFIKACJI', 'TO BE VERIFIED'),
       PmiVerdict.nonConforming => _t(en, 'NIEZGODNY', 'NON-CONFORMING'),
       PmiVerdict.none => _t(en, 'BRAK WERDYKTU', 'NO VERDICT'),
@@ -119,9 +127,7 @@ String pmiVerdictLabel(PmiVerdict v, {required bool en}) => switch (v) {
 String pmiNoVerdictText(PmiNoVerdict r, {required bool en}) => switch (r) {
       PmiNoVerdict.noGrade => _t(en, 'wybierz wymagany gatunek i normę',
           'pick the required grade and standard'),
-      PmiNoVerdict.missingKey => _t(
-          en,
-          'brak odczytu pierwiastka kluczowego',
+      PmiNoVerdict.missingKey => _t(en, 'brak odczytu pierwiastka kluczowego',
           'a key element has no reading'),
       PmiNoVerdict.invalidInput => _t(
           en,
@@ -136,9 +142,10 @@ String pmiNoVerdictText(PmiNoVerdict r, {required bool en}) => switch (r) {
 String pmiElementStatusLabel(PmiElementStatus s, {required bool en}) =>
     switch (s) {
       PmiElementStatus.inRange => _t(en, 'w zakresie', 'in range'),
-      PmiElementStatus.toVerify =>
-        _t(en, 'do weryfikacji (granica w niepewności)',
-            'to verify (limit within uncertainty)'),
+      PmiElementStatus.toVerify => _t(
+          en,
+          'do weryfikacji (granica w niepewności)',
+          'to verify (limit within uncertainty)'),
       PmiElementStatus.outOfRange => _t(en, 'poza zakresem', 'out of range'),
       PmiElementStatus.carbonDependent =>
         _t(en, 'zależy od C — potrzebny OES', 'depends on C — OES needed'),
@@ -177,7 +184,9 @@ String pmiElementStatusText(PmiElementCheck c,
         'to verify — no $sym reading — ${p ?? 'a grade with $sym'} not '
             'ruled out'),
     null => c.status == PmiElementStatus.missing
-        ? _t(en, 'brak odczytu — pierwiastek wymagany (bez niego brak '
+        ? _t(
+            en,
+            'brak odczytu — pierwiastek wymagany (bez niego brak '
                 'werdyktu)',
             'no reading — required element (no verdict without it)')
         : pmiElementStatusLabel(c.status, en: en),
@@ -214,9 +223,8 @@ String? pmiNearestText(PmiItem item, {required bool en, int max = 3}) {
       if (!names.contains(n)) names.add(n);
       if (names.length >= max) break;
     }
-    final more = fits.length > names.length
-        ? _t(en, ' i inne', ' and others')
-        : '';
+    final more =
+        fits.length > names.length ? _t(en, ' i inne', ' and others') : '';
     return _t(
         en,
         'Wpisane pierwiastki mieszczą się w: ${names.join('; ')}$more. Tylko '
@@ -279,6 +287,11 @@ String ferritePmiProtocolText(FerritePmiProtocol p,
     line('${_t(en, 'Przyrząd', 'Instrument')}: ${p.instrument.trim()}');
   }
 
+  if (p.incomplete) {
+    line();
+    line(ferritePmiIncompleteText(p, en: en));
+  }
+
   if (p.hasFerrite) {
     line();
     line(_t(en, '— FERRYT —', '— FERRITE —'));
@@ -291,16 +304,17 @@ String ferritePmiProtocolText(FerritePmiProtocol p,
       line('${_t(en, 'Wymaganie', 'Requirement')}: '
           '${preset.requirement.text(en: en)} — ${preset.title(en: en)}');
       line('  ${_t(en, 'Źródło', 'Source')}: ${preset.source(en: en)}');
-      line('  ${_t(en, 'TYPOWE — decyduje specyfikacja projektu',
-          'TYPICAL — the project specification governs')}');
+      line(
+          '  ${_t(en, 'TYPOWE — decyduje specyfikacja projektu', 'TYPICAL — the project specification governs')}');
     } else {
-      line('${_t(en, 'Wymaganie (specyfikacja projektu)', 'Requirement (project specification)')}: '
+      line(
+          '${_t(en, 'Wymaganie (specyfikacja projektu)', 'Requirement (project specification)')}: '
           '${req != null && req.isValid ? req.text(en: en) : _t(en, 'nie wpisano / nieprawidłowe', 'not entered / invalid')}');
     }
     line('${_t(en, 'Jednostka odczytów', 'Reading unit')}: '
         '${p.readingUnit.label(en: en)}');
-    final n = ferriteEffectiveMinCount(p.minCount,
-        rule: p.rule, preset: p.preset);
+    final n =
+        ferriteEffectiveMinCount(p.minCount, rule: p.rule, preset: p.preset);
     final rule = p.rule == FerriteRule.average
         ? '${ferriteRuleLabel(p.rule, en: en)} (N = ${n ?? '—'})'
         : '${ferriteRuleLabel(p.rule, en: en)} '
@@ -356,7 +370,9 @@ String ferritePmiProtocolText(FerritePmiProtocol p,
       final near = pmiNearestText(item, en: en);
       if (near != null) line('   $near');
     }
-    line(_t(en, '* — pierwiastek wymagany (kluczowy albo z dolną granicą w normie).',
+    line(_t(
+        en,
+        '* — pierwiastek wymagany (kluczowy albo z dolną granicą w normie).',
         '* — required element (key or with a lower limit in the standard).'));
     line(pmiCarbonNote(en: en));
   }

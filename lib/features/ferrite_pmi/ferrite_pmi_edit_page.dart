@@ -314,6 +314,30 @@ class _FerritePmiEditPageState extends State<FerritePmiEditPage> {
             12, 12, 12, 24 + MediaQuery.viewPaddingOf(context).bottom),
         children: [
           _header(),
+          if (_p.incomplete) ...[
+            QuoteNotice(
+              key: const ValueKey('fp-incomplete'),
+              icon: Icons.warning_amber_outlined,
+              text: ferritePmiIncompleteText(_p, en: _en),
+            ),
+            for (final ferrite in [true, false])
+              for (var i = 0;
+                  i < (ferrite ? _p.unreadableSites : _p.unreadablePmi).length;
+                  i++)
+                ListTile(
+                  title: Text(
+                      '${ferrite ? (_en ? 'Ferrite' : 'Ferryt') : 'PMI'} — ${_en ? 'unreadable entry' : 'nieczytelny wpis'} ${i + 1}'),
+                  trailing: IconButton(
+                    key: ValueKey(
+                        'fp-remove-unreadable-${ferrite ? 'ferrite' : 'pmi'}-$i'),
+                    tooltip: context.tr(
+                        pl: 'Usuń nieczytelny wpis',
+                        en: 'Delete unreadable entry'),
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: () => _removeUnreadable(ferrite, i),
+                  ),
+                ),
+          ],
           SegmentedButton<_Part>(
             key: const ValueKey('fp-part'),
             showSelectedIcon: false,
@@ -355,6 +379,44 @@ class _FerritePmiEditPageState extends State<FerritePmiEditPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _removeUnreadable(bool ferrite, int index) async {
+    if (!_session.isCurrent) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => LocalRecordScope(
+        originSession: _session,
+        restartOnAccountChange: false,
+        builder: (dialogContext, __) => AlertDialog(
+          title: Text(context.tr(
+              pl: 'Usunąć nieczytelny wpis?', en: 'Delete unreadable entry?')),
+          content: Text(context.tr(
+              pl: 'Najpierw odtwórz pomiar z dokumentacji źródłowej. Usunięcie zachowanych danych może zmienić ocenę protokołu.',
+              en: 'First reconstruct the measurement from the source documentation. Deleting the retained data may change the assessment of this record.')),
+          actions: [
+            TextButton(
+              key: const ValueKey('fp-unreadable-cancel'),
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+            ),
+            TextButton(
+              key: const ValueKey('fp-unreadable-confirm'),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(context.tr(pl: 'Usuń wpis', en: 'Delete entry')),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted || !_session.isCurrent) return;
+    _set((p) {
+      final entries = [...(ferrite ? p.unreadableSites : p.unreadablePmi)]
+        ..removeAt(index);
+      return ferrite
+          ? p.copyWith(unreadableSites: entries)
+          : p.copyWith(unreadablePmi: entries);
+    });
   }
 
   Widget _header() {

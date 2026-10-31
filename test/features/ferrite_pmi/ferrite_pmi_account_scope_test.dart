@@ -89,6 +89,30 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('usuwanie nieczytelnego wpisu znika po zmianie konta',
+      (tester) async {
+    final p = (await const FerritePmiStore().load()).single;
+    await const FerritePmiStore().upsert(p.copyWith(unreadableSites: [null]));
+    await open(tester);
+    await tester.tap(find.byKey(const ValueKey('fp-open-0')));
+    await tester.pumpAndSettle();
+    final remove = find.byKey(const ValueKey('fp-remove-unreadable-ferrite-0'));
+    await tester.ensureVisible(remove);
+    await tester.tap(remove);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('fp-unreadable-confirm')), findsOneWidget);
+    await tester
+        .runAsync(() => account.signIn('b@example.test', 'test-password'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('fp-unreadable-confirm')), findsNothing);
+    expect((await const FerritePmiStore().load()).single.title, 'B_RECORD');
+    await tester
+        .runAsync(() => account.signIn('a@example.test', 'test-password'));
+    expect(
+        (await const FerritePmiStore().load()).single.unreadableSites, [null]);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('otwarty kalendarz edytora znika po zmianie konta',
       (tester) async {
     await open(tester);

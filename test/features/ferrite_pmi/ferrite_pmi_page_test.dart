@@ -157,7 +157,62 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   for (final language in AppLanguage.values) {
-    testWidgets('PMI uncertainty crossing the boundary stays to verify: $language', (tester) async {
+    testWidgets(
+        'opaque measurements stay visible until explicit removal: $language',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({
+        FerritePmiStore.key: jsonEncode([
+          {
+            ...const FerritePmiProtocol(
+                    id: 'opaque',
+                    date: '2026-10-31',
+                    title: 'W-opaque',
+                    customMin: '30',
+                    customMax: '70')
+                .toJson(),
+            'sites': [
+              {
+                'id': 's',
+                'loc': 'weld',
+                'readings': ['45']
+              },
+              {
+                'id': 'future',
+                'loc': 'future',
+                'readings': ['12']
+              },
+            ],
+            'pmi': [null],
+          }
+        ])
+      });
+      await _pump(tester, language: language);
+      expect(
+          find.textContaining(language == AppLanguage.en
+              ? 'Incomplete record'
+              : 'Niepełny protokół'),
+          findsOneWidget);
+      await _tapKey(tester, 'fp-open-0');
+      await _show(tester, 'fp-incomplete');
+      await _tapKey(tester, 'fp-remove-unreadable-ferrite-0');
+      await _tapKey(tester, 'fp-unreadable-cancel');
+      expect((await const FerritePmiStore().load()).single.unreadableSites,
+          hasLength(1));
+      await _tapKey(tester, 'fp-remove-unreadable-ferrite-0');
+      await _tapKey(tester, 'fp-unreadable-confirm');
+      final saved = (await const FerritePmiStore().load()).single;
+      expect(saved.unreadableSites, isEmpty);
+      expect(saved.unreadablePmi, [null]);
+      expect(saved.incomplete, isTrue);
+      expect(saved.ferriteVerdict, FerriteVerdict.pass);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final language in AppLanguage.values) {
+    testWidgets(
+        'PMI uncertainty crossing the boundary stays to verify: $language',
+        (tester) async {
       await _pump(tester, language: language);
       await _tapKey(tester, 'fp-new');
       await _tapKey(tester, 'fp-part-pmi');
@@ -175,7 +230,8 @@ void main() {
 
   for (final language in AppLanguage.values) {
     for (final reading in ['29.9999999996', '70.0000000004']) {
-      testWidgets('averaging preserves an out-of-range verdict: $language/$reading',
+      testWidgets(
+          'averaging preserves an out-of-range verdict: $language/$reading',
           (tester) async {
         await _pump(tester, language: language);
         await _tapKey(tester, 'fp-new');
@@ -193,28 +249,59 @@ void main() {
   }
 
   for (final language in AppLanguage.values) {
-    testWidgets('restored invalid measurement cannot show a green history result: $language',
+    testWidgets(
+        'restored invalid measurement cannot show a green history result: $language',
         (tester) async {
-      final raw = jsonEncode([{
-        ...const FerritePmiProtocol(id: 'damaged', date: '2026-10-31',
-            title: 'W-45', customMin: '30', customMax: '70').toJson(),
-        'sites': [{'id': 's', 'loc': 'weld', 'readings': ['45', null]}],
-        'pmi': [{
-          ...const PmiItem(id: 'pmi', label: 'R1', gradeId: '1.4404', readings: {
-            PmiElement.cr: '17', PmiElement.ni: '11', PmiElement.mo: '2.2',
-          }).toJson(),
-          'u': {'cr': false},
-        }],
-      }]);
+      final raw = jsonEncode([
+        {
+          ...const FerritePmiProtocol(
+                  id: 'damaged',
+                  date: '2026-10-31',
+                  title: 'W-45',
+                  customMin: '30',
+                  customMax: '70')
+              .toJson(),
+          'sites': [
+            {
+              'id': 's',
+              'loc': 'weld',
+              'readings': ['45', null]
+            }
+          ],
+          'pmi': [
+            {
+              ...const PmiItem(
+                  id: 'pmi',
+                  label: 'R1',
+                  gradeId: '1.4404',
+                  readings: {
+                    PmiElement.cr: '17',
+                    PmiElement.ni: '11',
+                    PmiElement.mo: '2.2',
+                  }).toJson(),
+              'u': {'cr': false},
+            }
+          ],
+        }
+      ]);
       SharedPreferences.setMockInitialValues({FerritePmiStore.key: raw});
       await _pump(tester, language: language);
       expect(_has('fp-load-damaged'), isTrue);
-      expect(find.textContaining(language == AppLanguage.en
-          ? 'Ferrite: NO VERDICT' : 'Ferryt: BRAK WERDYKTU'), findsOneWidget);
-      expect(find.textContaining(language == AppLanguage.en
-          ? 'Ferrite: IN RANGE' : 'Ferryt: W ZAKRESIE'), findsNothing);
-      expect(find.textContaining(language == AppLanguage.en
-          ? 'PMI R1: NO VERDICT' : 'PMI R1: BRAK WERDYKTU'), findsOneWidget);
+      expect(
+          find.textContaining(language == AppLanguage.en
+              ? 'Ferrite: NO VERDICT'
+              : 'Ferryt: BRAK WERDYKTU'),
+          findsOneWidget);
+      expect(
+          find.textContaining(language == AppLanguage.en
+              ? 'Ferrite: IN RANGE'
+              : 'Ferryt: W ZAKRESIE'),
+          findsNothing);
+      expect(
+          find.textContaining(language == AppLanguage.en
+              ? 'PMI R1: NO VERDICT'
+              : 'PMI R1: BRAK WERDYKTU'),
+          findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }

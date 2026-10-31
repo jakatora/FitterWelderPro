@@ -43,11 +43,54 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const store = FerritePmiStore();
 
-  test('restored damage remains invalid after saving and reloading the history', () async {
-    final raw = jsonEncode([{
-      ..._p(1).copyWith(customMin: '30', customMax: '70').toJson(),
-      'sites': [{'id': 's', 'loc': 'weld', 'readings': ['45', null]}],
-    }]);
+  test('opaque records survive repeated edits without filling backup slots',
+      () async {
+    final raw = jsonEncode([
+      {
+        ..._p(1).copyWith(customMin: '30', customMax: '70').toJson(),
+        'sites': [
+          {
+            'id': 's',
+            'loc': 'weld',
+            'readings': ['45']
+          },
+          {
+            'loc': 'unknown',
+            'readings': ['12']
+          },
+        ],
+        'pmi': false,
+      }
+    ]);
+    SharedPreferences.setMockInitialValues({FerritePmiStore.key: raw});
+    for (var i = 0; i < 4; i++) {
+      final p = (await store.load()).single;
+      expect(p.ferriteVerdict, FerriteVerdict.none);
+      expect(p.unreadableSites, hasLength(1));
+      expect(p.unreadablePmi, [false]);
+      await store.upsert(p.copyWith(notes: 'Edit $i'));
+    }
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(FerritePmiStore.corruptBackupKey), raw);
+    expect(prefs.getString(FerritePmiStore.corruptLastBackupKey), isNull);
+    expect((await store.loadReport()).damaged, isFalse);
+    expect((await store.load()).single.incomplete, isTrue);
+  });
+
+  test('restored damage remains invalid after saving and reloading the history',
+      () async {
+    final raw = jsonEncode([
+      {
+        ..._p(1).copyWith(customMin: '30', customMax: '70').toJson(),
+        'sites': [
+          {
+            'id': 's',
+            'loc': 'weld',
+            'readings': ['45', null]
+          }
+        ],
+      }
+    ]);
     SharedPreferences.setMockInitialValues({FerritePmiStore.key: raw});
     final report = await store.loadReport();
     expect(report.damaged, isTrue);

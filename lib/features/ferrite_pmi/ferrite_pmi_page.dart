@@ -418,6 +418,9 @@ class _HistoryTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = protocol;
     final lines = <(String, Color)>[];
+    if (p.incomplete) {
+      lines.add((ferritePmiIncompleteText(p, en: en), kWarn));
+    }
     if (p.hasFerrite) {
       final v = p.ferriteVerdict;
       lines.add((

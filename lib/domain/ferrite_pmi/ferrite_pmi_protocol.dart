@@ -127,6 +127,7 @@ class PmiItem {
       lost++;
       return '?';
     }
+
     final grade = technical(raw['grade']);
     final spec = technical(raw['spec']);
     return (
@@ -175,10 +176,18 @@ class FerritePmiProtocol {
   // ── PMI ──
   final List<PmiItem> pmi;
 
+  /// Original JSON of entries that cannot be interpreted. Never guess their
+  /// location, readings or grade; retain them across edits and reloads.
+  final List<Object?> unreadableSites;
+  final List<Object?> unreadablePmi;
+  bool get incomplete => unreadableSites.isNotEmpty || unreadablePmi.isNotEmpty;
+  static const _unreadableKey = '_unreadableMeasurement';
+
   final int createdAt;
   final int updatedAt;
 
-  /// Ile elementów (miejsc, odczytów, pozycji) pominięto przy odczycie.
+  /// Ile elementów wymagało odzyskiwania przy tym odczycie. Surowe dane
+  /// nieczytelnych miejsc/pozycji są zachowane w unreadableSites/Pmi.
   final int droppedOnLoad;
 
   const FerritePmiProtocol({
@@ -197,13 +206,16 @@ class FerritePmiProtocol {
     this.minCount = '',
     this.sites = const [],
     this.pmi = const [],
+    this.unreadableSites = const [],
+    this.unreadablePmi = const [],
     this.createdAt = 0,
     this.updatedAt = 0,
     this.droppedOnLoad = 0,
   });
 
   /// Nowy protokół: jedno puste miejsce „spoina” i jedna pusta pozycja PMI.
-  factory FerritePmiProtocol.blank({required String id, required DateTime now}) {
+  factory FerritePmiProtocol.blank(
+      {required String id, required DateTime now}) {
     final ms = now.millisecondsSinceEpoch;
     return FerritePmiProtocol(
       id: id,
@@ -257,17 +269,23 @@ class FerritePmiProtocol {
           if (!p.isBlank) p,
       ];
 
-  bool get hasFerrite => filledSites.isNotEmpty;
-  bool get hasPmi => filledPmi.isNotEmpty;
+  bool get hasFerrite => filledSites.isNotEmpty || unreadableSites.isNotEmpty;
+  bool get hasPmi => filledPmi.isNotEmpty || unreadablePmi.isNotEmpty;
 
   /// Werdykt ferrytu z miejsc wypełnionych.
-  FerriteVerdict get ferriteVerdict => ferriteOverall([
-        for (final r in evaluateFerrite())
-          if (!r.site.isBlank) r,
-      ]);
+  FerriteVerdict get ferriteVerdict {
+    final verdict = ferriteOverall([
+      for (final r in evaluateFerrite())
+        if (!r.site.isBlank) r,
+    ]);
+    return unreadableSites.isNotEmpty && verdict != FerriteVerdict.fail
+        ? FerriteVerdict.none
+        : verdict;
+  }
 
   /// Nic nie wpisano — nie trafia do historii.
   bool get isBlank =>
+      !incomplete &&
       title.trim().isEmpty &&
       inspector.trim().isEmpty &&
       instrument.trim().isEmpty &&
@@ -296,6 +314,8 @@ class FerritePmiProtocol {
     String? minCount,
     List<FerriteSite>? sites,
     List<PmiItem>? pmi,
+    List<Object?>? unreadableSites,
+    List<Object?>? unreadablePmi,
     int? updatedAt,
     Object? droppedOnLoad = _keep,
   }) =>
@@ -315,6 +335,8 @@ class FerritePmiProtocol {
         minCount: minCount ?? this.minCount,
         sites: sites ?? this.sites,
         pmi: pmi ?? this.pmi,
+        unreadableSites: unreadableSites ?? this.unreadableSites,
+        unreadablePmi: unreadablePmi ?? this.unreadablePmi,
         createdAt: createdAt,
         updatedAt: updatedAt ?? this.updatedAt,
         droppedOnLoad: identical(droppedOnLoad, _keep)
@@ -337,8 +359,14 @@ class FerritePmiProtocol {
         'readUnit': readingUnit.name,
         'rule': rule.name,
         'n': minCount,
-        'sites': [for (final s in sites) s.toJson()],
-        'pmi': [for (final p in pmi) p.toJson()],
+        'sites': [
+          for (final s in sites) s.toJson(),
+          for (final raw in unreadableSites) {_unreadableKey: raw},
+        ],
+        'pmi': [
+          for (final p in pmi) p.toJson(),
+          for (final raw in unreadablePmi) {_unreadableKey: raw},
+        ],
         'createdAt': createdAt,
         'updatedAt': updatedAt,
       };
@@ -349,7 +377,6 @@ class FerritePmiProtocol {
     if (raw is! Map) return null;
     String s(Object? v) => v is String ? v : '';
     int i(Object? v) => v is num && v.isFinite ? v.toInt() : 0;
-    List<Object?> l(Object? v) => v is List ? v : const [];
     final id = s(raw['id']);
     final date = s(raw['date']);
     final unit = FerriteUnit.byName(raw['unit']);
@@ -358,15 +385,37 @@ class FerritePmiProtocol {
     if (id.isEmpty || date.isEmpty) return null;
     if (unit == null || readUnit == null || rule == null) return null;
     var dropped = 0;
+    List<Object?> entries(Object? value, List<Object?> unreadable) {
+      if (value == null) return const [];
+      if (value is List) return value;
+      unreadable.add(value);
+      dropped++;
+      return const [];
+    }
+
+    bool retained(Object? value, List<Object?> unreadable) {
+      if (value is Map &&
+          value.length == 1 &&
+          value.containsKey(_unreadableKey)) {
+        unreadable.add(value[_unreadableKey]);
+        return true;
+      }
+      return false;
+    }
+
     String technical(Object? value) {
       if (value == null || value is String) return s(value);
       dropped++;
       return '?';
     }
+
     final sites = <FerriteSite>[];
-    for (final e in l(raw['sites'])) {
+    final unreadableSites = <Object?>[];
+    for (final e in entries(raw['sites'], unreadableSites)) {
+      if (retained(e, unreadableSites)) continue;
       final (site, lost) = FerriteSite.fromJson(e);
       if (site == null) {
+        unreadableSites.add(e);
         dropped++;
       } else {
         sites.add(site);
@@ -374,9 +423,12 @@ class FerritePmiProtocol {
       }
     }
     final pmi = <PmiItem>[];
-    for (final e in l(raw['pmi'])) {
+    final unreadablePmi = <Object?>[];
+    for (final e in entries(raw['pmi'], unreadablePmi)) {
+      if (retained(e, unreadablePmi)) continue;
       final (p, lost) = PmiItem.fromJson(e);
       if (p == null) {
+        unreadablePmi.add(e);
         dropped++;
       } else {
         pmi.add(p);
@@ -399,6 +451,8 @@ class FerritePmiProtocol {
       minCount: technical(raw['n']),
       sites: sites,
       pmi: pmi,
+      unreadableSites: unreadableSites,
+      unreadablePmi: unreadablePmi,
       createdAt: i(raw['createdAt']),
       updatedAt: i(raw['updatedAt']),
       droppedOnLoad: dropped,
