@@ -43,6 +43,21 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const store = FerritePmiStore();
 
+  test('restored damage remains invalid after saving and reloading the history', () async {
+    final raw = jsonEncode([{
+      ..._p(1).copyWith(customMin: '30', customMax: '70').toJson(),
+      'sites': [{'id': 's', 'loc': 'weld', 'readings': ['45', null]}],
+    }]);
+    SharedPreferences.setMockInitialValues({FerritePmiStore.key: raw});
+    final report = await store.loadReport();
+    expect(report.damaged, isTrue);
+    expect(report.protocols.single.ferriteVerdict, FerriteVerdict.none);
+    await store.upsert(report.protocols.single);
+    expect((await store.load()).single.ferriteVerdict, FerriteVerdict.none);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(FerritePmiStore.corruptBackupKey), raw);
+  });
+
   test('pozorny sukces zapisu protokołu jest wykrywany', () async {
     SharedPreferences.setMockInitialValues({});
     SharedPreferencesStorePlatform.instance = _Disk();

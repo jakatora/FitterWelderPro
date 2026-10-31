@@ -156,6 +156,33 @@ FerritePmiProtocol _saved(int i) => FerritePmiProtocol(
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  for (final language in AppLanguage.values) {
+    testWidgets('restored invalid measurement cannot show a green history result: $language',
+        (tester) async {
+      final raw = jsonEncode([{
+        ...const FerritePmiProtocol(id: 'damaged', date: '2026-10-31',
+            title: 'W-45', customMin: '30', customMax: '70').toJson(),
+        'sites': [{'id': 's', 'loc': 'weld', 'readings': ['45', null]}],
+        'pmi': [{
+          ...const PmiItem(id: 'pmi', label: 'R1', gradeId: '1.4404', readings: {
+            PmiElement.cr: '17', PmiElement.ni: '11', PmiElement.mo: '2.2',
+          }).toJson(),
+          'u': {'cr': false},
+        }],
+      }]);
+      SharedPreferences.setMockInitialValues({FerritePmiStore.key: raw});
+      await _pump(tester, language: language);
+      expect(_has('fp-load-damaged'), isTrue);
+      expect(find.textContaining(language == AppLanguage.en
+          ? 'Ferrite: NO VERDICT' : 'Ferryt: BRAK WERDYKTU'), findsOneWidget);
+      expect(find.textContaining(language == AppLanguage.en
+          ? 'Ferrite: IN RANGE' : 'Ferryt: W ZAKRESIE'), findsNothing);
+      expect(find.textContaining(language == AppLanguage.en
+          ? 'PMI R1: NO VERDICT' : 'PMI R1: BRAK WERDYKTU'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets(
       'ferryt ze specyfikacji: 28, 31, 45 przy 30–70 → poza zakresem, zapis '
       'w historii', (tester) async {

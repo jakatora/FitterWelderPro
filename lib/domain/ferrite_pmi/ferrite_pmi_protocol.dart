@@ -2,8 +2,10 @@
 /// w wielu miejscach oraz pozycje PMI (XRF). Zapis JSON do historii.
 ///
 /// Odporność zapisu: uszkodzone protokoły / miejsca / pozycje / odczyty są
-/// pomijane, ale LICZONE ([FerritePmiParse]) — magazyn robi kopię surowego
-/// tekstu, ekran pokazuje baner. Odczyty zapisywane jako tekst „tak, jak
+/// liczone ([FerritePmiParse]) — magazyn robi kopię surowego tekstu,
+/// ekran pokazuje baner. Nieczytelne wartości techniczne pozostają jako „?”,
+/// aby nie zamienić ich w brak wymagania lub zerową niepewność.
+/// Odczyty zapisywane jako tekst „tak, jak
 /// wpisano” (bez zaokrąglania).
 ///
 /// Czysty Dart.
@@ -83,19 +85,21 @@ class PmiItem {
           if ((m[e] ?? '').isNotEmpty) e.name: m[e]!,
       };
 
-  /// Odczyty z JSON i liczba pominiętych (nieznany pierwiastek albo
-  /// wartość, która nie jest tekstem).
+  /// Odczyty z JSON i liczba uszkodzeń. Nieznany pierwiastek jest pomijany;
+  /// nieczytelna wartość znanego pierwiastka pozostaje jako „?”.
   static (Map<PmiElement, String>, int) _mapIn(Object? raw) {
-    if (raw is! Map) return (const {}, raw == null ? 0 : 1);
+    if (raw == null) return (const {}, 0);
+    if (raw is! Map) return ({for (final e in PmiElement.values) e: '?'}, 1);
     final out = <PmiElement, String>{};
     var lost = 0;
     for (final MapEntry(:key, :value) in raw.entries) {
       final e = PmiElement.byName(key);
-      if (e != null && value is String) {
-        out[e] = value;
-      } else {
+      if (e == null) {
         lost++;
+        continue;
       }
+      out[e] = value is String ? value : '?';
+      if (value is! String) lost++;
     }
     return (out, lost);
   }
@@ -117,16 +121,24 @@ class PmiItem {
     String s(Object? v) => v is String ? v : '';
     final (r, lostR) = _mapIn(raw['r']);
     final (u, lostU) = _mapIn(raw['u']);
+    var lost = lostR + lostU;
+    String technical(Object? value) {
+      if (value == null || value is String) return s(value);
+      lost++;
+      return '?';
+    }
+    final grade = technical(raw['grade']);
+    final spec = technical(raw['spec']);
     return (
       PmiItem(
         id: id,
         label: s(raw['label']),
-        gradeId: s(raw['grade']),
-        specKey: s(raw['spec']),
+        gradeId: grade,
+        specKey: spec,
         readings: r,
         uncertainty: u,
       ),
-      lostR + lostU,
+      lost,
     );
   }
 }
@@ -346,6 +358,11 @@ class FerritePmiProtocol {
     if (id.isEmpty || date.isEmpty) return null;
     if (unit == null || readUnit == null || rule == null) return null;
     var dropped = 0;
+    String technical(Object? value) {
+      if (value == null || value is String) return s(value);
+      dropped++;
+      return '?';
+    }
     final sites = <FerriteSite>[];
     for (final e in l(raw['sites'])) {
       final (site, lost) = FerriteSite.fromJson(e);
@@ -373,13 +390,13 @@ class FerritePmiProtocol {
       inspector: s(raw['inspector']),
       instrument: s(raw['instrument']),
       notes: s(raw['notes']),
-      presetId: s(raw['preset']),
-      customMin: s(raw['min']),
-      customMax: s(raw['max']),
+      presetId: technical(raw['preset']),
+      customMin: technical(raw['min']),
+      customMax: technical(raw['max']),
       customUnit: unit,
       readingUnit: readUnit,
       rule: rule,
-      minCount: s(raw['n']),
+      minCount: technical(raw['n']),
       sites: sites,
       pmi: pmi,
       createdAt: i(raw['createdAt']),

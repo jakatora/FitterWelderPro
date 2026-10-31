@@ -232,16 +232,22 @@ class FerriteSite {
       };
 
   /// `null` dla wpisu bez id albo z nieznanym miejscem. Odczyty, które nie
-  /// są tekstem, są pomijane — liczba pominiętych w [droppedReadings].
+  /// są tekstem, pozostają jako „?” (brak werdyktu); liczba uszkodzeń
+  /// trafia do raportu odczytu, aby magazyn zachował kopię surowych danych.
   static (FerriteSite?, int) fromJson(Object? raw) {
     if (raw is! Map) return (null, 0);
     final id = raw['id'];
     final loc = FerriteLocation.byName(raw['loc']);
     if (id is! String || id.isEmpty || loc == null) return (null, 0);
-    final list = raw['readings'] is List ? raw['readings'] as List : const [];
+    final stored = raw['readings'];
+    final list = stored is List
+        ? stored
+        : stored == null
+            ? const []
+            : const [null];
     final readings = [
       for (final r in list)
-        if (r is String) r,
+        r is String ? r : '?',
     ];
     return (
       FerriteSite(
@@ -250,7 +256,7 @@ class FerriteSite {
         label: raw['label'] is String ? raw['label'] as String : '',
         readings: readings,
       ),
-      list.length - readings.length,
+      list.where((r) => r is! String).length,
     );
   }
 }

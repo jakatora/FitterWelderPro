@@ -47,6 +47,85 @@ FerritePmiProtocol _protocol() => FerritePmiProtocol(
     );
 
 void main() {
+  test('unreadable restored ferrite readings cannot disappear into a pass', () {
+    for (final invalid in [null, 45, true, <String, Object?>{}, <Object?>[]]) {
+      final raw = _protocol().copyWith(sites: const [
+        FerriteSite(id: 's', location: FerriteLocation.weld, readings: ['45']),
+      ]).toJson();
+      raw['sites'] = [
+        {'id': 's', 'loc': 'weld', 'readings': ['45', invalid]},
+      ];
+      final restored = FerritePmiProtocol.fromJson(raw)!;
+      expect(restored.droppedOnLoad, 1);
+      expect(restored.ferriteVerdict, FerriteVerdict.none);
+      expect(restored.sites.single.readings.length, 2);
+      expect(restored.evaluateFerrite().single.reason, FerriteNoVerdict.invalidReading);
+      expect(ferritePmiProtocolText(restored, en: false, now: _now),
+          contains('Wynik ferrytu: BRAK WERDYKTU'));
+      expect(FerritePmiProtocol.fromJson(restored.toJson())!.ferriteVerdict,
+          FerriteVerdict.none, reason: 'Saving cannot erase the invalid measurement');
+      expect(restored.copyWith(sites: [
+        restored.sites.single.copyWith(readings: ['45']),
+      ]).ferriteVerdict, FerriteVerdict.pass,
+          reason: 'An explicit correction must allow a new valid assessment');
+    }
+  });
+
+  test('restored invalid requirements cannot become open limits or default rules', () {
+    for (final field in ['min', 'max', 'n', 'preset']) {
+      final raw = _protocol().copyWith(sites: const [
+        FerriteSite(id: 's', location: FerriteLocation.weld, readings: ['45']),
+      ]).toJson();
+      raw[field] = 30;
+      final restored = FerritePmiProtocol.fromJson(raw)!;
+      expect(restored.ferriteVerdict, FerriteVerdict.none, reason: field);
+      expect(restored.droppedOnLoad, 1, reason: field);
+      expect(FerritePmiProtocol.fromJson(restored.toJson())!.ferriteVerdict,
+          FerriteVerdict.none, reason: field);
+    }
+  });
+
+  test('restored malformed reading container cannot remove a failed measurement site', () {
+    final raw = _protocol().toJson();
+    raw['sites'] = [
+      {'id': 'good', 'loc': 'weld', 'readings': ['45']},
+      {'id': 'broken', 'loc': 'hazA', 'readings': {'value': '45'}},
+    ];
+    final restored = FerritePmiProtocol.fromJson(raw)!;
+    expect(restored.ferriteVerdict, FerriteVerdict.none);
+    expect(restored.droppedOnLoad, 1);
+    expect(restored.filledSites.length, 2);
+  });
+
+  test('invalid restored PMI values and uncertainties are not silently absent or zero', () {
+    const valid = PmiItem(id: 'pmi', gradeId: '1.4404', readings: {
+      PmiElement.cr: '17', PmiElement.ni: '11', PmiElement.mo: '2.2',
+    });
+    expect(valid.evaluate().verdict, PmiVerdict.conformingNoCarbon);
+    for (final field in ['r', 'u']) {
+      for (final invalid in [null, 0.2, true, <String, Object?>{}, <Object?>[]]) {
+        final raw = valid.toJson();
+        raw[field] = {...raw[field] as Map,
+          (field == 'r' ? 'cu' : 'cr'): invalid};
+        final (item, lost) = PmiItem.fromJson(raw);
+        expect(lost, 1);
+        expect(item!.evaluate().verdict, PmiVerdict.none);
+        expect(item.evaluate().reason, PmiNoVerdict.invalidInput);
+        expect(PmiItem.fromJson(item.toJson()).$1!.evaluate().verdict, PmiVerdict.none);
+        expect(item.copyWith(readings: valid.readings, uncertainty: {}).evaluate().verdict,
+            PmiVerdict.conformingNoCarbon);
+      }
+    }
+    final (badMap, lost) = PmiItem.fromJson({...valid.toJson(), 'u': ['0.2']});
+    expect(lost, 1);
+    expect(badMap!.evaluate().verdict, PmiVerdict.none);
+    expect(badMap.evaluate().reason, PmiNoVerdict.invalidInput);
+    final (badSpec, specLost) = PmiItem.fromJson({...valid.toJson(), 'spec': 123});
+    expect(specLost, 1);
+    expect(badSpec!.evaluate().verdict, PmiVerdict.none,
+        reason: 'An unreadable specification must not select the default standard');
+  });
+
   test('JSON w obie strony: odczyty jako tekst, bez zmian', () {
     final p = _protocol();
     final back = FerritePmiProtocol.fromJson(p.toJson())!;
