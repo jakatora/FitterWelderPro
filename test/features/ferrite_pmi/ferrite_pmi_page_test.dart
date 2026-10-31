@@ -157,6 +157,23 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   for (final language in AppLanguage.values) {
+    testWidgets('PMI uncertainty crossing the boundary stays to verify: $language', (tester) async {
+      await _pump(tester, language: language);
+      await _tapKey(tester, 'fp-new');
+      await _tapKey(tester, 'fp-part-pmi');
+      await _tapKey(tester, 'fp-pmi-0-grade');
+      await _tapInSheet(tester, 'fp-grade-1.4404');
+      await _enter(tester, 'fp-pmi-0-cr', '17');
+      await _enter(tester, 'fp-pmi-0-ni', '11');
+      await _enter(tester, 'fp-pmi-0-mo', '2.1');
+      await _enter(tester, 'fp-pmi-0-mo-u', '0.1000000004');
+      expect(_has('fp-pmi-0-verdict-toVerify'), isTrue);
+      expect(_has('fp-pmi-0-verdict-conformingNoCarbon'), isFalse);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final language in AppLanguage.values) {
     for (final reading in ['29.9999999996', '70.0000000004']) {
       testWidgets('averaging preserves an out-of-range verdict: $language/$reading',
           (tester) async {

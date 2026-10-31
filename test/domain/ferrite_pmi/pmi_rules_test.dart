@@ -73,6 +73,35 @@ const _ok = {
 };
 
 void main() {
+  test('PMI interval does not snap small deviations or uncertainties into range', () {
+    expect(pmiIntervalStatus(16.4999999996, 0, 16.5, 18.5), PmiElementStatus.outOfRange);
+    expect(pmiIntervalStatus(18.5000000004, 0, 16.5, 18.5), PmiElementStatus.outOfRange);
+    expect(pmiIntervalStatus(16.5, 4e-10, 16.5, 18.5), PmiElementStatus.toVerify);
+    expect(pmiIntervalStatus(16.5, 1e-16, 16.5, 18.5), PmiElementStatus.toVerify);
+    expect(_eval({..._ok, PmiElement.mo: '2.1'}, u: {PmiElement.mo: '0.1000000004'}).verdict,
+        PmiVerdict.toVerify);
+  });
+
+  test('invalid interval input remains invalid without an arithmetic exception', () {
+    expect(pmiIntervalStatus(double.nan, 0, 16.5, 18.5), PmiElementStatus.invalid);
+    expect(pmiIntervalStatus(17, -1, 16.5, 18.5), PmiElementStatus.invalid);
+    expect(pmiIntervalStatus(17, 0, double.infinity, 18.5), PmiElementStatus.invalid);
+  });
+
+  test('residual and carbon-dependent limits retain deviations below 1e-9', () {
+    expect(_eval({..._ok, PmiElement.cu: '1.0000000004'}).verdict, PmiVerdict.nonConforming);
+    final ti = _eval({PmiElement.cr: '18', PmiElement.ni: '10', PmiElement.ti: '0.3999999996'}, grade: _tiGrade);
+    expect(ti.verdict, PmiVerdict.toVerify);
+    expect(ti.checks.firstWhere((c) => c.element == PmiElement.ti).status,
+        PmiElementStatus.carbonDependent);
+  });
+
+  test('chemical total above 100 is not rounded into a physical total', () {
+    final result = _eval({PmiElement.cr: '90', PmiElement.ni: '10', PmiElement.mo: '0.0000000004'});
+    expect(result.verdict, PmiVerdict.none);
+    expect(result.reason, PmiNoVerdict.sumOver100);
+  });
+
   test('wszystkie kluczowe w zakresie → zgodny', () {
     expect(_eval(_ok).verdict, PmiVerdict.conforming);
   });

@@ -25,6 +25,7 @@ library;
 import 'dart:math' as math;
 
 import '../../utils/decimal_parse.dart';
+import '../../utils/decimal_math.dart' show decimalComponents;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // JEDNOSTKI, MIEJSCA, REGUŁY
@@ -386,25 +387,13 @@ class FerriteSiteResult {
   int get validCount => values.where((v) => v != null).length;
 }
 
-/// Pomocnicze wyrównanie interpolacji PMI do siatki 1e-9: szum
-/// zmiennoprzecinkowy (30,000000000000004) nie zamienia „równo z granicą”
-/// w „poza zakresem”. Odczyty mają najwyżej kilka miejsc po przecinku.
+/// Pomocnicze wyrównanie punktacji dopasowania PMI, nie granic werdyktu.
 double ferriteSnap(double x) => (x * 1e9).roundToDouble() / 1e9;
-
-/// Canonical decimal value of an already validated finite double.
-(BigInt, int) _decimalParts(double value) {
-  final parts = value.toString().split('e');
-  final mantissa = parts.first;
-  final dot = mantissa.indexOf('.');
-  final scale = (dot < 0 ? 0 : mantissa.length - dot - 1) -
-      (parts.length == 1 ? 0 : int.parse(parts[1]));
-  return (BigInt.parse(mantissa.replaceAll('.', '')), scale);
-}
 
 /// Sum decimal readings exactly, then round the rational mean once to double.
 /// No fixed decimal grid and no intermediate floating-point sum overflow.
 double _ferriteMean(List<double> values) {
-  final parts = values.map(_decimalParts).toList();
+  final parts = values.map(decimalComponents).toList();
   final scale = parts.fold<int>(0, (s, p) => math.max(s, p.$2));
   final ten = BigInt.from(10);
   var numerator = BigInt.zero;
@@ -568,7 +557,7 @@ String _sep(String s, bool en) => en ? s : s.replaceAll('.', ',');
 /// Liczba „tak jak wpisana” — najkrótszy zapis, bez zaokrąglania.
 String ferriteExact(double v, {required bool en}) {
   if (!v.isFinite) return '—';
-  final (coefficient, scale) = _decimalParts(v);
+  final (coefficient, scale) = decimalComponents(v);
   final digits = coefficient.abs().toString();
   final sign = v.isNegative ? '-' : '';
   final String magnitude;

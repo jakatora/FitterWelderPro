@@ -32,6 +32,7 @@
 library;
 
 import '../../utils/decimal_parse.dart';
+import '../../utils/decimal_math.dart';
 import 'ferrite.dart' show ferriteExact, ferriteSnap;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -78,7 +79,7 @@ class PmiCarbonLinkedMin {
 
   /// Minimum przy najwyższym dopuszczalnym C (i N) — powyżej tego odczyt
   /// spełnia wymaganie niezależnie od rzeczywistego C.
-  double get worstCaseMin => ferriteSnap(factor * (cMax + (plusN ? nMax : 0)));
+  double get worstCaseMin => decimalProduct(factor, decimalSum([cMax, if (plusN) nMax]));
 
   String formula({required bool en}) {
     final f = ferriteExact(factor, en: en);
@@ -342,26 +343,28 @@ class PmiResult {
 /// Status przedziału [r − u, r + u] względem zakresu (granice włącznie).
 PmiElementStatus pmiIntervalStatus(
     double r, double u, double? min, double? max) {
-  final lo = ferriteSnap(r - u);
-  final hi = ferriteSnap(r + u);
-  if ((min != null && hi < min) || (max != null && lo > max)) {
+  if (!r.isFinite || !u.isFinite || u < 0 ||
+      min != null && !min.isFinite || max != null && !max.isFinite) {
+    return PmiElementStatus.invalid;
+  }
+  if ((min != null && compareDecimalSum([r, u], min) < 0) ||
+      (max != null && compareDecimalSum([r, -u], max) > 0)) {
     return PmiElementStatus.outOfRange;
   }
-  final inside = (min == null || lo >= min) && (max == null || hi <= max);
+  final inside = (min == null || compareDecimalSum([r, -u], min) >= 0) &&
+      (max == null || compareDecimalSum([r, u], max) <= 0);
   return inside ? PmiElementStatus.inRange : PmiElementStatus.toVerify;
 }
 
 /// Status pierwiastka względem zakresu z minimum zależnym od C.
 PmiElementStatus _carbonLinkedStatus(double r, double u, PmiRange range) {
   final cm = range.carbonMin!;
-  final lo = ferriteSnap(r - u);
-  final hi = ferriteSnap(r + u);
   final max = range.max;
   // Ti = 0 (nie wykryty): k × C > 0 przy każdej stali — wyraźnie poniżej.
-  if (hi <= 0) return PmiElementStatus.outOfRange;
-  if (max != null && lo > max) return PmiElementStatus.outOfRange;
-  if (max != null && hi > max) return PmiElementStatus.toVerify;
-  return lo >= cm.worstCaseMin
+  if (compareDecimalSum([r, u], 0) <= 0) return PmiElementStatus.outOfRange;
+  if (max != null && compareDecimalSum([r, -u], max) > 0) return PmiElementStatus.outOfRange;
+  if (max != null && compareDecimalSum([r, u], max) > 0) return PmiElementStatus.toVerify;
+  return compareDecimalSum([r, -u], cm.worstCaseMin) >= 0
       ? PmiElementStatus.inRange
       : PmiElementStatus.carbonDependent;
 }
@@ -419,7 +422,7 @@ PmiResult evaluatePmi({
   }
 
   final checks = <PmiElementCheck>[];
-  var sum = 0.0;
+  final composition = <double>[];
   var anyInvalid = false;
   for (final e in PmiElement.values) {
     final r = _reading(readings[e]);
@@ -427,7 +430,7 @@ PmiResult evaluatePmi({
     final range = spec.ranges[e];
     final key = required.contains(e);
     final control = range == null && grade.controlElements.containsKey(e);
-    if (r != null && r.isFinite) sum += r;
+    if (r != null && r.isFinite) composition.add(r);
     PmiElementStatus? status;
     PmiCheckNote? note;
     String? possible;
@@ -447,13 +450,11 @@ PmiResult evaluatePmi({
     } else if (range == null) {
       // Pierwiastka nie ma w składzie gatunku — próg resztkowy.
       final t = pmiResidualThreshold(e);
-      final lo = ferriteSnap(r - u);
-      final hi = ferriteSnap(r + u);
-      if (lo > t) {
+      if (compareDecimalSum([r, -u], t) > 0) {
         status = PmiElementStatus.outOfRange;
         note = PmiCheckNote.residualAbove;
         possible = possibleWith(e);
-      } else if (hi > t) {
+      } else if (compareDecimalSum([r, u], t) > 0) {
         status = PmiElementStatus.toVerify;
         note = PmiCheckNote.residualNear;
         possible = possibleWith(e);
@@ -484,7 +485,7 @@ PmiResult evaluatePmi({
   PmiResult result(PmiVerdict v, [PmiNoVerdict? why]) => PmiResult(
       grade: grade, spec: spec, checks: checks, verdict: v, reason: why);
 
-  if (ferriteSnap(sum) > 100) {
+  if (compareDecimalSum(composition, 100) > 0) {
     return result(PmiVerdict.none, PmiNoVerdict.sumOver100);
   }
   bool any(PmiElementStatus s) => checks.any((c) => c.status == s);
