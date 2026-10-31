@@ -51,4 +51,48 @@ void main() {
     expect(prefs.getString(InterpassStore.key), raw);
     expect(prefs.getString(InterpassStore.corruptBackupKey), raw);
   });
+  test('writing a new weld preserves the complete future log first', () async {
+    SharedPreferences.setMockInitialValues({InterpassStore.key: raw});
+    final replacement = InterpassWeld.fromJson(
+        {...weld.toJson(), 'id': 'new', 'weldNo': 'New weld'})!;
+    await const InterpassStore().upsert(replacement);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(prefs.getString(InterpassStore.corruptBackupKey), raw);
+    final parsed =
+        interpassLogFromJson(jsonDecode(prefs.getString(InterpassStore.key)!));
+    expect(parsed.lossy, isFalse);
+    expect(parsed.welds.map((w) => w.id), ['new']);
+  });
+  test('occupied recovery slots block writing without losing any original',
+      () async {
+    final copies = {
+      for (final key in InterpassStore.corruptBackupKeys)
+        key: 'previous original $key',
+    };
+    SharedPreferences.setMockInitialValues(
+        {InterpassStore.key: raw, ...copies});
+    await expectLater(const InterpassStore().upsert(weld),
+        throwsA(isA<InterpassStoreUnavailable>()));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(prefs.getString(InterpassStore.key), raw);
+    for (final entry in copies.entries) {
+      expect(prefs.getString(entry.key), entry.value);
+    }
+    final report = await const InterpassStore().load();
+    expect(report.corrupt, isTrue);
+    expect(report.backupFailed, isTrue);
+  });
+  test('assistant cannot replace a weld inside an unknown schema', () async {
+    SharedPreferences.setMockInitialValues({InterpassStore.key: raw});
+    expect(
+        await const InterpassStore().replaceIfUnchanged(
+            weld, weld.copyWith(weldNo: 'Changed by assistant')),
+        isFalse);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(prefs.getString(InterpassStore.key), raw);
+    expect(prefs.getString(InterpassStore.corruptBackupKey), raw);
+  });
 }
