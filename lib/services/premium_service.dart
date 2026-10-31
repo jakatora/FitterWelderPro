@@ -195,9 +195,15 @@ class PremiumService {
   /// nową parę device_id + sekret. Woła to wszystko, co wysyła identyfikator
   /// na serwer ([authHeaders]). Nigdy nie rzuca.
   Future<void> ensureIdentity() async {
-    await init();
-    if (_deviceId == null) _createIdentity();
-    await _persisting;
+    while (true) {
+      await _resetting;
+      await init();
+      // A reset can start during either the startup read or pair persistence.
+      if (_resetting != null) continue;
+      if (_deviceId == null) _createIdentity();
+      await _persisting;
+      if (_resetting == null) return;
+    }
   }
 
   /// Tworzy nową parę w pamięci i zaczyna jej zapis ([_persisting]).
@@ -232,7 +238,7 @@ class PremiumService {
   String get deviceId {
     final id = _deviceId;
     if (id != null) return id;
-    if (!_loaded) return _generateDeviceId();
+    if (!_loaded || _resetting != null) return _generateDeviceId();
     _createIdentity();
     return _deviceId!;
   }
@@ -277,9 +283,7 @@ class PremiumService {
   static String _generateDeviceId() {
     final r = math.Random.secure();
     final bytes = List<int>.generate(16, (_) => r.nextInt(256));
-    return bytes
-        .map((b) => b.toRadixString(16).padLeft(2, '0'))
-        .join();
+    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
   /// 32 bajty z `Random.secure()` w base64url bez dopełnienia = 43 znaki.
@@ -338,7 +342,8 @@ class PremiumService {
           : DeviceRegistration.alreadyRegistered;
     } on ApiException catch (e) {
       if (e.statusCode == 404) {
-        debugPrint('PremiumService.registerDevice: stary backend (404) — pomijam');
+        debugPrint(
+            'PremiumService.registerDevice: stary backend (404) — pomijam');
         return DeviceRegistration.legacyBackend;
       }
       if (e.isInstallSecretError) {
@@ -358,22 +363,65 @@ class PremiumService {
   /// ([ensureIdentity]). Wołane przez „Usuń moje dane" PO
   /// `DELETE /api/fitter/me`, bo po skasowaniu identyfikatora serwer nie ma
   /// już jak rozpoznać, czyje dane usunąć.
-  Future<void> resetIdentity() async {
+  Future<bool>? _resetting;
+
+  Future<bool> resetIdentity() {
+    final active = _resetting;
+    if (active != null) return active;
+    final pending = _resetIdentityNow();
+    _resetting = pending;
+    void finished() {
+      if (identical(_resetting, pending)) _resetting = null;
+    }
+
+    pending.then((_) => finished(),
+        onError: (Object _, StackTrace __) => finished());
+    return pending;
+  }
+
+  Future<bool> _resetIdentityNow() async {
     await init();
     await _persisting;
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_kDeviceIdKey);
-      await prefs.remove(_kInstallSecretKey);
-      await prefs.remove(_kAuthorIdKey);
+      await prefs.reload();
+      final keys = [_kDeviceIdKey, _kInstallSecretKey, _kAuthorIdKey];
+      final original = {for (final key in keys) key: prefs.getString(key)};
+      var removed = true;
+      try {
+        for (final key in keys) {
+          if (!await prefs.remove(key)) {
+            removed = false;
+            break;
+          }
+        }
+        await prefs.reload();
+        removed = removed && keys.every((key) => !prefs.containsKey(key));
+      } catch (_) {
+        removed = false;
+      }
+      if (!removed) {
+        // A partial reset must not silently replace the installation's pair.
+        // Best-effort rollback; failure is still reported so the owner can retry.
+        for (final entry in original.entries) {
+          if (entry.value == null) continue;
+          try {
+            await prefs.setString(entry.key, entry.value!);
+          } catch (_) {}
+        }
+        await prefs.reload();
+        return false;
+      }
     } catch (e) {
       debugPrint('PremiumService.resetIdentity: $e');
+      return false;
     }
     _deviceId = null;
     _installSecret = null;
     _authorId = null;
     _registration = null;
     _persisting = null;
+    return true;
   }
 
   /// Tylko do testów: zapomina stan w pamięci, żeby kolejny [init] przeczytał
@@ -381,6 +429,7 @@ class PremiumService {
   @visibleForTesting
   void resetForTest() {
     _init = null;
+    _resetting = null;
     _loaded = false;
     _persisting = null;
     _deviceId = null;
@@ -448,8 +497,7 @@ class PremiumService {
   /// [applyStatus] call. `null` when no status has ever been applied (i.e.
   /// we're still on the initial `PremiumStatus.free()`). Useful for UI
   /// banners like "Reaktywuj poprzedni plan" / "Reactivate previous plan".
-  PremiumStatus? get previousStatus =>
-      _history.isEmpty ? null : _history.last;
+  PremiumStatus? get previousStatus => _history.isEmpty ? null : _history.last;
 
   /// Reverts to the status that was live before the most recent
   /// [applyStatus] call. Returns `true` when something was rolled back,
@@ -667,8 +715,11 @@ class PremiumService {
       final periodEnd = body['current_period_end'] as String?;
       final fresh = isActive
           ? PremiumStatus(
-              plan: planStr == 'yearly' ? PremiumPlan.yearly : PremiumPlan.monthly,
-              expiresAt: periodEnd != null ? DateTime.tryParse(periodEnd) : null,
+              plan: planStr == 'yearly'
+                  ? PremiumPlan.yearly
+                  : PremiumPlan.monthly,
+              expiresAt:
+                  periodEnd != null ? DateTime.tryParse(periodEnd) : null,
               lastVerifiedAt: DateTime.now(),
             )
           : PremiumStatus.free().copyWith(lastVerifiedAt: DateTime.now());

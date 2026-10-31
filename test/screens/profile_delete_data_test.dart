@@ -114,6 +114,25 @@ void main() {
 
   tearDown(() => ApiClient.instance.debugSetClient(null));
 
+  testWidgets('profil ostrzega o nieusuniętej instalacji', (tester) async {
+    final values = await SharedPreferencesStorePlatform.instance.getAll();
+    final disk = _FailedMarkerRemoval(false, target: 'fitter_install_secret');
+    for (final entry in values.entries) {
+      await disk.setValue('String', entry.key, entry.value);
+    }
+    SharedPreferencesStorePlatform.instance = disk;
+    backend((_) async =>
+        _json(200, {'ok': true, 'deleted': {}, 'premium_retained': false}));
+    await _openProfile(tester);
+    await _confirmDelete(tester);
+    expect(find.text('Data deletion incomplete'), findsOneWidget);
+    expect(_inDialog('installation identifier'), findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(prefs.getString('fitter_device_id'), _deviceId);
+    expect(prefs.getString('fitter_install_secret'), _secret);
+  });
+
   testWidgets('profil ostrzega o nieusuniętej zgodzie na zasady',
       (tester) async {
     final values = await SharedPreferencesStorePlatform.instance.getAll();
@@ -198,12 +217,20 @@ void main() {
         findsOneWidget);
     expect(ScanConsent.isAccepted, isFalse);
     expect(find.text('Retry'), findsOneWidget);
+    expect(
+        find.text(
+            'Withdrawn for this session — retry deleting the saved consent'),
+        findsOneWidget);
     disk.fail = false;
     await tester.tap(withdraw);
     await _pumpFor(tester, 4);
     await tester.tap(find.widgetWithText(ElevatedButton, 'Withdraw'));
     await _pumpFor(tester, 8);
     expect(withdraw, findsNothing);
+    expect(
+        find.text(
+            'Withdrawn for this session — retry deleting the saved consent'),
+        findsNothing);
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload();
     expect(prefs.getString(ScanConsent.prefsKey), isNull);
@@ -230,12 +257,20 @@ void main() {
         findsOneWidget);
     expect(LegalConsent.instance.isAccepted, isFalse);
     expect(find.text('Retry'), findsOneWidget);
+    expect(
+        find.text(
+            'Withdrawn for this session — retry deleting the saved consent'),
+        findsOneWidget);
     disk.fail = false;
     await tester.tap(withdraw);
     await _pumpFor(tester, 4);
     await tester.tap(find.widgetWithText(ElevatedButton, 'Withdraw'));
     await _pumpFor(tester, 8);
     expect(withdraw, findsNothing);
+    expect(
+        find.text(
+            'Withdrawn for this session — retry deleting the saved consent'),
+        findsNothing);
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload();
     expect(prefs.getString('legal_consent_v1'), isNull);

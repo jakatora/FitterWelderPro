@@ -524,8 +524,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title: context.tr(
             pl: 'Niepełne usunięcie danych', en: 'Data deletion incomplete'),
         body: '${_serverSummary(server)}\n\n${context.tr(
-          pl: 'Nie udało się usunąć z telefonu całej historii asystenta, oznaczeń zgłoszonych wiadomości, blokad autorów, zgody skanera lub tożsamości i uprawnień spawacza imienia i nazwiska lub zgody na zasady. Ponów usunięcie danych.',
-          en: 'Could not delete reported message markers, blocked authors, assistant history, scanner consent or welder identity and qualifications profile name or rules consent from this phone. Retry data deletion.',
+          pl: 'Nie udało się usunąć z telefonu całej historii asystenta, oznaczeń zgłoszonych wiadomości, blokad autorów, zgody skanera lub tożsamości i uprawnień spawacza imienia i nazwiska, zgody na zasady lub identyfikatora instalacji. Ponów usunięcie danych.',
+          en: 'Could not delete reported message markers, blocked authors, assistant history, scanner consent or welder identity and qualifications profile name, rules consent or installation identifier from this phone. Retry data deletion.',
         )}',
       );
       return;
@@ -764,8 +764,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // WelderIdentityService.clear() istniał od P0-08 i nie wołał go NIKT.
     final identityCleared = await WelderIdentityService.instance.clear();
     final blockedCleared = await BlockedUsers.instance.clear();
-    if (resetIdentity) await PremiumService.instance.resetIdentity();
-    return legalCleared &&
+    final installationCleared =
+        !resetIdentity || await PremiumService.instance.resetIdentity();
+    return installationCleared &&
+        legalCleared &&
         profileCleared &&
         scanCleared &&
         historyCleared &&
@@ -853,20 +855,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
     bool withdrawalPending = false,
     required VoidCallback onWithdraw,
   }) {
-    final status = accepted
+    final status = withdrawalPending
         ? context.tr(
-            pl: acceptedAt == null
-                ? 'Udzielona (zasady w wersji $kLegalVersion)'
-                : 'Udzielona ${_formatDate(acceptedAt)} '
-                    '(zasady w wersji $kLegalVersion)',
-            en: acceptedAt == null
-                ? 'Given (rules version $kLegalVersion)'
-                : 'Given ${_formatDate(acceptedAt)} '
-                    '(rules version $kLegalVersion)',
+            pl: 'Wycofana w tej sesji — ponów usunięcie zapisu z telefonu',
+            en: 'Withdrawn for this session — retry deleting the saved consent',
           )
-        : context.tr(
-            pl: 'Nie udzielona — zapytamy, gdy będzie potrzebna',
-            en: 'Not given — we ask when it is needed');
+        : accepted
+            ? context.tr(
+                pl: acceptedAt == null
+                    ? 'Udzielona (zasady w wersji $kLegalVersion)'
+                    : 'Udzielona ${_formatDate(acceptedAt)} '
+                        '(zasady w wersji $kLegalVersion)',
+                en: acceptedAt == null
+                    ? 'Given (rules version $kLegalVersion)'
+                    : 'Given ${_formatDate(acceptedAt)} '
+                        '(rules version $kLegalVersion)',
+              )
+            : context.tr(
+                pl: 'Nie udzielona — zapytamy, gdy będzie potrzebna',
+                en: 'Not given — we ask when it is needed');
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
