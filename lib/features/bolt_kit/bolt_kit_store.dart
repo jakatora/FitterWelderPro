@@ -18,6 +18,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart' show debugPrint, protected;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -48,6 +49,7 @@ class BoltKitSaveBlocked implements Exception {
 }
 
 class BoltKitStore {
+  static Future<void>? _writes;
   static const String key = 'bolt_kit_v1';
   static const String corruptKey = 'bolt_kit_v1_corrupt';
   static const String secondCorruptKey = '${corruptKey}_2';
@@ -70,6 +72,8 @@ class BoltKitStore {
   /// wyjątku także `readFailed`).
   Future<BoltKitLoad> load() async {
     try {
+      final pending = _writes;
+      if (pending != null) await pending;
       final raw = await readRaw();
       if (raw == null) return const BoltKitLoad(BoltKitState());
       if (raw is! String) {
@@ -86,15 +90,45 @@ class BoltKitStore {
   /// [afterFailedRead] — pierwszy zapis po nieudanym odczycie: zachowaj
   /// surową wartość niezależnie od tego, czy jest nienaruszona (patrz opis
   /// biblioteki). Może rzucić [BoltKitSaveBlocked].
-  Future<void> save(BoltKitState state, {bool afterFailedRead = false}) async {
-    final prefs = await OwnedPrefs.instance(captureOwner);
+  Future<void> save(BoltKitState state, {bool afterFailedRead = false}) {
+    Object? captureError;
+    StackTrace? captureStack;
+    final prefsReady =
+        OwnedPrefs.instance(captureOwner).then<SharedPreferences?>(
+      (prefs) => prefs,
+      onError: (Object error, StackTrace stack) {
+        captureError = error;
+        captureStack = stack;
+        return null;
+      },
+    );
+    final encoded = encodeBoltKit(state);
+    final previous = _writes;
+    final write = () async {
+      if (previous != null) await previous;
+      final prefs = await prefsReady;
+      if (prefs == null) {
+        Error.throwWithStackTrace(captureError!, captureStack!);
+      }
+      await _saveNow(prefs, encoded, afterFailedRead: afterFailedRead);
+    }();
+    final settled =
+        write.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _writes = settled;
+    unawaited(settled.then((_) {
+      if (identical(_writes, settled)) _writes = null;
+    }));
+    return write;
+  }
+
+  Future<void> _saveNow(SharedPreferences prefs, String encoded,
+      {required bool afterFailedRead}) async {
     await prefs.reload();
     if (afterFailedRead) {
       await _backupUnread(prefs);
     } else {
       await _backupIfDamaged(prefs);
     }
-    final encoded = encodeBoltKit(state);
     if (!await prefs.setString(key, encoded)) {
       throw StateError('Could not save bolt kit');
     }

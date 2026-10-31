@@ -1,6 +1,8 @@
 // Zapis listy połączeń: klucz z wersją, nienadpisywane kopie uszkodzeń.
 
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:cut_list_app/database/local_record_owner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
@@ -45,6 +47,33 @@ const _joint = BoltKitJoint(
 );
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('opóźniony właściciel nie przywraca starszego zestawu śrub', () async {
+    SharedPreferences.setMockInitialValues({});
+    final owner = await LocalRecordOwner.capture();
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    var calls = 0;
+    final store = BoltKitStore(captureOwner: () async {
+      if (++calls == 1) {
+        entered.complete();
+        await release.future;
+      }
+      return owner;
+    });
+    final older =
+        store.save(const BoltKitState(joints: [_joint], sparePercent: 5));
+    await entered.future;
+    final newer =
+        store.save(const BoltKitState(joints: [_joint], sparePercent: 10));
+    final reading = const BoltKitStore().load();
+    await Future<void>.delayed(Duration.zero);
+    release.complete();
+    await Future.wait([older, newer]);
+    expect((await reading).state.sparePercent, 10);
+    expect((await const BoltKitStore().load()).state.sparePercent, 10);
+  });
   test('zapis i odczyt', () async {
     SharedPreferences.setMockInitialValues({});
     const store = BoltKitStore();
