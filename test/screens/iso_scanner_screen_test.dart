@@ -113,32 +113,48 @@ void main() {
   }
 
   for (final lang in AppLanguage.values) {
-    for (final size in [const Size(432, 960), const Size(360, 640)]) {
-      testWidgets('empty photo picker stays reachable: $lang/$size',
-          (tester) async {
-        tester.view.physicalSize = size;
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.reset);
-        await tester.pumpWidget(AppLanguageScope(
-          controller: AppLanguageController(lang),
-          child: MaterialApp(
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context)
-                  .copyWith(textScaler: const TextScaler.linear(1.5)),
-              child: child!,
+    for (final size in [
+      const Size(432, 960),
+      const Size(360, 640),
+      const Size(640, 360)
+    ]) {
+      for (final keyboard in [0.0, if (size.height > size.width) 280.0]) {
+        testWidgets(
+            'empty photo picker stays reachable: $lang/$size/keyboard=$keyboard',
+            (tester) async {
+          tester.view.physicalSize = size;
+          tester.view.devicePixelRatio = 1;
+          tester.view.viewInsets = FakeViewPadding(bottom: keyboard);
+          addTearDown(tester.view.reset);
+          await tester.pumpWidget(AppLanguageScope(
+            controller: AppLanguageController(lang),
+            child: MaterialApp(
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context)
+                    .copyWith(textScaler: const TextScaler.linear(1.5)),
+                child: child!,
+              ),
+              home: const IsoScannerScreen(),
             ),
-            home: const IsoScannerScreen(),
-          ),
-        ));
-        await settle(tester);
-        final pick = find
-            .text(lang == AppLanguage.en ? 'Choose photo' : 'Wybierz zdjęcie');
-        await tester.ensureVisible(pick);
-        await tester.pump();
-        expect(tester.getRect(pick).top, greaterThanOrEqualTo(0));
-        expect(tester.getRect(pick).bottom, lessThanOrEqualTo(size.height));
-        expect(tester.takeException(), isNull);
-      });
+          ));
+          await settle(tester);
+          final visibleBottom = size.height - keyboard;
+          final name = find.byType(TextField).first;
+          await tester.ensureVisible(name);
+          await tester.pump();
+          expect(
+              tester.getRect(name).top, greaterThanOrEqualTo(kToolbarHeight));
+          expect(tester.getRect(name).bottom, lessThanOrEqualTo(visibleBottom));
+          final pick = find.text(
+              lang == AppLanguage.en ? 'Choose photo' : 'Wybierz zdjęcie');
+          await tester.ensureVisible(pick);
+          await tester.pump();
+          expect(
+              tester.getRect(pick).top, greaterThanOrEqualTo(kToolbarHeight));
+          expect(tester.getRect(pick).bottom, lessThanOrEqualTo(visibleBottom));
+          expect(tester.takeException(), isNull);
+        });
+      }
     }
   }
 
