@@ -5,16 +5,43 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import 'package:cut_list_app/feedback/feedback_signal.dart';
 import 'package:cut_list_app/feedback/feedback_store.dart';
 
 import 'feedback_test_utils.dart';
 
+class _UnpersistedDisk extends InMemorySharedPreferencesStore {
+  _UnpersistedDisk(this.refuse) : super.empty();
+  final bool refuse;
+  @override
+  Future<bool> setValue(String type, String key, Object value) async => !refuse;
+}
+
+class _FailedBackupDisk extends InMemorySharedPreferencesStore {
+  _FailedBackupDisk(this.refuse) : super.empty();
+  final bool refuse;
+  @override
+  Future<bool> setValue(String type, String key, Object value) async {
+    if (key == 'flutter.${FeedbackStore.corruptKey}') return !refuse;
+    return super.setValue(type, key, value);
+  }
+}
+
 FeedbackStore get store => FeedbackStore.instance;
 
 void main() {
   setUp(seedFeedback);
+
+  for (final refuse in [false, true]) {
+    test('nieutrwalone zgłoszenie nie udaje przyjętego (odmowa: $refuse)',
+        () async {
+      SharedPreferencesStorePlatform.instance = _UnpersistedDisk(refuse);
+      expect(await store.add(sig(1, kind: FeedbackKind.explicit)), isFalse);
+      expect(await store.list(), isEmpty);
+    });
+  }
 
   test('pusta kolejka', () async {
     expect(await store.list(), isEmpty);
@@ -228,6 +255,21 @@ void main() {
       expect(st.dropped, 1, reason: 'odrzucony automatyczny się liczy');
     });
   });
+
+  for (final refuse in [false, true]) {
+    test('brak trwałej kopii chroni uszkodzoną kolejkę (odmowa: $refuse)',
+        () async {
+      final disk = _FailedBackupDisk(refuse);
+      SharedPreferencesStorePlatform.instance = disk;
+      const raw = '{broken feedback';
+      await disk.setValue('String', 'flutter.${FeedbackStore.prefsKey}', raw);
+      expect(await store.add(sig(1, kind: FeedbackKind.explicit)), isFalse);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      expect(prefs.getString(FeedbackStore.prefsKey), raw);
+      expect(prefs.get(FeedbackStore.corruptKey), isNull);
+    });
+  }
 
   group('uszkodzony zapis', () {
     test('zły JSON: kopia surowego zapisu, flaga, kolejka działa dalej',

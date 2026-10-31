@@ -257,6 +257,7 @@ class FeedbackStore {
   // ── zapis / odczyt ──────────────────────────────────────────────────────
 
   Future<_QueueDoc> _load(SharedPreferences prefs) async {
+    await prefs.reload();
     final doc = _QueueDoc();
     var damaged = false;
     String? raw;
@@ -271,8 +272,16 @@ class FeedbackStore {
     if (!damaged) damaged = !_parseInto(raw, doc);
 
     if (damaged) {
-      if (!prefs.containsKey(corruptKey)) {
-        await prefs.setString(corruptKey, raw);
+      final existing = prefs.get(corruptKey);
+      if (existing != null && existing != raw) {
+        throw StateError('Different feedback queue is already backed up');
+      }
+      if (existing == null && !await prefs.setString(corruptKey, raw)) {
+        throw StateError('Could not back up feedback queue');
+      }
+      await prefs.reload();
+      if (prefs.get(corruptKey) != raw) {
+        throw StateError('Feedback queue backup was not persisted');
       }
       doc.corrupt = true;
       await _save(prefs, doc);
@@ -281,8 +290,13 @@ class FeedbackStore {
   }
 
   Future<void> _save(SharedPreferences prefs, _QueueDoc doc) async {
-    final ok = await prefs.setString(prefsKey, jsonEncode(doc.toJson()));
+    final encoded = jsonEncode(doc.toJson());
+    final ok = await prefs.setString(prefsKey, encoded);
     if (!ok) throw StateError('prefs write failed');
+    await prefs.reload();
+    if (prefs.getString(prefsKey) != encoded) {
+      throw StateError('feedback queue was not persisted');
+    }
   }
 
   /// Wypełnia [doc] z zapisu. false = coś było uszkodzone (ocalałe elementy
