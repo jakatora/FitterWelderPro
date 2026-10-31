@@ -105,6 +105,24 @@ class _FumePageState extends State<_FumeBody> with ToolHandleHost<_FumeBody> {
 
   /// Zapis był uszkodzony — pokazujemy informację.
   bool _corrupt = false;
+  bool _readFailed = false;
+  bool _saveFailed = false;
+  int _saveRevision = 0;
+
+  Future<void> _saveSettings() async {
+    if (!_loaded || _readFailed || !widget.session.isCurrent) return;
+    final revision = ++_saveRevision;
+    try {
+      await _store.save(_currentInputs);
+      if (mounted && widget.session.isCurrent && revision == _saveRevision) {
+        setState(() => _saveFailed = false);
+      }
+    } catch (_) {
+      if (mounted && widget.session.isCurrent && revision == _saveRevision) {
+        setState(() => _saveFailed = true);
+      }
+    }
+  }
 
   /// Spawacz zaczął wpisywać przed końcem odczytu — nie nadpisujemy.
   bool _touched = false;
@@ -145,6 +163,12 @@ class _FumePageState extends State<_FumeBody> with ToolHandleHost<_FumeBody> {
     }
     if (!mounted || !widget.session.isCurrent) return;
     markReady();
+    if (d.readFailed) {
+      setState(() => _readFailed = true);
+      return;
+    }
+    if (_readFailed) _touched = false;
+    _readFailed = false;
     if (_touched) return;
     final i = d.inputs;
     setState(() {
@@ -205,7 +229,7 @@ class _FumePageState extends State<_FumeBody> with ToolHandleHost<_FumeBody> {
     if (!widget.session.isCurrent) return;
     _touched = true;
     setState(f);
-    if (_loaded) unawaited(_store.save(_currentInputs));
+    unawaited(_saveSettings());
   }
 
   // ── Pola ───────────────────────────────────────────────────────────────
@@ -341,6 +365,32 @@ class _FumePageState extends State<_FumeBody> with ToolHandleHost<_FumeBody> {
                       'close the hood must be.'),
             ),
           ),
+          if (_saveFailed) ...[
+            QuoteNotice(
+              key: const ValueKey('fume-save-failed'),
+              text: context.tr(
+                  pl: 'Ustawienia nie zostały zapisane. Bieżąca ocena używa danych widocznych na ekranie.',
+                  en: 'Settings were not saved. The current assessment uses the data shown on screen.'),
+            ),
+            TextButton(
+              key: const ValueKey('fume-save-retry'),
+              onPressed: _saveSettings,
+              child: Text(context.tr(pl: 'Ponów zapis', en: 'Retry save')),
+            ),
+          ],
+          if (_readFailed) ...[
+            QuoteNotice(
+              key: const ValueKey('fume-read-failed'),
+              text: context.tr(
+                  pl: 'Nie udało się odczytać ustawień. Zapis jest wstrzymany do ponownego odczytu.',
+                  en: 'Settings could not be read. Saving is paused until they are read again.'),
+            ),
+            TextButton(
+              key: const ValueKey('fume-read-retry'),
+              onPressed: _load,
+              child: Text(context.tr(pl: 'Ponów odczyt', en: 'Retry read')),
+            ),
+          ],
           if (_corrupt)
             KeyedSubtree(
               key: const ValueKey('fume-store-corrupt'),

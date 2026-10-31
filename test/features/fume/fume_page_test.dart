@@ -29,6 +29,22 @@ import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/theme/app_theme.dart';
 import 'package:cut_list_app/widgets/readout.dart';
 
+class _FailingSettingsStore extends FumeInputStore {
+  bool readFails = false;
+  bool saveFails = false;
+  final saved = <FumeInputs>[];
+
+  @override
+  Future<FumeDecoded> load() async => FumeDecoded(const FumeInputs(flow: 500),
+      corrupt: readFails, readFailed: readFails);
+
+  @override
+  Future<void> save(FumeInputs inputs) async {
+    if (saveFails) throw StateError('disk full');
+    saved.add(inputs);
+  }
+}
+
 Future<void> _pump(
   WidgetTester tester, {
   AppLanguage language = AppLanguage.pl,
@@ -156,6 +172,36 @@ class _DelayedStore extends FumeInputStore {
 }
 
 void main() {
+  testWidgets('awaria zapisu: ostrzeżenie i ponowienie bieżących danych',
+      (tester) async {
+    final store = _FailingSettingsStore()..saveFails = true;
+    await _pump(tester, store: store);
+    await _tap(tester, 'fume-lev-present');
+    await _enter(tester, 'fume-flow', '900');
+    await _reveal(tester, 'fume-save-failed');
+    expect(_key('fume-save-failed'), findsOneWidget);
+    expect(store.saved, isEmpty);
+    store.saveFails = false;
+    await _tap(tester, 'fume-save-retry');
+    expect(store.saved.single.flow, 900);
+    expect(_key('fume-save-failed'), findsNothing);
+  });
+
+  testWidgets('awaria odczytu wstrzymuje zapis do skutecznego ponowienia',
+      (tester) async {
+    final store = _FailingSettingsStore()..readFails = true;
+    await _pump(tester, store: store);
+    expect(_key('fume-read-failed'), findsOneWidget);
+    await _tap(tester, 'fume-lev-present');
+    await _enter(tester, 'fume-flow', '900');
+    expect(store.saved, isEmpty);
+    store.readFails = false;
+    await _tap(tester, 'fume-read-retry');
+    expect(_key('fume-read-failed'), findsNothing);
+    await _tap(tester, 'fume-lev-present');
+    await _enter(tester, 'fume-flow', '800');
+    expect(store.saved.last.flow, 800);
+  });
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   testWidgets('puste pola — komunikaty zamiast wyniku, ocena UZUPEŁNIJ',

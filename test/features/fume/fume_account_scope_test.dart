@@ -124,7 +124,8 @@ void main() {
     final stale = FumeInputStore(captureOwner: () async => owner);
     await account.signIn('b@example.test', 'test-password');
 
-    await stale.save(_inputs(1500));
+    await expectLater(
+        stale.save(_inputs(1500)), throwsA(isA<AccountException>()));
     expect((await const FumeInputStore().load()).inputs.flow, 800);
     await account.signIn('a@example.test', 'test-password');
     expect((await const FumeInputStore().load()).inputs.flow, 1200);

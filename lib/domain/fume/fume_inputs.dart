@@ -79,8 +79,10 @@ class FumeInputs {
 }
 
 class FumeDecoded {
-  const FumeDecoded(this.inputs, {required this.corrupt});
+  const FumeDecoded(this.inputs,
+      {required this.corrupt, this.readFailed = false});
   final FumeInputs inputs;
+  final bool readFailed;
 
   /// Zapis był uszkodzony (w całości albo w którymś polu) — część wartości
   /// wróciła do domyślnych.
