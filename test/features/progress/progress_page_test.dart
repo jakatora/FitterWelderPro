@@ -34,6 +34,14 @@ import 'package:cut_list_app/services/progress_scope_store.dart';
 import '../../support/test_database.dart';
 import '../../support/weld_fixtures.dart';
 
+class _FailingScopeStore extends ProgressScopeStore {
+  @override
+  Future<void> save(
+      String project, String testPackage, ProgressScope scope) async {
+    throw StateError('disk unavailable');
+  }
+}
+
 /// Środa 2026-10-14, po południu.
 DateTime _clock() => DateTime(2026, 10, 14, 15, 30);
 
@@ -57,13 +65,15 @@ Future<void> _clear(WidgetTester tester) => tester.runAsync(() async {
     });
 
 Future<void> _pump(WidgetTester tester,
-    {double dpr = 1, AppLanguage lang = AppLanguage.pl}) async {
+    {double dpr = 1,
+    AppLanguage lang = AppLanguage.pl,
+    ProgressScopeStore? store}) async {
   tester.view.physicalSize = const Size(1080, 2400);
   tester.view.devicePixelRatio = dpr;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(AppLanguageScope(
     controller: AppLanguageController(lang),
-    child: const MaterialApp(home: ProgressPage(clock: _clock)),
+    child: MaterialApp(home: ProgressPage(clock: _clock, store: store)),
   ));
   await _settle(tester);
   await tester.pumpAndSettle();
@@ -116,6 +126,18 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({
         kLastWeldProjectPrefsKey: 'Blok 4',
       }));
+
+  testWidgets('błąd zapisu zakresu jest widoczny na ekranie', (tester) async {
+    await _clear(tester);
+    await _seed(tester);
+    await _pump(tester, store: _FailingScopeStore());
+    final toggle = find.byKey(const ValueKey('progress-saturdays'));
+    await _scrollTo(tester, toggle);
+    await tester.tap(toggle);
+    await _settle(tester);
+    expect(find.byKey(const ValueKey('progress-scope-save-failed')),
+        findsOneWidget);
+  });
 
   testWidgets('pusty dziennik: zachęta i jedno dotknięcie do dziennika spoin',
       (tester) async {
@@ -259,7 +281,8 @@ void main() {
     // Ponowne otwarcie ekranu: zakres wraca z pamięci.
     await tester.pumpWidget(const SizedBox());
     await _pump(tester);
-    await _scrollTo(tester, find.byKey(const ValueKey('progress-forecast-pct')));
+    await _scrollTo(
+        tester, find.byKey(const ValueKey('progress-forecast-pct')));
     expect(
         find.descendant(
             of: find.byKey(const ValueKey('progress-forecast-pct')),
@@ -268,8 +291,7 @@ void main() {
         findsOneWidget);
   });
 
-  testWidgets(
-      'raport tekstem: idzie do udostępniania, a bez niego do schowka',
+  testWidgets('raport tekstem: idzie do udostępniania, a bez niego do schowka',
       (tester) async {
     await _clear(tester);
     await _seed(tester);
@@ -315,7 +337,8 @@ void main() {
   });
 
   for (final lang in AppLanguage.values) {
-    testWidgets('wąski telefon (360 dp, ${lang.name}): cały ekran bez przepełnień',
+    testWidgets(
+        'wąski telefon (360 dp, ${lang.name}): cały ekran bez przepełnień',
         (tester) async {
       await _clear(tester);
       await _seed(tester);
@@ -342,8 +365,7 @@ void main() {
         ProgressFilter(project: 'Blok 4', period: ProgressPeriod.week);
     final welds = _welds();
     final scope = filter.scopeOf(welds);
-    final pace =
-        computePace(scope, today: today, week: const WorkWeek());
+    final pace = computePace(scope, today: today, week: const WorkWeek());
     final report = ProgressReport(
       filter: filter,
       range: filter.rangeFor(today),

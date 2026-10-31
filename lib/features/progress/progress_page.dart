@@ -226,8 +226,20 @@ class _ProgressPageState extends State<_ProgressBody>
     if (!widget.session.isCurrent) return;
     setState(() => _scope = s);
     final f = _filter;
-    unawaited(widget.store.save(f.project, f.testPackage, s).catchError(
-        (Object e) => debugPrint('[work_progress] save scope failed: $e')));
+    unawaited(
+        widget.store.save(f.project, f.testPackage, s).catchError((Object e) {
+      debugPrint('[work_progress] save scope failed: $e');
+      if (!mounted || !widget.session.isCurrent || _filter != f) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+          context.tr(
+            pl: 'Nie udało się zapisać zakresu prac. Zmiany mogą zniknąć po zamknięciu ekranu.',
+            en: 'Could not save the work scope. Changes may be lost after closing this screen.',
+          ),
+          key: const ValueKey('progress-scope-save-failed'),
+        ),
+      ));
+    }));
   }
 
   Future<void> _openJournal() async {
