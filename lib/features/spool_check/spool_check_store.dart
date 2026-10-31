@@ -103,6 +103,7 @@ class SpoolCheckStore {
 
   Future<SpoolCheckLoad> _loadNow() async {
     final p = await prefs();
+    await p.reload();
     final Object? raw = p.get(key);
     if (raw == null || (raw is String && raw.isEmpty)) {
       return const SpoolCheckLoad([]);
@@ -135,6 +136,7 @@ class SpoolCheckStore {
   static Future<bool> _backup(SharedPreferences p, Object raw) async {
     final text = raw.toString();
     try {
+      await p.reload();
       final first = p.get(corruptBackupKey);
       if (first == text) return true;
       final last = p.get(corruptLastBackupKey);
@@ -146,6 +148,7 @@ class SpoolCheckStore {
               : null;
       if (target == null) return false;
       final ok = await p.setString(target, text);
+      await p.reload();
       return ok && p.get(target) == text;
     } catch (_) {
       return false;
@@ -161,9 +164,13 @@ class SpoolCheckStore {
 
   Future<void> _write(List<SpoolCheck> list) async {
     final p = await prefs();
-    final ok = await p.setString(
-        key, jsonEncode(spoolChecksToJson(sortSpoolChecks(list))));
+    final encoded = jsonEncode(spoolChecksToJson(sortSpoolChecks(list)));
+    final ok = await p.setString(key, encoded);
     if (!ok) throw StateError('SharedPreferences.setString($key) failed');
+    await p.reload();
+    if (p.get(key) != encoded) {
+      throw StateError('Spool check history was not persisted');
+    }
   }
 
   /// Zapisuje (nowy albo zmieniony) protokół. Pusty protokół nie trafia do

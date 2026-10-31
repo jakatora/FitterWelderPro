@@ -6,9 +6,21 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:cut_list_app/domain/spool_check/spool_check.dart';
 import 'package:cut_list_app/features/spool_check/spool_check_store.dart';
+
+class _UnpersistedDisk extends InMemorySharedPreferencesStore {
+  _UnpersistedDisk() : super.empty();
+  String? pretendKey;
+  String? refusedKey;
+  @override
+  Future<bool> setValue(String type, String key, Object value) async {
+    if (key == refusedKey) return false;
+    if (pretendKey == null || pretendKey == key) return true;
+    return super.setValue(type, key, value);
+  }
+}
 
 SpoolCheck _c(String id, {String date = '2026-10-18', int updated = 1}) =>
     SpoolCheck(
@@ -33,6 +45,9 @@ class _NoBackupPrefs implements SharedPreferences {
   final SharedPreferences _real;
   final bool throwOnBackup;
   final List<String> refused = [];
+
+  @override
+  Future<void> reload() => _real.reload();
 
   static bool _isBackup(String key) =>
       key == SpoolCheckStore.corruptBackupKey ||
@@ -63,6 +78,39 @@ String _many(int n) => jsonEncode(spoolChecksToJson([
     ]));
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('odmowa zapisu nie dodaje protokołu do odczytanej historii', () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = _UnpersistedDisk()..pretendKey = 'unused';
+    SharedPreferencesStorePlatform.instance = disk;
+    const store = SpoolCheckStore();
+    await store.upsert(_c('old'));
+    disk.refusedKey = 'flutter.${SpoolCheckStore.key}';
+    await expectLater(store.upsert(_c('new')), throwsStateError);
+    expect((await store.load()).map((c) => c.id), ['old']);
+  });
+
+  test('pozorny sukces zapisu protokołu jest wykrywany', () async {
+    SharedPreferences.setMockInitialValues({});
+    SharedPreferencesStorePlatform.instance = _UnpersistedDisk();
+    await expectLater(
+        const SpoolCheckStore().upsert(_c('new')), throwsStateError);
+  });
+
+  test('pozorna kopia nie pozwala nadpisać uszkodzonej historii', () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = _UnpersistedDisk()
+      ..pretendKey = 'flutter.${SpoolCheckStore.corruptBackupKey}';
+    SharedPreferencesStorePlatform.instance = disk;
+    const damaged = '{broken spool';
+    await disk.setValue('String', 'flutter.${SpoolCheckStore.key}', damaged);
+    await expectLater(const SpoolCheckStore().upsert(_c('new')),
+        throwsA(isA<SpoolCheckStoreUnavailable>()));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(prefs.get(SpoolCheckStore.key), damaged);
+  });
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   test(

@@ -148,6 +148,9 @@ class _NoBackupPrefs implements SharedPreferences {
   final SharedPreferences _real;
 
   @override
+  Future<void> reload() => _real.reload();
+
+  @override
   Object? get(String key) => _real.get(key);
 
   @override
