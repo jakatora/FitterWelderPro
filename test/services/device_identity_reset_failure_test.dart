@@ -1,4 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:cut_list_app/services/api_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
@@ -58,8 +62,70 @@ class DelayedCreation extends DelayedRemoval {
   }
 }
 
+class DelayedAuthor extends InMemorySharedPreferencesStore {
+  DelayedAuthor() : super.empty();
+  final entered = Completer<void>(), release = Completer<void>();
+  @override
+  Future<bool> setValue(String type, String key, Object value) async {
+    if (!entered.isCompleted && key == 'flutter.fitter_author_id') {
+      entered.complete();
+      await release.future;
+    }
+    return super.setValue(type, key, value);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  tearDown(() => ApiClient.instance.debugSetClient(null));
+  test('reset czeka na rozpoczęty zapis autora i usuwa go', () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = DelayedAuthor();
+    await disk.setValue('String', 'flutter.fitter_device_id', id);
+    await disk.setValue('String', 'flutter.fitter_install_secret', secret);
+    SharedPreferencesStorePlatform.instance = disk;
+    ApiClient.instance.debugSetClient(MockClient((_) async => http.Response(
+        jsonEncode({'registered': true, 'author_id': 'a_old'}), 201,
+        headers: {'content-type': 'application/json'})));
+    final service = PremiumService.instance;
+    service.resetForTest();
+    final registering = service.registerDevice();
+    await disk.entered.future;
+    final resetting = service.resetIdentity();
+    await Future<void>.delayed(Duration.zero);
+    disk.release.complete();
+    await registering;
+    expect(await resetting, isTrue);
+    expect(service.authorId, isNull);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(prefs.getString('fitter_author_id'), isNull);
+  });
+
+  test('spóźniona rejestracja nie odtwarza autora po resecie', () async {
+    SharedPreferences.setMockInitialValues(
+        {'fitter_device_id': id, 'fitter_install_secret': secret});
+    final entered = Completer<void>(), response = Completer<http.Response>();
+    ApiClient.instance.debugSetClient(MockClient((request) {
+      entered.complete();
+      return response.future;
+    }));
+    final service = PremiumService.instance;
+    service.resetForTest();
+    final registering = service.registerDevice();
+    await entered.future;
+    expect(await service.resetIdentity(), isTrue);
+    response.complete(http.Response(
+        jsonEncode({'registered': true, 'author_id': 'a_old'}), 201,
+        headers: {'content-type': 'application/json'}));
+    await registering;
+    expect(service.authorId, isNull);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(prefs.getString('fitter_author_id'), isNull);
+    expect(prefs.getString('fitter_device_id'), isNull);
+  });
+
   test('reset podczas tworzenia pary nie przepuszcza usuwanych nagłówków',
       () async {
     SharedPreferences.setMockInitialValues({});

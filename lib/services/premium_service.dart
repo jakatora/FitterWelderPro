@@ -323,19 +323,32 @@ class PremiumService {
   Future<DeviceRegistration> _register() async {
     try {
       final headers = await authHeaders();
+      bool sameIdentity() =>
+          _resetting == null &&
+          _deviceId == headers[kDeviceIdHeader] &&
+          _installSecret == headers[kInstallSecretHeader];
+      if (!sameIdentity()) return DeviceRegistration.failed;
       final body = await ApiClient.instance.postJson(
         BackendConfig.deviceRegister,
-        body: {'device_id': deviceId},
+        body: {'device_id': headers[kDeviceIdHeader]},
         headers: headers,
         timeout: const Duration(seconds: 8),
       );
+      if (!sameIdentity()) return DeviceRegistration.failed;
       final author = body['author_id'];
       if (author is String && author.isNotEmpty && author != _authorId) {
+        final persistingAuthor = () async {
+          try {
+            final prefs = await SharedPreferences.getInstance();
+            if (!sameIdentity()) return;
+            await prefs.setString(_kAuthorIdKey, author);
+          } catch (_) {}
+        }();
+        // Reset must wait for any author write already in flight before removal.
+        _persisting = persistingAuthor;
+        await persistingAuthor;
+        if (!sameIdentity()) return DeviceRegistration.failed;
         _authorId = author;
-        try {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString(_kAuthorIdKey, author);
-        } catch (_) {}
       }
       return body['registered'] == true
           ? DeviceRegistration.registered
