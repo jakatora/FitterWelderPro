@@ -227,7 +227,13 @@ class FeedbackUploader {
     try {
       await _consent.revoke();
       await waitIdle();
-      final id = await _consent.storedInstallId();
+      final String? id;
+      try {
+        id = await _consent.storedInstallId();
+      } catch (e) {
+        debugPrint('FeedbackUploader.eraseAll read ID: ${e.runtimeType}');
+        return FeedbackEraseResult.localFailed;
+      }
       var serverOk = true;
       if (id != null) {
         try {

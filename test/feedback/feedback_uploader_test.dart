@@ -88,6 +88,23 @@ void main() {
     }
   }
 
+  test('nieczytelny identyfikator nie udaje braku danych na serwerze',
+      () async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(FeedbackConsent.installIdKey, 42);
+    await fill(0, 1, kind: FeedbackKind.explicit);
+    var called = false;
+    final result = await uploader.eraseAll(deleteOnServer: (_) async {
+      called = true;
+      return true;
+    });
+    expect(result, FeedbackEraseResult.localFailed);
+    expect(called, isFalse);
+    await prefs.reload();
+    expect(prefs.get(FeedbackConsent.installIdKey), 42);
+    expect(await queued(), 1);
+  });
+
   test('BEZ ZGODY: zero żądań, kolejka nietknięta, brak identyfikatora',
       () async {
     await fill(0, 5);

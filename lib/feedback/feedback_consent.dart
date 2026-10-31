@@ -158,14 +158,14 @@ class FeedbackConsent {
   /// Zapisany identyfikator BEZ tworzenia nowego (np. do kasowania na
   /// serwerze: null = ta instalacja nic nie wysłała pod identyfikatorem).
   Future<String?> storedInstallId() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.reload();
-      final stored = prefs.getString(installIdKey);
-      return stored != null && installIdFormat.hasMatch(stored) ? stored : null;
-    } catch (_) {
-      return null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    final stored = prefs.get(installIdKey);
+    if (stored == null) return null;
+    if (stored is! String || !installIdFormat.hasMatch(stored)) {
+      throw const FormatException('Invalid stored feedback installation ID');
     }
+    return stored;
   }
 
   /// Lokalne skasowanie wszystkiego: zgoda, identyfikator i cała kolejka (z
