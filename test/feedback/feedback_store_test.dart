@@ -29,6 +29,13 @@ class _FailedBackupDisk extends InMemorySharedPreferencesStore {
   }
 }
 
+class _FailedRemovalDisk extends InMemorySharedPreferencesStore {
+  _FailedRemovalDisk(this.refuse) : super.empty();
+  final bool refuse;
+  @override
+  Future<bool> remove(String key) async => !refuse;
+}
+
 FeedbackStore get store => FeedbackStore.instance;
 
 void main() {
@@ -377,6 +384,21 @@ void main() {
       expect(st.rejected, 1);
     });
   });
+
+  for (final refuse in [false, true]) {
+    test('clear wykrywa nieutrwalone usunięcie (odmowa: $refuse)', () async {
+      final disk = _FailedRemovalDisk(refuse);
+      SharedPreferencesStorePlatform.instance = disk;
+      await disk.setValue(
+          'String', 'flutter.${FeedbackStore.prefsKey}', queueJson([sig(1)]));
+      await disk.setValue(
+          'String', 'flutter.${FeedbackStore.corruptKey}', 'backup');
+      expect(await store.clear(), isFalse);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey(FeedbackStore.prefsKey), isTrue);
+      expect(prefs.containsKey(FeedbackStore.corruptKey), isTrue);
+    });
+  }
 
   test('clear usuwa kolejkę, liczniki i kopię uszkodzonego zapisu', () async {
     seedFeedback({

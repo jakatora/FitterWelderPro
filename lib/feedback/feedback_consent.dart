@@ -132,15 +132,20 @@ class FeedbackConsent {
   /// użyj `eraseAllFeedback` (feedback_uploader.dart), które najpierw czeka na
   /// wysyłkę w toku i kasuje dane na serwerze, a identyfikator usuwa dopiero
   /// po sukcesie.
-  Future<void> clearAll() async {
+  Future<bool> clearAll() async {
+    if (!await FeedbackStore.instance.clear()) return false;
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(prefsKey);
-      await prefs.remove(installIdKey);
+      if (!await prefs.remove(prefsKey)) return false;
+      await prefs.reload();
+      if (prefs.containsKey(prefsKey)) return false;
+      if (!await prefs.remove(installIdKey)) return false;
+      await prefs.reload();
+      return !prefs.containsKey(installIdKey);
     } catch (e) {
       debugPrint('FeedbackConsent.clearAll: ${e.runtimeType}');
+      return false;
     }
-    await FeedbackStore.instance.clear();
   }
 
   /// 24 bajty z `Random.secure()` w base64url bez dopełnienia = 32 znaki.

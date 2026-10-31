@@ -5,6 +5,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
@@ -26,6 +28,15 @@ List<Map<String, Object?>> _items(http.Request r) => [
       for (final e in (jsonDecode(r.body) as Map)['items'] as List)
         (e as Map).cast()
     ];
+
+class _RefusedQueueRemoval extends InMemorySharedPreferencesStore {
+  _RefusedQueueRemoval() : super.empty();
+  @override
+  Future<bool> remove(String key) async {
+    if (key == 'flutter.${FeedbackStore.prefsKey}') return false;
+    return super.remove(key);
+  }
+}
 
 void main() {
   final requests = <http.Request>[];
@@ -116,6 +127,19 @@ void main() {
     expect(out.duplicates, 2);
     expect(out.sent, 3);
     expect(await queued(), 0);
+  });
+
+  test(
+      'nieudane lokalne usunięcie nie zgłasza sukcesu i zachowuje identyfikator',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    SharedPreferencesStorePlatform.instance = _RefusedQueueRemoval();
+    await FeedbackStore.instance.add(sig(1));
+    final id = await FeedbackConsent.instance.installId();
+    final result = await eraseAllFeedback(deleteOnServer: (_) async => true);
+    expect(result, FeedbackEraseResult.localFailed);
+    expect(await FeedbackConsent.instance.storedInstallId(), id);
+    expect(await FeedbackStore.instance.list(), hasLength(1));
   });
 
   group('kody, przy których kolejka zostaje', () {

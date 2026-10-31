@@ -149,6 +149,9 @@ enum FeedbackEraseResult {
   /// Serwer nie potwierdził kasowania. Zgoda cofnięta, kolejka usunięta,
   /// ale identyfikator ZOSTAJE, żeby można było ponowić kasowanie.
   serverFailed,
+
+  /// Nie potwierdzono usunięcia lokalnych danych. Można ponowić operację.
+  localFailed,
 }
 
 class FeedbackUploader {
@@ -234,9 +237,11 @@ class FeedbackUploader {
           serverOk = false;
         }
       }
-      await _store.clear();
+      final localOk = await _store.clear();
       if (!serverOk) return FeedbackEraseResult.serverFailed;
-      await _consent.clearAll();
+      if (!localOk || !await _consent.clearAll()) {
+        return FeedbackEraseResult.localFailed;
+      }
       return id == null
           ? FeedbackEraseResult.nothingOnServer
           : FeedbackEraseResult.erased;

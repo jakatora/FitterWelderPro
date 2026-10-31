@@ -238,13 +238,19 @@ class FeedbackStore {
       );
 
   /// Usuwa kolejkę, liczniki i kopię uszkodzonego zapisu („Usuń moje dane”).
-  Future<void> clear() => _serial(() async {
+  Future<bool> clear() => _serial(() async {
         try {
           final prefs = await SharedPreferences.getInstance();
-          await prefs.remove(prefsKey);
-          await prefs.remove(corruptKey);
+          final removedQueue = await prefs.remove(prefsKey);
+          final removedBackup = await prefs.remove(corruptKey);
+          await prefs.reload();
+          return removedQueue &&
+              removedBackup &&
+              !prefs.containsKey(prefsKey) &&
+              !prefs.containsKey(corruptKey);
         } catch (e) {
           debugPrint('FeedbackStore.clear: ${e.runtimeType}');
+          return false;
         }
       });
 
