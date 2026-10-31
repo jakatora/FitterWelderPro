@@ -278,6 +278,7 @@ class InterpassStore {
 
   Future<InterpassUnit> loadUnit() => _owned((owner) async {
         final prefs = await SharedPreferences.getInstance();
+        await prefs.reload();
         owner.requireCurrent();
         return InterpassUnit.byName(prefs.get(ownerKey(unitKey, owner))) ??
             InterpassUnit.c;
@@ -286,10 +287,16 @@ class InterpassStore {
   Future<void> saveUnit(InterpassUnit unit) => _owned((owner) async {
         final prefs = await SharedPreferences.getInstance();
         owner.requireCurrent();
-        final ok = await prefs.setString(ownerKey(unitKey, owner), unit.name);
+        final target = ownerKey(unitKey, owner);
+        final ok = await prefs.setString(target, unit.name);
         owner.requireCurrent();
         if (!ok) {
           throw StateError('SharedPreferences.setString($unitKey) failed');
+        }
+        await prefs.reload();
+        owner.requireCurrent();
+        if (prefs.get(target) != unit.name) {
+          throw StateError('Interpass temperature unit was not persisted');
         }
       });
 }

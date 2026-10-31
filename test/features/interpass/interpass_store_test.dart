@@ -30,10 +30,12 @@ class _RefuseBackupPreferences extends InMemorySharedPreferencesStore {
 
   bool refuse = false;
   bool pretendMain = false;
+  bool pretendUnit = false;
 
   @override
   Future<bool> setValue(String valueType, String key, Object value) async {
     if (pretendMain && key == 'flutter.${InterpassStore.key}') return true;
+    if (pretendUnit && key == 'flutter.${InterpassStore.unitKey}') return true;
     if (refuse && key.endsWith(InterpassStore.corruptBackupKey)) {
       return false;
     }
@@ -44,6 +46,14 @@ class _RefuseBackupPreferences extends InMemorySharedPreferencesStore {
 void main() {
   useGuestAccount();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  test('pozorny zapis jednostki nie udaje zapamiętanego Fahrenheita', () async {
+    final disk = _RefuseBackupPreferences()..pretendUnit = true;
+    SharedPreferencesStorePlatform.instance = disk;
+    const store = InterpassStore();
+    await expectLater(store.saveUnit(InterpassUnit.f), throwsStateError);
+    expect(await store.loadUnit(), InterpassUnit.c);
+  });
 
   test('pozorny zapis pomiarów nie zgłasza zmiany rejestru', () async {
     final disk = _RefuseBackupPreferences()..pretendMain = true;
