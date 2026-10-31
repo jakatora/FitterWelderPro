@@ -1,6 +1,10 @@
 # App Store Release Checklist - Cut List App
 
-Wersja: `0.1.4+6`
+Historyczny zestaw materiałów dla wersji: `0.1.4+6`.
+Procedura builda uaktualniona 2026-10-31: iOS budujemy i wysyłamy przez
+workflow `ios-testflight` w [codemagic.yaml](../../codemagic.yaml).
+Pozostałe dane tego historycznego zestawu wymagają ponownego sprawdzenia
+przed kolejną publikacją.
 
 ## 1. Branding i dane wydawcy
 
@@ -17,7 +21,7 @@ Wersja: `0.1.4+6`
 - [ ] Uzupelnij `ios/Flutter/AppStore.xcconfig` (`APP_BUNDLE_IDENTIFIER`, `APPLE_TEAM_ID`)
 - [ ] Otworz `ios/Runner.xcworkspace` i sprawdz Automatic Signing w Xcode
 - [ ] Zweryfikuj `CFBundleDisplayName`
-- [ ] Zbuduj aplikacje na realnym iPhonie lub symulatorze
+- [ ] Zainstaluj build z TestFlight na realnym iPhonie
 - [ ] Przejdz podstawowy smoke test na iOS
 
 ## 3. Materialy App Store Connect
@@ -41,12 +45,10 @@ Wersja: `0.1.4+6`
 
 ## 5. Build i upload
 
-- [ ] Na macOS uruchom `flutter build ios --release --no-codesign`
-- [ ] Otworz `ios/Runner.xcworkspace` w Xcode
-- [ ] Archive -> Validate App
-- [ ] Archive -> Distribute App -> App Store Connect
-- [ ] Alternatywnie uruchom fastlane: `bundle exec fastlane ios release`
+- [ ] Uruchom workflow `ios-testflight` z `codemagic.yaml` w Codemagic
+- [ ] Sprawdź powodzenie builda, podpisania i wysłania w logach Codemagic
 - [ ] Zweryfikuj build processing w App Store Connect
+- [ ] Zainstaluj właściwy numer builda z TestFlight i wykonaj smoke test
 
 ## 6. Replit
 
@@ -54,7 +56,7 @@ Wersja: `0.1.4+6`
 - [ ] Skopiuj publiczny URL do App Store Connect
 - [ ] Jesli chcesz, wystaw tez support page
 
-## 7. Blokery wykryte teraz
+## 7. Historyczne blokery wydania `0.1.4+6`
 
 - [ ] `ios/Flutter/AppStore.xcconfig` wymaga uzupelnienia finalnym bundle ID i Apple Team ID
 - [ ] Nie ma jeszcze gotowego publicznego URL polityki prywatnosci

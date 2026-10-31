@@ -1,5 +1,9 @@
 # Release Checklist (Play + Windows)
 
+> Historyczna checklista wydania `0.1.2+3` z 2026-03-28. Zaznaczone
+> wyniki dotyczą tego wydania. Bieżące polecenia i wymagania SDK są w
+> [README](README.md); testy i buildy należy wykonać dla publikowanej wersji.
+
 Wersja: `0.1.2+3`
 Data: `2026-03-28`
 

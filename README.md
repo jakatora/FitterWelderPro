@@ -58,7 +58,9 @@ The segment builder accepts the same expressions a fitter reads from an ISO:
 
 ## Run
 
-Requirements: Flutter ≥ 3.3 (tested on 3.38). Desktop targets enabled for
+Verified toolchain: Flutter 3.47.5 with Dart 3.13.4. The committed dependency
+lock requires Flutter ≥ 3.44.0 and Dart ≥ 3.12.0. Use the same SDK for dependency
+resolution, analysis, tests and builds. Desktop targets are enabled for
 Windows / Linux / macOS so the same code runs on a workshop laptop.
 
 ```bash
@@ -71,11 +73,18 @@ Release builds:
 ```bash
 flutter build apk --release          # Android sideload
 flutter build appbundle              # Play Store
-flutter build ipa                    # iOS (see RELEASE_CHECKLIST.md)
 flutter build windows --release      # Desktop
 ```
 
-The repo also ships `codemagic.yaml` for CI builds.
+iOS builds run through the `ios-testflight` workflow in `codemagic.yaml`
+on Codemagic.
+
+For the verified Windows setup, the Android debug helper selects the SDK
+explicitly and handles the Java socket fallback:
+
+```powershell
+.\scripts\build_android_debug_windows.ps1
+```
 
 ## Field UX choices
 
@@ -109,11 +118,15 @@ test/                      # Dart unit tests
 ## Tests
 
 ```bash
-flutter test
+flutter analyze
+flutter test --concurrency=1
 ```
 
-Covers the cut-calculator offsets, bar-nesting (kerf-aware first-fit) and
-the ISO expression parser.
+The serial test command is used for the full suite in the verified Windows
+environment. Tests cover calculators and ISO parsing, database migrations and
+backup restoration, account boundaries, reminders, exports, assistant actions
+and widget flows. Passing tests and builds do not replace runtime checks on
+a device for system notifications, camera access or other platform features.
 
 ## Releases
 
