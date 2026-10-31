@@ -448,14 +448,14 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _scheduleForBackground() async {
-    if (_notificationScheduled || !running || !isCountdown) return;
+    if (_disposed || _notificationScheduled || !running || !isCountdown) return;
     if (!_effects.backgroundNotificationsSupported) return;
     final left = remaining;
     if (left == null || left <= Duration.zero) return;
     await _ensurePermission();
     if (_notificationsGranted != true) return;
     // Mogło się zmienić w czasie await (powrót, pauza).
-    if (_inForeground || !running || _notificationScheduled) return;
+    if (_disposed || _inForeground || !running || _notificationScheduled) return;
     final at = _now().add(remaining!);
     final text = weldTimerAlarmText(currentAlarm,
         english: AppLanguageController.isEnglish);
@@ -487,6 +487,7 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
   void dispose() {
     _disposed = true;
     if (running) _safe(() => _effects.setKeepScreenOn(false));
+    _cancelNotification();
     _ticker?.cancel();
     if (_observing) WidgetsBinding.instance.removeObserver(this);
     super.dispose();

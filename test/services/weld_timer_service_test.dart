@@ -3,6 +3,8 @@
 // Zegar i skutki uboczne (wibracja, dźwięk, wygaszanie ekranu, powiadomienie)
 // są wstrzykiwane — test nie dotyka platformy i nie czeka na prawdziwy czas.
 
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,6 +12,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cut_list_app/services/weld_timer_service.dart';
 
 import '../support/fake_weld_timer_effects.dart';
+
+class _DelayedPermissionEffects extends FakeEffects {
+  final permission = Completer<bool>();
+
+  @override
+  Future<bool> requestNotificationPermission() {
+    permissionRequests++;
+    return permission.future;
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -307,6 +319,39 @@ void main() {
       timer.didChangeAppLifecycleState(AppLifecycleState.resumed);
       await flush();
       expect(fx.cancels, greaterThanOrEqualTo(1));
+    });
+
+    test('dispose cancels an already scheduled end notification', () async {
+      final localFx = FakeEffects();
+      final local = WeldTimerService(
+        now: () => now, effects: localFx,
+        startTicker: (_) => null, observeLifecycle: false,
+      );
+      local.startPurge(const Duration(seconds: 60));
+      await flush();
+      local.didChangeAppLifecycleState(AppLifecycleState.paused);
+      await flush();
+      expect(localFx.scheduled, hasLength(1));
+      local.dispose();
+      await flush();
+      expect(localFx.cancels, 1);
+      expect(localFx.keepsScreenOn, isFalse);
+    });
+
+    test('permission completed after dispose cannot schedule an alarm', () async {
+      final localFx = _DelayedPermissionEffects();
+      final local = WeldTimerService(
+        now: () => now, effects: localFx,
+        startTicker: (_) => null, observeLifecycle: false,
+      );
+      local.startPurge(const Duration(seconds: 60));
+      await flush();
+      expect(localFx.permissionRequests, 1);
+      local.didChangeAppLifecycleState(AppLifecycleState.paused);
+      local.dispose();
+      localFx.permission.complete(true);
+      await flush();
+      expect(localFx.scheduled, isEmpty);
     });
 
     test('bez zgody: nic nie planuje, zostaje stan w aplikacji', () async {
