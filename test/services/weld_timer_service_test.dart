@@ -51,6 +51,25 @@ class _DelayedScheduleEffects extends FakeEffects {
   }
 }
 
+class _DelayedScreenEffects extends FakeEffects {
+  _DelayedScreenEffects({this.failFirst = false});
+
+  final bool failFirst;
+  final firstChange = Completer<void>();
+  int screenRequests = 0;
+
+  @override
+  Future<void> setKeepScreenOn(bool on) async {
+    if (++screenRequests == 1) {
+      await firstChange.future;
+      if (failFirst) {
+        throw StateError('fixture screen failure');
+      }
+    }
+    await super.setKeepScreenOn(on);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -229,19 +248,72 @@ void main() {
   });
 
   group('ekran nie gaśnie tylko w trakcie', () {
-    test('start włącza, pauza / koniec / reset wyłączają', () {
+    for (final control in ['pause', 'reset', 'dispose', 'finish']) {
+      test('delayed screen enable is released after $control', () async {
+        final localFx = _DelayedScreenEffects();
+        final local = WeldTimerService(
+          now: () => now, effects: localFx,
+          startTicker: (_) => null, observeLifecycle: false,
+        );
+        var disposed = false;
+        addTearDown(() {
+          if (!disposed) { local.dispose(); }
+        });
+        local.startPurge(const Duration(seconds: 1));
+        switch (control) {
+          case 'pause': local.pause();
+          case 'reset': local.reset();
+          case 'dispose': local.dispose(); disposed = true;
+          case 'finish': now = now.add(const Duration(seconds: 2)); local.tick();
+        }
+        localFx.firstChange.complete();
+        await Future<void>.delayed(Duration.zero);
+        expect(localFx.keepsScreenOn, isFalse);
+      });
+    }
+
+    for (final failFirst in [false, true]) {
+      test('quick restart keeps screen on without blocking notifications (failure: $failFirst)', () async {
+        final localFx = _DelayedScreenEffects(failFirst: failFirst);
+        final local = WeldTimerService(
+          now: () => now, effects: localFx,
+          startTicker: (_) => null, observeLifecycle: false,
+        );
+        addTearDown(local.dispose);
+        local.startPurge(const Duration(seconds: 60));
+        local.pause();
+        local.startPurge(const Duration(seconds: 120));
+        local.didChangeAppLifecycleState(AppLifecycleState.paused);
+        await Future<void>.delayed(Duration.zero);
+        expect(localFx.scheduled, hasLength(1));
+        expect(localFx.screenRequests, 1);
+        localFx.firstChange.complete();
+        await Future<void>.delayed(Duration.zero);
+        expect(localFx.keepsScreenOn, isTrue);
+        local.reset();
+        await Future<void>.delayed(Duration.zero);
+        expect(localFx.keepsScreenOn, isFalse);
+      });
+    }
+
+    test('start włącza, pauza / koniec / reset wyłączają', () async {
       timer.setMode(WeldTimerMode.purge);
       timer.setPurgeSeconds(10);
       timer.start();
+      await Future<void>.delayed(Duration.zero);
       expect(fx.keepsScreenOn, isTrue);
       timer.pause();
+      await Future<void>.delayed(Duration.zero);
       expect(fx.keepsScreenOn, isFalse);
       timer.start();
+      await Future<void>.delayed(Duration.zero);
       expect(fx.keepsScreenOn, isTrue);
       advance(const Duration(seconds: 10));
+      await Future<void>.delayed(Duration.zero);
       expect(fx.keepsScreenOn, isFalse, reason: 'koniec odliczania');
       timer.start();
       timer.reset();
+      await Future<void>.delayed(Duration.zero);
       expect(fx.keepsScreenOn, isFalse);
     });
   });

@@ -124,6 +124,28 @@ abstract class WeldTimerEffects {
 /// Tworzy takt co sekundę; `null` = bez taktu (testy wołają [WeldTimerService.tick]).
 typedef WeldTimerTickerFactory = Timer? Function(void Function() onTick);
 
+// Preserve platform call order, including cancellation after an in-flight
+// operation. Failures must not prevent the next requested state from applying.
+class _OrderedTimerEffects {
+  Future<void>? _operation;
+
+  Future<void> run(Future<void> Function() action) {
+    final previous = _operation;
+    final operation = previous == null
+        ? Future<void>.sync(action)
+        : previous.then((_) => action());
+    final settled = operation.then<void>((_) {},
+        onError: (Object error, StackTrace stack) {});
+    _operation = settled;
+    unawaited(settled.then((_) {
+      if (identical(_operation, settled)) {
+        _operation = null;
+      }
+    }));
+    return operation;
+  }
+}
+
 class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
   WeldTimerService({
     DateTime Function()? now,
@@ -172,7 +194,8 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
   bool _inForeground = true;
   bool _notificationScheduled = false;
   int _notificationRevision = 0;
-  Future<void>? _notificationOperation;
+  final _notificationEffects = _OrderedTimerEffects();
+  final _screenEffects = _OrderedTimerEffects();
   bool? _notificationsGranted;
   Future<void>? _permission;
   bool _disposed = false;
@@ -304,7 +327,7 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
     _runningSince = _now();
     _ticker?.cancel();
     _ticker = _startTicker(tick);
-    _safe(() => _effects.setKeepScreenOn(true));
+    _setKeepScreenOn(true);
     if (isCountdown) unawaited(_ensurePermission());
     notifyListeners();
     // Cel skrócony do już upłyniętego czasu — koniec od razu.
@@ -359,7 +382,7 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
     _alarmActive = true;
     _ticker?.cancel();
     _ticker = null;
-    _safe(() => _effects.setKeepScreenOn(false));
+    _setKeepScreenOn(false);
     // W tle alarmuje zaplanowane powiadomienie; tu tylko stan, żeby po
     // powrocie czekał pełnoekranowy komunikat.
     if (_inForeground) {
@@ -388,7 +411,7 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
   void _stopRunningSideEffects() {
     _ticker?.cancel();
     _ticker = null;
-    _safe(() => _effects.setKeepScreenOn(false));
+    _setKeepScreenOn(false);
     _cancelNotification();
   }
 
@@ -464,7 +487,7 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
     _notificationScheduled = true;
     final revision = ++_notificationRevision;
     try {
-      await _queueNotification(() => _effects.scheduleEndNotification(
+      await _notificationEffects.run(() => _effects.scheduleEndNotification(
           at: at, title: text.title, body: text.body));
     } catch (e) {
       if (revision == _notificationRevision) {
@@ -480,25 +503,11 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
     if (!_notificationScheduled) return;
     _notificationScheduled = false;
     _notificationRevision++;
-    _safe(() => _queueNotification(_effects.cancelEndNotification));
+    _safe(() => _notificationEffects.run(_effects.cancelEndNotification));
   }
 
-  // A platform schedule may finish after pause/reset. Keep cancellation and
-  // later schedules in order so an old operation cannot restore a stale alarm.
-  Future<void> _queueNotification(Future<void> Function() action) {
-    final previous = _notificationOperation;
-    final operation = previous == null
-        ? Future<void>.sync(action)
-        : previous.then((_) => action());
-    final settled = operation.then<void>((_) {},
-        onError: (Object error, StackTrace stack) {});
-    _notificationOperation = settled;
-    unawaited(settled.then((_) {
-      if (identical(_notificationOperation, settled)) {
-        _notificationOperation = null;
-      }
-    }));
-    return operation;
+  void _setKeepScreenOn(bool on) {
+    _safe(() => _screenEffects.run(() => _effects.setKeepScreenOn(on)));
   }
 
   void _safe(Future<void> Function() action) {
@@ -510,7 +519,7 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void dispose() {
     _disposed = true;
-    if (running) _safe(() => _effects.setKeepScreenOn(false));
+    if (running) _setKeepScreenOn(false);
     _cancelNotification();
     _ticker?.cancel();
     if (_observing) WidgetsBinding.instance.removeObserver(this);
