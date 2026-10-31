@@ -73,6 +73,38 @@ void main() {
     expect(await store.loadUnit(), InterpassUnit.c);
   });
 
+  test('błąd konta w kolejce nie blokuje kolejnego zapisu', () async {
+    final owner = await LocalRecordOwner.capture();
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    final failedCapture = Completer<LocalRecordOwner>();
+    var calls = 0;
+    final store = InterpassStore(captureOwner: () async {
+      switch (++calls) {
+        case 1:
+          entered.complete();
+          await release.future;
+          return owner;
+        case 2:
+          return failedCapture.future;
+        default:
+          return owner;
+      }
+    });
+    final first = store.saveUnit(InterpassUnit.f);
+    await entered.future;
+    final failed = store.saveUnit(InterpassUnit.c);
+    final rejected = expectLater(failed, throwsStateError);
+    final last = store.saveUnit(InterpassUnit.c);
+    failedCapture.completeError(StateError('konto niedostępne'));
+    await Future<void>.delayed(Duration.zero);
+    release.complete();
+    await first;
+    await rejected;
+    await last;
+    expect(await store.loadUnit(), InterpassUnit.c);
+  });
+
   test('pozorny zapis jednostki nie udaje zapamiętanego Fahrenheita', () async {
     final disk = _RefuseBackupPreferences()..pretendUnit = true;
     SharedPreferencesStorePlatform.instance = disk;
