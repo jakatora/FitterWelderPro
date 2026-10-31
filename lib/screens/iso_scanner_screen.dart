@@ -1065,8 +1065,8 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
       children: [
-        SizedBox(
-          height: 56,
+        ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 56),
           child: FilledButton.icon(
             key: const ValueKey('scan-open-review'),
             onPressed: _canOpenReview ? _openScanReview : null,

@@ -11,6 +11,7 @@ import 'package:shared_preferences_platform_interface/shared_preferences_platfor
 import 'package:cut_list_app/services/scan_consent.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -245,6 +246,67 @@ void main() {
     expect(find.textContaining('CUT 896.0 mm'), findsOneWidget);
     expect(find.textContaining('CUT 1200'), findsNothing);
   });
+
+  for (final lang in AppLanguage.values) {
+    for (final size in [const Size(360, 640), const Size(640, 360)]) {
+      testWidgets('stored scan has a readable review action: $lang/$size',
+          (tester) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        await tester.runAsync(() => IsoScanDao().insert(IsoScanRecord(
+              id: 'responsive-scan',
+              name: 'Saved drawing',
+              envelopeJson: jsonEncode(_envelope()),
+              createdAt: 1,
+            )));
+        await tester.pumpWidget(AppLanguageScope(
+          controller: AppLanguageController(lang),
+          child: MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: const TextScaler.linear(1.5)),
+              child: child!,
+            ),
+            home: const IsoScannerScreen(),
+          ),
+        ));
+        await settle(tester);
+        final saved = find.text('Saved drawing');
+        final panel = find.byType(ListView).last;
+        await tester.ensureVisible(panel);
+        await tester.scrollUntilVisible(saved, 180,
+            scrollable: find
+                .descendant(of: panel, matching: find.byType(Scrollable))
+                .first);
+        await tester.pump();
+        await tester.ensureVisible(saved);
+        await tester.pump();
+        expect(saved.hitTestable(), findsOneWidget);
+        await tester.tap(saved);
+        await settle(tester);
+        final button = find.byKey(const ValueKey('scan-open-review'));
+        final loadedPanel = find.byType(ListView).last;
+        await tester.ensureVisible(loadedPanel);
+        await tester.scrollUntilVisible(button, -180,
+            scrollable: find
+                .descendant(of: loadedPanel, matching: find.byType(Scrollable))
+                .first);
+        await tester.pump();
+        expect(tester.widget<FilledButton>(button).onPressed, isNotNull);
+        expect(button.hitTestable(), findsOneWidget);
+        final text = find.descendant(of: button, matching: find.byType(Text));
+        final paragraph = tester.renderObject<RenderParagraph>(text);
+        expect(
+            paragraph.size.height + .1,
+            greaterThanOrEqualTo(
+                paragraph.getMaxIntrinsicHeight(paragraph.size.width)),
+            reason:
+                'The full review action label must fit at the selected text size');
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
 
   testWidgets('zapisany odczyt otwiera się ponownie bez skanu', (tester) async {
     tester.view.physicalSize = const Size(1100, 2400);
