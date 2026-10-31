@@ -48,6 +48,8 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>FitterWelder Pro nie wymaga dostępu do Twojej lokalizacji. Dołączone biblioteki iOS odwołują się do usług lokalizacji, ale aplikacja nie pobiera ani nie zapisuje pozycji GPS. Możesz odmówić dostępu. / FitterWelder Pro does not require access to your location. Included iOS libraries reference location services, but the app does not retrieve or store your GPS position. You can deny access.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>FitterWelder Pro uses your photo library to attach images to welding projects and pipe spool documentation.</string>
 	<key>NSCameraUsageDescription</key>
