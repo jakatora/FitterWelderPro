@@ -175,6 +175,18 @@ void main() {
     expect(store.speakReplies, isFalse);
   });
 
+  test('udane usunięcie historii wyłącza poprzedni błąd trwałości', () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = _FailedHistoryDisk(true)..failRemovals = false;
+    SharedPreferencesStorePlatform.instance = disk;
+    final store = AssistantHistoryStore.instance;
+    store.resetForTest();
+    await store.add(entry('one'));
+    expect(store.persistenceFailed, isTrue);
+    expect(await store.clear(), isTrue);
+    expect(store.persistenceFailed, isFalse);
+  });
+
   test('równoległe pierwsze wpisy nie znikają podczas wczytywania historii',
       () async {
     SharedPreferences.setMockInitialValues({'assistant_history_v1': '[]'});

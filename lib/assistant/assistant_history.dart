@@ -286,9 +286,14 @@ class AssistantHistoryStore extends ChangeNotifier {
           final prefs = await SharedPreferences.getInstance();
           final removed = await prefs.remove(_kKey);
           await prefs.reload();
-          return removed && !prefs.containsKey(_kKey);
+          final cleared = removed && !prefs.containsKey(_kKey);
+          _saveFailed = !cleared;
+          notifyListeners();
+          return cleared;
         } catch (e) {
           debugPrint('AssistantHistoryStore.clear: $e');
+          _saveFailed = true;
+          notifyListeners();
           return false;
         }
       });
