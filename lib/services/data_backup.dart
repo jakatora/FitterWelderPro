@@ -1751,15 +1751,12 @@ class DataBackup {
     final owner = await LocalRecordOwner.capture();
     final stamp = now ?? DateTime.now();
     final tempDir = await getTemporaryDirectory();
-    final target = File(p.join(tempDir.path, backupFileName(stamp)));
-    if (await target.exists()) await target.delete();
-
-    final staging = Directory(
-      p.join(tempDir.path, 'fwp_backup_${stamp.millisecondsSinceEpoch}'),
-    );
-    await staging.create(recursive: true);
+    final exportDir = await tempDir.createTemp('fwp_backup_');
+    final target = File(p.join(exportDir.path, backupFileName(stamp)));
+    final staging = Directory(p.join(exportDir.path, 'staging'));
 
     try {
+      await staging.create();
       final snapshots = <String, File>{};
       // Zdjęcia wskazywane WYŁĄCZNIE przez wiersze innych właścicieli (np. skan
       // cudzego certyfikatu) zostają na telefonie. Reszta katalogu leci jak
@@ -1855,6 +1852,9 @@ class DataBackup {
       owner.requireCurrent();
       _archiveOwners[target] = owner;
       return target;
+    } catch (_) {
+      if (await exportDir.exists()) await exportDir.delete(recursive: true);
+      rethrow;
     } finally {
       if (await staging.exists()) await staging.delete(recursive: true);
     }

@@ -300,6 +300,20 @@ void main() {
     return archive.copy(p.join(sandbox.path, 'carried-backup.zip'));
   }
 
+  test('two backups in the same second preserve the first archive', () async {
+    await _insertProject('a', 'First project');
+    final stamp = DateTime(2026, 10, 31, 10);
+    final first = await DataBackup.createBackupFile(now: stamp);
+    final firstBytes = await first.readAsBytes();
+    await _insertProject('b', 'Second project');
+    final second = await DataBackup.createBackupFile(now: stamp);
+    expect(second.path, isNot(first.path));
+    expect(p.basename(first.path), backupFileName(stamp));
+    expect(p.basename(second.path), backupFileName(stamp));
+    expect(await first.readAsBytes(), firstBytes);
+    expect(await second.readAsBytes(), isNot(firstBytes));
+  });
+
   test('photo aliases are rejected before changing projects or existing photos', () async {
     await _insertProject('a', 'Source A');
     final archive = await backupAndCarry();
