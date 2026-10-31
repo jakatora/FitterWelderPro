@@ -1,7 +1,9 @@
 // Zapis ostatniej rurki: klucz z wersją, kopia uszkodzonego zapisu przed
 // nadpisaniem (tylko raz), odporność na błąd odczytu.
 
+import 'dart:async';
 import 'dart:convert';
+import 'package:cut_list_app/database/local_record_owner.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -49,6 +51,39 @@ const _tube = TubeBendingSaved(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('opóźniony właściciel nie przywraca starszego gięcia', () async {
+    SharedPreferences.setMockInitialValues({});
+    final owner = await LocalRecordOwner.capture();
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    var calls = 0;
+    final store = TubeBendingStore(captureOwner: () async {
+      if (++calls == 1) {
+        entered.complete();
+        await release.future;
+      }
+      return owner;
+    });
+    const newerState = TubeBendingSaved(
+        mode: TubeBendingMode.single,
+        unit: TubeUnit.inch,
+        segmentsMm: [100, 100],
+        anglesDeg: [45],
+        rotationsDeg: [0],
+        singleAngleDeg: 45);
+    final older = store.save(_tube);
+    await entered.future;
+    final newer = store.save(newerState);
+    final reading = store.load();
+    await Future<void>.delayed(Duration.zero);
+    release.complete();
+    await Future.wait([older, newer]);
+    expect(encodeTubeBending((await reading).state!),
+        encodeTubeBending(newerState));
+    expect(encodeTubeBending((await store.load()).state!),
+        encodeTubeBending(newerState));
+  });
 
   test('pozorny sukces zapisu rurki jest zgłaszany jako błąd', () async {
     SharedPreferences.setMockInitialValues({});

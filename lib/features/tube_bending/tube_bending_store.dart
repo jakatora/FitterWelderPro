@@ -12,7 +12,9 @@
 /// zapis kopiuje surową wartość także wtedy, gdy była nienaruszona.
 library;
 
+import 'dart:async';
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:flutter/foundation.dart' show debugPrint, protected;
 import '../../database/local_record_owner.dart';
@@ -174,6 +176,7 @@ class TubeBendingLoad {
 }
 
 class TubeBendingStore {
+  static Future<void>? _writes;
   static const String key = 'tube_bending_v1';
   static const String corruptKey = 'tube_bending_v1_corrupt';
 
@@ -192,6 +195,8 @@ class TubeBendingStore {
   /// Nigdy nie rzuca.
   Future<TubeBendingLoad> load() async {
     try {
+      final pending = _writes;
+      if (pending != null) await pending;
       final raw = await readRaw();
       if (raw == null) return const TubeBendingLoad(null);
       if (raw is! String) return const TubeBendingLoad(null, damaged: true);
@@ -206,9 +211,39 @@ class TubeBendingStore {
   /// Zapis; przed nadpisaniem uszkodzonej (albo nieodczytanej —
   /// [afterFailedRead]) wartości robi jej kopię pod [corruptKey]. Jeśli
   /// miejsce kopii zajmuje inna wartość, wstrzymuje zapis.
-  Future<void> save(TubeBendingSaved state,
-      {bool afterFailedRead = false}) async {
-    final prefs = await OwnedPrefs.instance(captureOwner);
+  Future<void> save(TubeBendingSaved state, {bool afterFailedRead = false}) {
+    Object? captureError;
+    StackTrace? captureStack;
+    final prefsReady =
+        OwnedPrefs.instance(captureOwner).then<SharedPreferences?>(
+      (prefs) => prefs,
+      onError: (Object error, StackTrace stack) {
+        captureError = error;
+        captureStack = stack;
+        return null;
+      },
+    );
+    final encoded = encodeTubeBending(state);
+    final previous = _writes;
+    final write = () async {
+      if (previous != null) await previous;
+      final prefs = await prefsReady;
+      if (prefs == null) {
+        Error.throwWithStackTrace(captureError!, captureStack!);
+      }
+      await _saveNow(prefs, encoded, afterFailedRead: afterFailedRead);
+    }();
+    final settled =
+        write.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _writes = settled;
+    unawaited(settled.then((_) {
+      if (identical(_writes, settled)) _writes = null;
+    }));
+    return write;
+  }
+
+  Future<void> _saveNow(SharedPreferences prefs, String encoded,
+      {required bool afterFailedRead}) async {
     await prefs.reload();
     final raw = prefs.get(key);
     if (raw != null) {
@@ -229,7 +264,6 @@ class TubeBendingStore {
         }
       }
     }
-    final encoded = encodeTubeBending(state);
     if (!await prefs.setString(key, encoded)) {
       throw StateError('Could not save tube bending record');
     }
