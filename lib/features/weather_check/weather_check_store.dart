@@ -152,31 +152,32 @@ class WeatherCheckStore {
       });
 
   Future<({WeatherThresholds thresholds, bool repaired})>
-      loadThresholdsDetailed() async {
-    final prefs = await OwnedPrefs.instance(captureOwner);
-    await prefs.reload();
-    final raw = prefs.get(thresholdsKey);
-    if (raw != null && raw is! String) {
-      return (thresholds: WeatherThresholds.defaults, repaired: true);
-    }
-    return decodeWeatherThresholdsDetailed(raw as String?);
-  }
+      loadThresholdsDetailed() => _mutateHistory((owner) async {
+            final prefs = await OwnedPrefs.instance(() async => owner);
+            await prefs.reload();
+            final raw = prefs.get(thresholdsKey);
+            if (raw != null && raw is! String) {
+              return (thresholds: WeatherThresholds.defaults, repaired: true);
+            }
+            return decodeWeatherThresholdsDetailed(raw as String?);
+          });
 
   Future<WeatherThresholds> loadThresholds() async =>
       (await loadThresholdsDetailed()).thresholds;
 
   /// Rzuca, gdy zapis się nie uda — ekran pokazuje to spawaczowi.
-  Future<void> saveThresholds(WeatherThresholds t) async {
-    final prefs = await OwnedPrefs.instance(captureOwner);
-    await prefs.reload();
-    final encoded = t.isDefault ? null : encodeWeatherThresholds(t);
-    final ok = t.isDefault
-        ? await prefs.remove(thresholdsKey)
-        : await prefs.setString(thresholdsKey, encoded!);
-    if (!ok) throw StateError('weather: nie zapisano progów');
-    await prefs.reload();
-    if (prefs.get(thresholdsKey) != encoded) {
-      throw StateError('weather: nie potwierdzono zapisu progów');
-    }
-  }
+  Future<void> saveThresholds(WeatherThresholds t) =>
+      _mutateHistory((owner) async {
+        final prefs = await OwnedPrefs.instance(() async => owner);
+        await prefs.reload();
+        final encoded = t.isDefault ? null : encodeWeatherThresholds(t);
+        final ok = t.isDefault
+            ? await prefs.remove(thresholdsKey)
+            : await prefs.setString(thresholdsKey, encoded!);
+        if (!ok) throw StateError('weather: nie zapisano progów');
+        await prefs.reload();
+        if (prefs.get(thresholdsKey) != encoded) {
+          throw StateError('weather: nie potwierdzono zapisu progów');
+        }
+      });
 }

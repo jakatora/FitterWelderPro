@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:cut_list_app/database/local_record_owner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
@@ -60,7 +61,34 @@ WeatherCheckRecord _record(String id) => WeatherCheckRecord(
     );
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   const store = WeatherCheckStore();
+
+  test('opóźniony właściciel nie przywraca starszych progów pogody', () async {
+    SharedPreferences.setMockInitialValues({});
+    final owner = await LocalRecordOwner.capture();
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    var calls = 0;
+    final delayed = WeatherCheckStore(captureOwner: () async {
+      if (++calls == 1) {
+        entered.complete();
+        await release.future;
+      }
+      return owner;
+    });
+    final older =
+        delayed.saveThresholds(const WeatherThresholds(maxWindGasMs: 1.5));
+    await entered.future;
+    final newer =
+        delayed.saveThresholds(const WeatherThresholds(maxWindGasMs: 1));
+    final reading = store.loadThresholds();
+    await Future<void>.delayed(Duration.zero);
+    release.complete();
+    await Future.wait([older, newer]);
+    expect((await reading).maxWindGasMs, 1);
+    expect((await store.loadThresholds()).maxWindGasMs, 1);
+  });
 
   test('drugi uszkodzony zapis dostaje osobną kopię', () async {
     SharedPreferences.setMockInitialValues({
