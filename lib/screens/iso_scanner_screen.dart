@@ -947,7 +947,8 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
           ),
           if (left != null) ...[
             const SizedBox(width: 8),
-            Text(
+            Flexible(
+                child: Text(
               _tr('Pozostało dziś: $left z $kAiScanDailyLimitPerDevice',
                   'Left today: $left of $kAiScanDailyLimitPerDevice'),
               style: TextStyle(
@@ -955,7 +956,8 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
                 fontWeight: FontWeight.w800,
                 color: exhausted ? _kRed : _kMuted,
               ),
-            ),
+              textAlign: TextAlign.end,
+            )),
           ],
         ],
       ),
@@ -1113,164 +1115,183 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
         if (discard && mounted) nav.pop();
       },
       child: Scaffold(
-      appBar: AppBar(
-        title: Text(_tr('Skaner izometryku', 'Isometric scanner')),
-        actions: [
-          // The big one: ask Claude Vision to read the drawing.
-          IconButton(
-            icon: _aiBusy
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: _kOrange,
-                    ),
-                  )
-                : const Icon(Icons.auto_awesome),
-            tooltip: _tr('Analizuj AI', 'Analyse with AI'),
-            onPressed: (_imagePath == null || _aiBusy) ? null : _runAiAnalysis,
-          ),
-          // The way out that ends in a cut list instead of a clipboard.
-          // Only live once a scan actually came back — a hand-typed segment
-          // list has no components for the planner to work from.
-          IconButton(
-            icon: const Icon(Icons.playlist_add_check_circle_outlined),
-            tooltip: _tr('Utwórz projekt z tego skanu',
-                'Create a project from this scan'),
-            onPressed: _canOpenReview ? _openScanReview : null,
-          ),
-          // Stored readings — reopened without a second, paid scan.
-          IconButton(
-            icon: const Icon(Icons.history),
-            tooltip: _tr('Zapisane skany', 'Stored scans'),
-            onPressed: _aiBusy ? null : _pickSavedScan,
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // ── Image viewer / pick button ─────────────────────────────────
-          Expanded(
-            flex: 5,
-            child: Container(
-              color: const Color(0xFF0B0E13),
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: _imagePath == null
-                        ? Center(child: _PickEmpty(onPick: _pickImage, tr: _tr))
-                        : _ImageViewer(
-                            path: _imagePath!,
-                            viewer: _viewer,
-                            onChange: _pickImage,
-                            onResetZoom: () =>
-                                _viewer.value = Matrix4.identity(),
-                            tr: _tr,
-                          ),
-                  ),
-                  // Spinner overlay while AI is working — dims the photo
-                  // and shows a status line so the fitter knows we're alive.
-                  if (_aiBusy)
-                    Positioned.fill(
-                      child: Container(
-                        color: Colors.black.withValues(alpha: 0.55),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const CircularProgressIndicator(color: _kOrange),
-                            const SizedBox(height: 12),
-                            Text(
-                              _aiStatus ?? _tr('Analiza AI…', 'AI analysis…'),
-                              style: const TextStyle(
-                                  color: Colors.white, fontSize: 13),
-                            ),
-                          ],
-                        ),
+        appBar: AppBar(
+          title: Text(_tr('Skaner izometryku', 'Isometric scanner')),
+          actions: [
+            // The big one: ask Claude Vision to read the drawing.
+            IconButton(
+              icon: _aiBusy
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: _kOrange,
                       ),
-                    ),
-                  // Small banner with last AI status while idle.
-                  if (!_aiBusy && _aiStatus != null)
-                    Positioned(
-                      left: 8,
-                      right: 8,
-                      bottom: 8,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.65),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.auto_awesome,
-                                size: 14, color: _kOrange),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                _aiStatus!,
-                                style: const TextStyle(
-                                    color: Colors.white, fontSize: 11),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
+                    )
+                  : const Icon(Icons.auto_awesome),
+              tooltip: _tr('Analizuj AI', 'Analyse with AI'),
+              onPressed:
+                  (_imagePath == null || _aiBusy) ? null : _runAiAnalysis,
+            ),
+            // The way out that ends in a cut list instead of a clipboard.
+            // Only live once a scan actually came back — a hand-typed segment
+            // list has no components for the planner to work from.
+            IconButton(
+              icon: const Icon(Icons.playlist_add_check_circle_outlined),
+              tooltip: _tr('Utwórz projekt z tego skanu',
+                  'Create a project from this scan'),
+              onPressed: _canOpenReview ? _openScanReview : null,
+            ),
+            // Stored readings — reopened without a second, paid scan.
+            IconButton(
+              icon: const Icon(Icons.history),
+              tooltip: _tr('Zapisane skany', 'Stored scans'),
+              onPressed: _aiBusy ? null : _pickSavedScan,
+            ),
+          ],
+        ),
+        body: LayoutBuilder(
+            builder: (context, viewport) => SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      // ── Image viewer / pick button ─────────────────────────────────
+                      SizedBox(
+                        height: (viewport.maxHeight * .4).clamp(180.0, 500.0),
+                        child: Container(
+                          color: const Color(0xFF0B0E13),
+                          child: Stack(
+                            children: [
+                              Positioned.fill(
+                                child: _imagePath == null
+                                    ? Center(
+                                        child: SingleChildScrollView(
+                                          child: _PickEmpty(
+                                              onPick: _pickImage, tr: _tr),
+                                        ),
+                                      )
+                                    : _ImageViewer(
+                                        path: _imagePath!,
+                                        viewer: _viewer,
+                                        onChange: _pickImage,
+                                        onResetZoom: () =>
+                                            _viewer.value = Matrix4.identity(),
+                                        tr: _tr,
+                                      ),
                               ),
-                            ),
-                          ],
+                              // Spinner overlay while AI is working — dims the photo
+                              // and shows a status line so the fitter knows we're alive.
+                              if (_aiBusy)
+                                Positioned.fill(
+                                  child: Container(
+                                    color: Colors.black.withValues(alpha: 0.55),
+                                    child: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        const CircularProgressIndicator(
+                                            color: _kOrange),
+                                        const SizedBox(height: 12),
+                                        Text(
+                                          _aiStatus ??
+                                              _tr('Analiza AI…',
+                                                  'AI analysis…'),
+                                          style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 13),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              // Small banner with last AI status while idle.
+                              if (!_aiBusy && _aiStatus != null)
+                                Positioned(
+                                  left: 8,
+                                  right: 8,
+                                  bottom: 8,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color:
+                                          Colors.black.withValues(alpha: 0.65),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.auto_awesome,
+                                            size: 14, color: _kOrange),
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: Text(
+                                            _aiStatus!,
+                                            style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 11),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                ],
-              ),
-            ),
-          ),
 
-          // ── What the scan costs and what it needs ──────────────────────
-          _scanBudgetStrip(),
+                      // ── What the scan costs and what it needs ──────────────────────
+                      _scanBudgetStrip(),
 
-          // ── Before the first scan: where the photo goes, and that the
-          //    result has to be checked ────────────────────────────────────
-          if (_lastScan == null && !_aiBusy) _scanPrivacyNote(),
+                      // ── Before the first scan: where the photo goes, and that the
+                      //    result has to be checked ────────────────────────────────────
+                      if (_lastScan == null && !_aiBusy) _scanPrivacyNote(),
 
-          // ── Title block strip from AI (line number, class, material…) ──
-          if (_lastScan != null && _lastScan!.titleBlock.hasAnything)
-            _TitleBlockStrip(scan: _lastScan!, tr: _tr),
+                      // ── Title block strip from AI (line number, class, material…) ──
+                      if (_lastScan != null &&
+                          _lastScan!.titleBlock.hasAnything)
+                        _TitleBlockStrip(scan: _lastScan!, tr: _tr),
 
-          // ── Project name ───────────────────────────────────────────────
-          Container(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-            color: _kCard,
-            child: TextField(
-              controller: _projectName,
-              // P1-13: cap project name length and strip newlines so the
-              // value is safe for clipboard, PDF watermark and AI prompts.
-              maxLength: 80,
-              inputFormatters: [
-                FilteringTextInputFormatter.deny(RegExp(r'[\r\n]')),
-              ],
-              decoration: InputDecoration(
-                isDense: true,
-                counterText: '',
-                labelText:
-                    _tr('Nazwa rurociągu / linia', 'Pipe run / line name'),
-                hintText: _tr('np. 6"-CWS-1234', 'e.g. 6"-CWS-1234'),
-                prefixIcon: const Icon(Icons.label_outline, size: 18),
-              ),
-            ),
-          ),
+                      // ── Project name ───────────────────────────────────────────────
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+                        color: _kCard,
+                        child: TextField(
+                          controller: _projectName,
+                          // P1-13: cap project name length and strip newlines so the
+                          // value is safe for clipboard, PDF watermark and AI prompts.
+                          maxLength: 80,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.deny(RegExp(r'[\r\n]')),
+                          ],
+                          decoration: InputDecoration(
+                            isDense: true,
+                            counterText: '',
+                            labelText: _tr('Nazwa rurociągu / linia',
+                                'Pipe run / line name'),
+                            hintText:
+                                _tr('np. 6"-CWS-1234', 'e.g. 6"-CWS-1234'),
+                            prefixIcon:
+                                const Icon(Icons.label_outline, size: 18),
+                          ),
+                        ),
+                      ),
 
-          // ── What was read, and the one way to a cut list ───────────────
-          // This screen shows the drawing's dimensions as read, never a
-          // "CUT": a cut length needs the fittings' take-outs, the root gap
-          // and the blocks on uncertain values — the review screen computes
-          // all of that through the one engine.
-          Expanded(
-            flex: 7,
-            child: _resultsPanel(),
-          ),
-        ],
+                      // ── What was read, and the one way to a cut list ───────────────
+                      // This screen shows the drawing's dimensions as read, never a
+                      // "CUT": a cut length needs the fittings' take-outs, the root gap
+                      // and the blocks on uncertain values — the review screen computes
+                      // all of that through the one engine.
+                      SizedBox(
+                        height: (viewport.maxHeight * .45).clamp(240.0, 600.0),
+                        child: _resultsPanel(),
+                      ),
+                    ],
+                  ),
+                )),
       ),
-    ),
     );
   }
 }

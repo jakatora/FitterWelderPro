@@ -112,6 +112,36 @@ void main() {
     }
   }
 
+  for (final lang in AppLanguage.values) {
+    for (final size in [const Size(432, 960), const Size(360, 640)]) {
+      testWidgets('empty photo picker stays reachable: $lang/$size',
+          (tester) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(AppLanguageScope(
+          controller: AppLanguageController(lang),
+          child: MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: const TextScaler.linear(1.5)),
+              child: child!,
+            ),
+            home: const IsoScannerScreen(),
+          ),
+        ));
+        await settle(tester);
+        final pick = find
+            .text(lang == AppLanguage.en ? 'Choose photo' : 'Wybierz zdjęcie');
+        await tester.ensureVisible(pick);
+        await tester.pump();
+        expect(tester.getRect(pick).top, greaterThanOrEqualTo(0));
+        expect(tester.getRect(pick).bottom, lessThanOrEqualTo(size.height));
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
   for (final exhausted in [false, true]) {
     testWidgets('dwuklik nie dubluje skanu i zwalnia blokadę: limit=$exhausted',
         (tester) async {
