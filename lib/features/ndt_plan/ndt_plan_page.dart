@@ -164,6 +164,11 @@ class _NdtPlanPageState extends State<_NdtPlanBody>
   bool _rulesSaveFailed = false;
   int _saveRevision = 0;
 
+  /// Szkic pozostaje przy swoim projekcie, gdy zapis skończy się błędem po
+  /// przejściu na inny projekt. Numer chroni nowszą edycję przed starszą.
+  final Map<String, ({NdtRuleSet set, int revision})> _drafts = {};
+  final Set<String> _failedDrafts = {};
+
   /// Zapisy po kolei: późniejsza zmiana nigdy nie zostanie nadpisana
   /// wcześniejszą, która skończyła się później.
   Future<void> _saveChain = Future<void>.value();
@@ -239,13 +244,16 @@ class _NdtPlanPageState extends State<_NdtPlanBody>
 
   void _applyLoad(NdtRuleSetDecode d) {
     _saveRevision++;
-    _set = d.set;
+    final projectKey = NdtPlanStore.projectKey(_project);
+    final draft = _drafts[projectKey];
+    _set = draft?.set ?? d.set;
     _rulesIntact = d.intact;
     _rulesDropped = d.dropped;
     _readFailed = d.readFailed;
     _rulesLoading = false;
-    _rulesSaving = false;
-    _rulesSaveFailed = false;
+    _rulesSaveFailed =
+        !d.readFailed && draft != null && _failedDrafts.contains(projectKey);
+    _rulesSaving = !d.readFailed && draft != null && !_rulesSaveFailed;
     _round = 0;
   }
 
@@ -294,7 +302,10 @@ class _NdtPlanPageState extends State<_NdtPlanBody>
       return;
     }
     final project = _project;
+    final projectKey = NdtPlanStore.projectKey(project);
     final revision = ++_saveRevision;
+    _drafts[projectKey] = (set: s, revision: revision);
+    _failedDrafts.remove(projectKey);
     setState(() {
       _set = s;
       _rulesSaving = true;
@@ -303,6 +314,10 @@ class _NdtPlanPageState extends State<_NdtPlanBody>
     _saveChain = _saveChain.then((_) async {
       try {
         await widget.store.save(project, s);
+        if (_drafts[projectKey]?.revision == revision) {
+          _drafts.remove(projectKey);
+          _failedDrafts.remove(projectKey);
+        }
         if (mounted &&
             widget.session.isCurrent &&
             project == _project &&
@@ -316,16 +331,24 @@ class _NdtPlanPageState extends State<_NdtPlanBody>
         }
       } catch (e) {
         debugPrint('[ndt_plan] save rules failed: $e');
-        if (mounted &&
-            widget.session.isCurrent &&
-            project == _project &&
-            revision == _saveRevision) {
-          setState(() {
-            _rulesSaving = false;
-            _rulesSaveFailed = true;
-          });
-          _snack(_tr('Nie udało się zapisać reguł na telefonie.',
-              'Could not save the rules on the phone.'));
+        if (_drafts[projectKey]?.revision == revision) {
+          _failedDrafts.add(projectKey);
+        }
+        if (mounted && widget.session.isCurrent) {
+          if (project == _project && revision == _saveRevision) {
+            setState(() {
+              _rulesSaving = false;
+              _rulesSaveFailed = true;
+            });
+            _snack(_tr('Nie udało się zapisać reguł na telefonie.',
+                'Could not save the rules on the phone.'));
+          } else if (_drafts[projectKey]?.revision == revision) {
+            _snack(_tr(
+                'Nie udało się zapisać reguł projektu $project. Wróć do '
+                    'projektu, aby ponowić zapis.',
+                'Could not save rules for project $project. Return to the '
+                    'project to retry.'));
+          }
         }
       }
     });

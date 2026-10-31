@@ -91,9 +91,12 @@ class _FakeStore extends NdtPlanStore {
 }
 
 class _DelayedProjectStore extends NdtPlanStore {
+  _DelayedProjectStore({this.failFirst = false});
+
   final savedByProject = <String, NdtRuleSet>{};
   final entered = Completer<void>();
   final release = Completer<void>();
+  bool failFirst;
 
   @override
   Future<NdtRuleSetDecode> load(String project) async {
@@ -104,8 +107,12 @@ class _DelayedProjectStore extends NdtPlanStore {
   @override
   Future<void> save(String project, NdtRuleSet set) async {
     if (project == 'Blok 4') {
-      entered.complete();
+      if (!entered.isCompleted) entered.complete();
       await release.future;
+      if (failFirst) {
+        failFirst = false;
+        throw StateError('brak miejsca');
+      }
     }
     savedByProject[project] = set;
   }
@@ -330,6 +337,34 @@ void main() {
     await tester.pumpAndSettle();
     expect(store.savedByProject['Blok 4'],
         NdtRuleSet.fromPreset(NdtPreset.rt10vt100));
+    expect(_verdict(tester, _l12), 'Gotowa do próby ciśnieniowej');
+  });
+
+  testWidgets('błąd zapisu po przejściu do innego projektu zachowuje szkic',
+      (tester) async {
+    final store = _DelayedProjectStore(failFirst: true);
+    await _pump(tester, welds: _welds(), store: store);
+    await _tap(tester, 'ndt-preset-${NdtPreset.rt10vt100}');
+    await _tap(tester, 'ndt-project');
+    await tester.tap(find.text('Browar').last);
+    await tester.pumpAndSettle();
+    store.release.complete();
+    await tester.pumpAndSettle();
+    expect(store.savedByProject['Blok 4'], isNull);
+    expect(find.textContaining('Nie udało się zapisać reguł projektu Blok 4'),
+        findsOneWidget);
+
+    await _tap(tester, 'ndt-project');
+    await tester.tap(find.text('Blok 4').last);
+    await tester.pumpAndSettle();
+    expect(_key('ndt-rules-save-failed'), findsOneWidget);
+    expect(_key('ndt-preset-name'), findsOneWidget);
+    expect(_verdict(tester, _l12), 'Niegotowa do próby ciśnieniowej');
+
+    await _tap(tester, 'ndt-rules-save-retry');
+    expect(store.savedByProject['Blok 4'],
+        NdtRuleSet.fromPreset(NdtPreset.rt10vt100));
+    expect(_key('ndt-rules-save-failed'), findsNothing);
     expect(_verdict(tester, _l12), 'Gotowa do próby ciśnieniowej');
   });
 
