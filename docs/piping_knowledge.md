@@ -36,7 +36,7 @@ Nie powtarzaj wpisów — każda iteracja dodaje TYLKO nowe informacje.
 - **Bewel**: 37.5° (czyli kąt rowka 75° wliczając obie strony), **gap 1/8" (≈3.2 mm)**, **brak landu** (zero root face) lub minimum 0.5 mm.
 - **Drut wypełniający**: 1/8" (3.2 mm), wkładać do szczeliny ("walking the cup" lub "lay-wire" technique).
 - **Purge gas (gaz osłonowy od wewnątrz)**: argon 15 CFH (≈7 l/min). 25 CFH to ZA DUŻO — wytwarza nadciśnienie i powoduje **suckback** (wklęsły root, "icicle" odwrócony).
-- **Test gotowości purge**: trzymamy zapalniczkę przy otworze odpowietrzającym — gdy płomień zgaśnie czysto bez migotania, atmosfera wewnątrz to czysty argon (≤ 0.5% O₂).
+- **Kontrola purge**: stężenie tlenu mierz odpowiednim analizatorem zgodnie z instrukcją urządzenia i zatwierdzoną procedurą. Kryterium odbiorowe określa WPS/specyfikacja projektu. Nie stosuj próby płomieniem. Źródło: Linde, analizatory tlenu resztkowego: https://www.lindedirect.com/solutions/metal-fabrication-solutions/welding-automation/orbital-welding
 - **Aluminiowa taśma HVAC** do uszczelnienia końców rury podczas purge. Robimy **otwór wentylacyjny** na górze — żeby argon (cięższy od powietrza) wypchnął tlen w dół i wyszedł górą… **UWAGA**: argon jest CIĘŻSZY od powietrza, więc otwór musimy zrobić u GÓRY, bo powietrze ucieka górą gdy argon napływa od dołu.
 - **Backup purge**: można użyć rozpuszczalnego papieru ("water-soluble dam") gdy nie chcemy purgować całej rury — robimy lokalną zaślepkę z obu stron spoiny, po spawaniu rozpuszcza się wodą.
 - **Suckback przyczyny**: za duży gap + za wysokie amperaże + za dużo purge + zbyt wolny progress.

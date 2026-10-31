@@ -2793,6 +2793,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     }
     final epoch = _conversationEpoch;
     setState(() {
+      if (!widget.embedded) _mode = AssistantMode.answer;
       _inputCtrl.text = text;
       _cmdCtrl.clear();
     });

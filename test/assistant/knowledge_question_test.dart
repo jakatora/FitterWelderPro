@@ -7,6 +7,8 @@ void main() {
     'Jak spawać TIG?', 'Jak zmienić wymiar?', 'Czy mogę zmienić wymiar?',
     'Jaki gaz dobrać?', 'Dlaczego powstają pory?', 'Explain MIG versus MAG',
     'How do I change the dimension?',
+    'Czy możesz wyjaśnić spawanie TIG?',
+    'Could you please explain TIG welding?',
   ]) {
     test('explanation is not execution: $text',() {
       expect(isKnowledgeQuestion(Utterance(text, lang: AppLanguage.pl)),isTrue);
@@ -17,6 +19,7 @@ void main() {
     'Czy możesz zmniejszyć szczelinę o 1 mm', 'Czy możesz zmienić wymiar?',
     'Could you please set the second pipe to 500 mm?', 'Oblicz heat input',
     'Otwórz kalkulator', 'Zapisz TIG 100 A',
+    'Czy możesz nazwać rysunek?', 'Czy możesz podsumować aktualny rysunek ISO?',
   ]) {
     test('explicit action retains native workflow: $text',() {
       expect(requestsConversationAction(Utterance(text, lang: AppLanguage.pl)),isTrue);
