@@ -256,6 +256,10 @@ class _NdtPlanPageState extends State<_NdtPlanBody>
       _project = p;
       _rulesLoading = true;
     });
+    // Powrót do projektu musi zobaczyć jego ostatni zapis, także gdy zmiana
+    // projektu nastąpiła przed zakończeniem poprzedniej operacji.
+    await _saveChain;
+    if (!mounted || !widget.session.isCurrent || _project != p) return;
     final rules = await widget.store.load(p);
     if (!mounted || !widget.session.isCurrent || _project != p) return;
     setState(() => _applyLoad(rules));
@@ -651,13 +655,29 @@ class _NdtPlanPageState extends State<_NdtPlanBody>
 
   Widget _rulesSection(bool en) {
     final s = _set;
+    final title = _tr('Wymagania', 'Requirements');
+    final subtitle = _tr(
+        'Ze specyfikacji projektu. Wymagane = spoiny × %, zawsze w górę.',
+        'From the project specification. Required = welds × %, always '
+            'rounded up.');
+    if (_rulesLoading) {
+      return QuoteSection(
+        key: const ValueKey('ndt-rules'),
+        title: title,
+        subtitle: subtitle,
+        children: [
+          QuoteNotice(
+            key: const ValueKey('ndt-rules-loading'),
+            text: _tr('Ładowanie reguł wybranego projektu…',
+                'Loading rules for the selected project…'),
+          ),
+        ],
+      );
+    }
     return QuoteSection(
       key: const ValueKey('ndt-rules'),
-      title: _tr('Wymagania', 'Requirements'),
-      subtitle: _tr(
-          'Ze specyfikacji projektu. Wymagane = spoiny × %, zawsze w górę.',
-          'From the project specification. Required = welds × %, always '
-              'rounded up.'),
+      title: title,
+      subtitle: subtitle,
       children: [
         if (_rulesSaving)
           QuoteNotice(
@@ -965,9 +985,10 @@ class _NdtPlanPageState extends State<_NdtPlanBody>
           key: const ValueKey('ndt-share-text'),
           style: OutlinedButton.styleFrom(
               minimumSize: const Size.fromHeight(kMinTapTarget)),
-          onPressed: _rulesSaving || _rulesSaveFailed
-              ? null
-              : () => unawaited(_shareText(report)),
+          onPressed:
+              _readFailed || _rulesLoading || _rulesSaving || _rulesSaveFailed
+                  ? null
+                  : () => unawaited(_shareText(report)),
           icon: const Icon(Icons.sms_outlined),
           label: Text(_tr('Wyślij zlecenie tekstem', 'Send the order as text')),
         ),
@@ -976,7 +997,11 @@ class _NdtPlanPageState extends State<_NdtPlanBody>
           key: const ValueKey('ndt-share-pdf'),
           style: OutlinedButton.styleFrom(
               minimumSize: const Size.fromHeight(kMinTapTarget)),
-          onPressed: _exporting || _rulesSaving || _rulesSaveFailed
+          onPressed: _exporting ||
+                  _readFailed ||
+                  _rulesLoading ||
+                  _rulesSaving ||
+                  _rulesSaveFailed
               ? null
               : () => unawaited(_sharePdf(report)),
           icon: _exporting

@@ -90,6 +90,27 @@ class _FakeStore extends NdtPlanStore {
   }
 }
 
+class _DelayedProjectStore extends NdtPlanStore {
+  final savedByProject = <String, NdtRuleSet>{};
+  final entered = Completer<void>();
+  final release = Completer<void>();
+
+  @override
+  Future<NdtRuleSetDecode> load(String project) async {
+    final saved = savedByProject[project];
+    return saved == null ? decodeNdtRuleSet(null) : NdtRuleSetDecode(saved);
+  }
+
+  @override
+  Future<void> save(String project, NdtRuleSet set) async {
+    if (project == 'Blok 4') {
+      entered.complete();
+      await release.future;
+    }
+    savedByProject[project] = set;
+  }
+}
+
 Future<void> _noText(String text, String subject) async {}
 Future<void> _noPdf(NdtOrderReport report, bool english) async {}
 
@@ -210,6 +231,10 @@ void main() {
     expect(_verdict(tester, _l12), 'Niegotowa do próby ciśnieniowej');
     expect(tester.widget<ButtonStyleButton>(_key('ndt-rule-add')).enabled,
         isFalse);
+    expect(tester.widget<OutlinedButton>(_key('ndt-share-text')).onPressed,
+        isNull);
+    expect(
+        tester.widget<OutlinedButton>(_key('ndt-share-pdf')).onPressed, isNull);
     await _tap(tester, 'ndt-preset-${NdtPreset.b313}');
     expect(store.saved, isEmpty);
 
@@ -279,6 +304,33 @@ void main() {
     expect(tester.widget<OutlinedButton>(_key('ndt-share-text')).onPressed,
         isNotNull);
     expect(store.stored, NdtRuleSet.fromPreset(NdtPreset.rt10vt100));
+  });
+
+  testWidgets('powrót do projektu czeka na jego wcześniejszy zapis',
+      (tester) async {
+    final store = _DelayedProjectStore();
+    await _pump(tester, welds: _welds(), store: store);
+    await _tap(tester, 'ndt-preset-${NdtPreset.rt10vt100}');
+    expect(store.entered.isCompleted, isTrue);
+
+    await _tap(tester, 'ndt-project');
+    await tester.tap(find.text('Browar').last);
+    await tester.pumpAndSettle();
+    expect(_key('ndt-rules-loading'), findsOneWidget);
+    expect(_key('ndt-preset-name'), findsNothing);
+    expect(tester.widget<OutlinedButton>(_key('ndt-share-text')).onPressed,
+        isNull);
+    expect(
+        tester.widget<OutlinedButton>(_key('ndt-share-pdf')).onPressed, isNull);
+    await _tap(tester, 'ndt-project');
+    await tester.tap(find.text('Blok 4').last);
+    await tester.pumpAndSettle();
+
+    store.release.complete();
+    await tester.pumpAndSettle();
+    expect(store.savedByProject['Blok 4'],
+        NdtRuleSet.fromPreset(NdtPreset.rt10vt100));
+    expect(_verdict(tester, _l12), 'Gotowa do próby ciśnieniowej');
   });
 
   testWidgets(
