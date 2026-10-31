@@ -4,7 +4,9 @@ import '../../support/test_account.dart';
 // pojedyncze nieczytelne wpisy), limit spoin bez cichego wypadania,
 // pusta spoina nie trafia do rejestru, jednostka osobno od danych.
 
+import 'dart:async';
 import 'dart:convert';
+import 'package:cut_list_app/database/local_record_owner.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -46,6 +48,30 @@ class _RefuseBackupPreferences extends InMemorySharedPreferencesStore {
 void main() {
   useGuestAccount();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  test('opóźnione konto nie przywraca starszej jednostki temperatury',
+      () async {
+    final owner = await LocalRecordOwner.capture();
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    var calls = 0;
+    final store = InterpassStore(captureOwner: () async {
+      if (++calls == 1) {
+        entered.complete();
+        await release.future;
+      }
+      return owner;
+    });
+    final older = store.saveUnit(InterpassUnit.f);
+    await entered.future;
+    final newer = store.saveUnit(InterpassUnit.c);
+    final reading = store.loadUnit();
+    await Future<void>.delayed(Duration.zero);
+    release.complete();
+    await Future.wait([older, newer]);
+    expect(await reading, InterpassUnit.c);
+    expect(await store.loadUnit(), InterpassUnit.c);
+  });
 
   test('pozorny zapis jednostki nie udaje zapamiętanego Fahrenheita', () async {
     final disk = _RefuseBackupPreferences()..pretendUnit = true;

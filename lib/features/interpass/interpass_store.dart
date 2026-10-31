@@ -93,13 +93,24 @@ class InterpassStore {
   Future<T> _owned<T>(Future<T> Function(LocalRecordOwner) op,
       {LocalRecordOwner? expectedOwner}) async {
     expectedOwner?.requireCurrent();
-    final owner = await (_captureOwner ?? LocalRecordOwner.capture)();
-    owner.requireCurrent();
-    expectedOwner?.requireCurrent();
-    if (expectedOwner != null && expectedOwner.key != owner.key) {
-      throw AccountException('Właściciel rejestru temperatury zmienił się.');
-    }
+    Object? captureError;
+    StackTrace? captureStack;
+    final ownerReady = (_captureOwner ?? LocalRecordOwner.capture)()
+        .then<LocalRecordOwner?>((owner) => owner,
+            onError: (Object error, StackTrace stack) {
+      captureError = error;
+      captureStack = stack;
+      return null;
+    });
     return _serial(() async {
+      final owner = await ownerReady;
+      if (owner == null) {
+        Error.throwWithStackTrace(captureError!, captureStack!);
+      }
+      expectedOwner?.requireCurrent();
+      if (expectedOwner != null && expectedOwner.key != owner.key) {
+        throw AccountException('Właściciel rejestru temperatury zmienił się.');
+      }
       owner.requireCurrent();
       expectedOwner?.requireCurrent();
       final result = await op(owner);
