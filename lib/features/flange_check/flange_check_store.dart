@@ -11,6 +11,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart' show debugPrint, protected;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -29,6 +30,7 @@ class FlangeHistoryLoad {
 }
 
 class FlangeCheckStore {
+  static Future<void>? _writes;
   static const String key = 'flange_checks_v1';
   static const String corruptKey = 'flange_checks_v1_corrupt';
   static const String secondCorruptKey = '${corruptKey}_2';
@@ -51,6 +53,8 @@ class FlangeCheckStore {
   /// wtedy komunikat). Nigdy nie rzuca.
   Future<FlangeHistoryLoad> loadWithStatus() async {
     try {
+      final pending = _writes;
+      if (pending != null) await pending;
       final raw = await readRaw();
       if (raw == null) return const FlangeHistoryLoad([]);
       if (raw is! String) return const FlangeHistoryLoad([], damaged: true);
@@ -62,9 +66,39 @@ class FlangeCheckStore {
     }
   }
 
-  Future<void> save(List<FlangeCheck> checks,
-      {bool afterFailedRead = false}) async {
-    final prefs = await OwnedPrefs.instance(captureOwner);
+  Future<void> save(List<FlangeCheck> checks, {bool afterFailedRead = false}) {
+    Object? captureError;
+    StackTrace? captureStack;
+    final prefsReady =
+        OwnedPrefs.instance(captureOwner).then<SharedPreferences?>(
+      (prefs) => prefs,
+      onError: (Object error, StackTrace stack) {
+        captureError = error;
+        captureStack = stack;
+        return null;
+      },
+    );
+    final snapshot = List<FlangeCheck>.of(checks);
+    final previous = _writes;
+    final write = () async {
+      if (previous != null) await previous;
+      final prefs = await prefsReady;
+      if (prefs == null) {
+        Error.throwWithStackTrace(captureError!, captureStack!);
+      }
+      await _saveNow(prefs, snapshot, afterFailedRead: afterFailedRead);
+    }();
+    final settled =
+        write.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _writes = settled;
+    unawaited(settled.then((_) {
+      if (identical(_writes, settled)) _writes = null;
+    }));
+    return write;
+  }
+
+  Future<void> _saveNow(SharedPreferences prefs, List<FlangeCheck> checks,
+      {required bool afterFailedRead}) async {
     await prefs.reload();
     if (afterFailedRead) {
       await _backupUnread(prefs);

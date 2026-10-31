@@ -1,6 +1,8 @@
 // Magazyn historii protokołów: uszkodzony zapis nie ginie przy nadpisaniu.
 
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:cut_list_app/database/local_record_owner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
@@ -40,6 +42,33 @@ Future<SharedPreferences> _prefs(Map<String, Object> initial) async {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('opóźniony właściciel nie przywraca starszej historii kołnierzy',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final owner = await LocalRecordOwner.capture();
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    var calls = 0;
+    final delayed = FlangeCheckStore(captureOwner: () async {
+      if (++calls == 1) {
+        entered.complete();
+        await release.future;
+      }
+      return owner;
+    });
+    const newerCheck = FlangeCheck(id: 'n2', joint: FlangeJoint(tag: 'N-2'));
+    final older = delayed.save([_one]);
+    await entered.future;
+    final newer = delayed.save([_one, newerCheck]);
+    final reading = _store.load();
+    await Future<void>.delayed(Duration.zero);
+    release.complete();
+    await Future.wait([older, newer]);
+    expect((await reading).map((c) => c.id), ['n1', 'n2']);
+    expect((await _store.load()).map((c) => c.id), ['n1', 'n2']);
+  });
   test('uszkodzony JSON: kopia pod flange_checks_v1_corrupt przed nadpisaniem',
       () async {
     const raw = '{"v":1,"checks":[{';
