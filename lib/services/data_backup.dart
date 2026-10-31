@@ -2004,9 +2004,23 @@ class DataBackup {
     }
   }
 
-  static Map<String, ZipEntry> _indexEntries(ZipSource source) => {
-        for (final entry in readZipDirectory(source)) entry.name: entry,
-      };
+  static Map<String, ZipEntry> _indexEntries(ZipSource source) {
+    final entries = <String, ZipEntry>{};
+    final names = <String>{};
+    for (final entry in readZipDirectory(source)) {
+      // Backups travel between platforms, including case-insensitive targets.
+      if (!names.add(entry.name.toLowerCase())) {
+        throw const BackupFormatException(
+          messagePl: 'Kopia zawiera powtarzające się nazwy plików. '
+              'Nie można bezpiecznie jej odczytać.',
+          messageEn: 'The backup contains duplicate file names. '
+              'It cannot be read safely.',
+        );
+      }
+      entries[entry.name] = entry;
+    }
+    return entries;
+  }
 
   static BackupContents _describe(
     ZipSource source,

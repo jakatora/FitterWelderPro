@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -215,6 +216,43 @@ void main() {
             e.messageEn.contains('newer version'))),
       );
     });
+  });
+
+  group('inspect duplicate ZIP entries', () {
+    for (final names in [
+      [kManifestEntry, kManifestEntry],
+      ['db/cutlist.db', 'db/cutlist.db'],
+      ['heat_photos/a.jpg', 'heat_photos/a.jpg'],
+      ['heat_photos/a.jpg', 'heat_photos/A.JPG'],
+    ]) {
+      test('refuses ambiguous archive: $names', () async {
+        final dir = await Directory.systemTemp.createTemp('fwp-duplicate-zip-');
+        final file = File(p.join(dir.path, 'backup.zip'));
+        try {
+          final bytes = BytesBuilder();
+          final zip = ZipBuilder(bytes.add);
+          if (!names.contains(kManifestEntry)) {
+            zip.addFile(kManifestEntry, utf8.encode(_manifest()),
+                modified: _when);
+          }
+          if (!names.contains('db/cutlist.db')) {
+            zip.addFile('db/cutlist.db', _fakeDb(), modified: _when);
+          }
+          for (final name in names) {
+            zip.addFile(name,
+                name == kManifestEntry ? utf8.encode(_manifest()) : _fakeDb(),
+                modified: _when);
+          }
+          zip.finish();
+          await file.writeAsBytes(bytes.takeBytes());
+          await expectLater(DataBackup.inspect(file.path),
+              throwsA(isA<BackupFormatException>()));
+        } finally {
+          if (await file.exists()) await file.delete();
+          await dir.delete();
+        }
+      });
+    }
   });
 
   group('describeBackup', () {
