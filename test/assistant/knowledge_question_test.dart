@@ -3,6 +3,10 @@ import 'package:cut_list_app/assistant/core/utterance.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 void main() {
+  test('how many retains deterministic numeric lookups', () {
+    expect(isExplanationQuestion(Utterance('How many DI today?',
+        lang: AppLanguage.en)), isFalse);
+  });
   for(final text in [
     'Jak spawać TIG?', 'Jak zmienić wymiar?', 'Czy mogę zmienić wymiar?',
     'Jaki gaz dobrać?', 'Dlaczego powstają pory?', 'Explain MIG versus MAG',

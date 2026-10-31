@@ -36,5 +36,5 @@ bool isExplanationQuestion(Utterance u) =>
     RegExp(r'^(?:(?:prosze|please|powiedz mi|tell me)\s+)*'
             r'(?:jak\b|dlaczego\b|czemu\b|czym\b|co to\b|'
             r'wyjasnij\w*|wytlumacz\w*|opisz\w*|explain\b|describe\b|'
-            r'why\b|how\b|what is\b|what are\b)')
+            r'why\b|how\b(?! (?:many|much)\b)|what is\b|what are\b)')
         .hasMatch(u.folded);
