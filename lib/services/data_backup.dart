@@ -477,6 +477,7 @@ BackupContents describeBackup({
 
   void requirePortableFileName(String file) {
     if (file == '.' || file == '..' ||
+        file.endsWith('.') || file.endsWith(' ') ||
         file.codeUnits.any((unit) => unit < 32 || unit == 0x5c || unit == 0x3a)) {
       throw const BackupFormatException(
         messagePl: 'Kopia zawiera nieprawidłową ścieżkę pliku. '

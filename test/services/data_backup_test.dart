@@ -282,6 +282,10 @@ void main() {
       r'heat_photos/..\escape.jpg',
       'heat_photos/C:outside.jpg',
       'db/..',
+      'db/cutlist.db.',
+      'db/cutlist.db ',
+      'heat_photos/a.jpg.',
+      'heat_photos/a.jpg ',
     ]) {
       test('rejects a path escaping portable backup folders: $name', () {
         expect(

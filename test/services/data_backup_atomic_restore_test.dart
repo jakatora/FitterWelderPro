@@ -8,6 +8,7 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -298,6 +299,29 @@ void main() {
         await DataBackup.createBackupFile(now: DateTime(2026, 9, 24, 10));
     return archive.copy(p.join(sandbox.path, 'carried-backup.zip'));
   }
+
+  test('photo aliases are rejected before changing projects or existing photos', () async {
+    await _insertProject('a', 'Source A');
+    final archive = await backupAndCarry();
+    final source = BytesZipSource(await archive.readAsBytes());
+    final out = BytesBuilder();
+    final zip = ZipBuilder(out.add);
+    for (final entry in readZipDirectory(source)) {
+      zip.addFile(entry.name, readZipEntryBytes(source, entry));
+    }
+    zip.addFile('heat_photos/a.jpg', [1, 2, 3]);
+    zip.addFile('heat_photos/a.jpg.', [4, 5, 6]);
+    zip.finish();
+    await archive.writeAsBytes(out.takeBytes());
+    await _useCurrentPhone(phoneB);
+    await _insertProject('b', 'Keep B');
+    await phoneB.heatPhotos.create(recursive: true);
+    final photo = File(p.join(phoneB.heatPhotos.path, 'a.jpg'));
+    await photo.writeAsBytes([7, 8, 9]);
+    await expectLater(DataBackup.restore(archive.path), throwsA(isA<BackupFormatException>()));
+    expect(await _projectNames(), ['Keep B']);
+    expect(await photo.readAsBytes(), [7, 8, 9]);
+  });
 
   test('a prepared archive and an old import approval cannot follow a new account', () async {
     final account = AccountService.forTesting(MockClient((r) async {
