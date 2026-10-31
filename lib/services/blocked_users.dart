@@ -122,56 +122,104 @@ class ReportedMessages {
 
   final List<int> _ids = <int>[];
   bool _hydrated = false;
+  bool _readFailed = false;
+  bool _dirty = false;
+  Future<void>? _loading;
+  Future<void>? _writes;
+
+  Future<T> _serial<T>(Future<T> Function() operation) {
+    final previous = _writes;
+    final result =
+        previous == null ? operation() : previous.then((_) => operation());
+    final settled =
+        result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _writes = settled;
+    unawaited(settled.then((_) {
+      if (identical(_writes, settled)) _writes = null;
+    }));
+    return result;
+  }
 
   bool isReported(int messageId) => _ids.contains(messageId);
 
-  Future<void> load() async {
-    if (_hydrated) return;
+  Future<void> load() {
+    if (_hydrated) return Future.value();
+    return _loading ??= _loadNow().whenComplete(() => _loading = null);
+  }
+
+  Future<void> _loadNow() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
       final raw = prefs.getString(prefsKey);
       if (raw != null && raw.isNotEmpty) {
         final decoded = jsonDecode(raw);
         if (decoded is List) {
+          _readFailed = decoded.any((value) => value is! int);
           _ids
             ..clear()
-            ..addAll(decoded.whereType<num>().map((n) => n.toInt()));
+            ..addAll(decoded.whereType<int>());
+        } else {
+          _readFailed = true;
         }
       }
     } catch (_) {
+      _readFailed = true;
       _ids.clear();
     } finally {
       _hydrated = true;
     }
   }
 
-  Future<void> add(int messageId) async {
-    if (_ids.contains(messageId)) return;
-    _ids.add(messageId);
-    if (_ids.length > maxEntries) {
-      _ids.removeRange(0, _ids.length - maxEntries);
-    }
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(prefsKey, jsonEncode(_ids));
-    } catch (_) {
-      // Ukrycie działa w tej sesji nawet gdy zapis padnie.
-    }
-  }
+  Future<bool> add(int messageId) => _serial(() async {
+        await load();
+        if (!_ids.contains(messageId)) {
+          _ids.add(messageId);
+          _dirty = true;
+        }
+        if (!_dirty) return !_readFailed;
+        if (_ids.length > maxEntries) {
+          _ids.removeRange(0, _ids.length - maxEntries);
+        }
+        // Keep hiding new reports in this session without destroying unread data.
+        if (_readFailed) return false;
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final encoded = jsonEncode(_ids);
+          if (!await prefs.setString(prefsKey, encoded)) return false;
+          await prefs.reload();
+          if (prefs.getString(prefsKey) != encoded) return false;
+          _dirty = false;
+          return true;
+        } catch (_) {
+          // Ukrycie działa w tej sesji nawet gdy zapis padnie.
+          return false;
+        }
+      });
 
   /// „Usuń moje dane".
-  Future<void> clear() async {
-    _ids.clear();
-    _hydrated = true;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(prefsKey);
-    } catch (_) {}
-  }
+  Future<void> clear() => _serial(() async {
+        final loading = _loading;
+        if (loading != null) await loading;
+        _ids.clear();
+        _hydrated = true;
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final removed = await prefs.remove(prefsKey);
+          await prefs.reload();
+          _readFailed = !removed || prefs.containsKey(prefsKey);
+        } catch (_) {
+          _readFailed = true;
+        }
+      });
 
   /// Tylko do testów.
   void resetForTest() {
     _ids.clear();
     _hydrated = false;
+    _readFailed = false;
+    _dirty = false;
+    _loading = null;
+    _writes = null;
   }
 }

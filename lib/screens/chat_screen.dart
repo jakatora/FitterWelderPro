@@ -826,13 +826,17 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
         await ChatService.instance.report(m.id);
         // Ukrywamy dopiero po przyjęciu zgłoszenia — gdy nie doszło, monter
         // widzi komunikat i wiadomość, którą może zgłosić jeszcze raz.
-        await ReportedMessages.instance.add(m.id);
+        final hiddenPersisted = await ReportedMessages.instance.add(m.id);
         if (!mounted) return;
         setState(() {});
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(context.tr(
-              pl: 'Zgłoszono. Ta wiadomość jest już dla Ciebie ukryta.',
-              en: 'Reported. This message is now hidden for you.')),
+          content: Text(hiddenPersisted
+              ? context.tr(
+                  pl: 'Zgłoszono. Ta wiadomość jest już dla Ciebie ukryta.',
+                  en: 'Reported. This message is now hidden for you.')
+              : context.tr(
+                  pl: 'Zgłoszono. Wiadomość ukryta w tej sesji; nie udało się zapisać ukrycia na później.',
+                  en: 'Reported. Hidden for this session; could not save it for later.')),
         ));
       } catch (e) {
         debugPrint('ChatRoom.report error: $e');

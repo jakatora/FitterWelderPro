@@ -175,6 +175,25 @@ void main() {
     await close(tester);
   });
 
+  testWidgets('zgłoszenie bez trwałego ukrycia pokazuje ostrzeżenie',
+      (tester) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(ReportedMessages.prefsKey, '{broken');
+    await openRoom(tester);
+    await tester.tap(find.byTooltip('Message actions: Zbigniew Hałas'));
+    await pumpFor(tester, 4);
+    await tester.tap(find.text('Report message'));
+    await pumpFor(tester, 4);
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Report'));
+    await pumpFor(tester, 6);
+    expect(find.text('Kto ma P91?'), findsNothing);
+    expect(
+        find.text(
+            'Reported. Hidden for this session; could not save it for later.'),
+        findsOneWidget);
+    await close(tester);
+  });
+
   testWidgets('zgłoszona wiadomość znika u zgłaszającego od razu',
       (tester) async {
     await openRoom(tester);
