@@ -123,6 +123,23 @@ class _RiggingPageState extends State<_RiggingBody>
   /// Monter już coś zmienił — późniejszy odczyt zapisu tego nie nadpisze.
   bool _touched = false;
   bool _restoreDamaged = false;
+  bool _saveFailed = false;
+  int _saveRevision = 0;
+
+  Future<void> _saveSettings() async {
+    final revision = ++_saveRevision;
+    try {
+      await _store.save(_saved);
+      if (mounted && widget.session.isCurrent && revision == _saveRevision) {
+        setState(() => _saveFailed = false);
+      }
+    } catch (e) {
+      debugPrint('[rigging] save failed: $e');
+      if (mounted && widget.session.isCurrent && revision == _saveRevision) {
+        setState(() => _saveFailed = true);
+      }
+    }
+  }
 
   bool get _en => context.language == AppLanguage.en;
 
@@ -182,7 +199,7 @@ class _RiggingPageState extends State<_RiggingBody>
       _touched = true;
       f();
     });
-    unawaited(_store.save(_saved));
+    unawaited(_saveSettings());
   }
 
   // ── Model ────────────────────────────────────────────────────────────────
@@ -523,6 +540,19 @@ class _RiggingPageState extends State<_RiggingBody>
                   en: 'The last calculator data could not be read — defaults '
                       'loaded. Check the data before rating.'),
             ),
+          if (_saveFailed) ...[
+            QuoteNotice(
+              key: const ValueKey('rig-save-failed'),
+              text: context.tr(
+                  pl: 'Ustawienia nie zostały zapisane. Bieżące obliczenia używają danych widocznych na ekranie.',
+                  en: 'Settings were not saved. Current calculations use the data shown on screen.'),
+            ),
+            TextButton(
+              key: const ValueKey('rig-save-retry'),
+              onPressed: _saveSettings,
+              child: Text(context.tr(pl: 'Ponów zapis', en: 'Retry save')),
+            ),
+          ],
           _loadSection(result),
           _slingSection(result),
           _hitchSection(result),

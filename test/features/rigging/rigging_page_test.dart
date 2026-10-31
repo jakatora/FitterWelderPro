@@ -9,11 +9,26 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:cut_list_app/domain/rigging/rigging_calc.dart';
+import 'package:cut_list_app/domain/rigging/rigging_inputs.dart';
 import 'package:cut_list_app/domain/rigging/rigging_checklist.dart';
 import 'package:cut_list_app/features/rigging/rigging_page.dart';
 import 'package:cut_list_app/features/rigging/rigging_store.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/theme/app_theme.dart';
+
+class _FailingStore extends RiggingStore {
+  bool fail = true;
+  RiggingSavedInputs? saved;
+
+  @override
+  Future<RiggingStoreLoad> load() async => const RiggingStoreLoad(null);
+
+  @override
+  Future<void> save(RiggingSavedInputs inputs) async {
+    if (fail) throw StateError('disk full');
+    saved = inputs;
+  }
+}
 
 Future<void> _pump(
   WidgetTester tester, {
@@ -21,6 +36,7 @@ Future<void> _pump(
   // Wysoki widok: cała lista zbudowana, werdykt i gotowość zawsze w drzewie.
   Size size = const Size(900, 12000),
   double textScale = 1.0,
+  RiggingStore? store,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -34,7 +50,7 @@ Future<void> _pump(
             .copyWith(textScaler: TextScaler.linear(textScale)),
         child: child!,
       ),
-      home: const RiggingPage(),
+      home: RiggingPage(store: store),
     ),
   ));
   await tester.pumpAndSettle();
@@ -104,6 +120,17 @@ String _verdictText(WidgetTester tester, RiggingVerdict v) => tester
     .join('\n');
 
 void main() {
+  testWidgets('błąd zapisu ustawień i skuteczne ponowienie', (tester) async {
+    final store = _FailingStore();
+    await _pump(tester, store: store);
+    await _tap(tester, 'rig-mode-choke');
+    expect(_k('rig-save-failed'), findsOneWidget);
+    expect(store.saved, isNull);
+    store.fail = false;
+    await _tap(tester, 'rig-save-retry');
+    expect(store.saved!.mode, HitchMode.choke);
+    expect(_k('rig-save-failed'), findsNothing);
+  });
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   testWidgets('puste dane → brak werdyktu, nie zielony', (tester) async {

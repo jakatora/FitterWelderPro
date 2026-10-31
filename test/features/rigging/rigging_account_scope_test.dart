@@ -109,7 +109,9 @@ void main() {
     final stale = RiggingStore(captureOwner: () async => owner);
     await account.signIn('b@example.test', 'test-password');
 
-    await stale.save(const RiggingSavedInputs(mode: HitchMode.straight));
+    await expectLater(
+        stale.save(const RiggingSavedInputs(mode: HitchMode.straight)),
+        throwsA(isA<AccountException>()));
     expect((await const RiggingStore().load()).inputs!.mode, HitchMode.choke);
     await account.signIn('a@example.test', 'test-password');
     expect(

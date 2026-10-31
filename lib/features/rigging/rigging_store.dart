@@ -2,11 +2,13 @@
 ///
 /// To kalkulator — utrata zapisu niczego nie kasuje poza wygodą, więc bez
 /// kopii uszkodzonej wartości (inaczej niż historia protokołów). Odczyt
-/// i zapis NIGDY nie rzucają: uszkodzony albo nieczytelny zapis → wartości
+/// nie rzuca: uszkodzony albo nieczytelny zapis → wartości
 /// domyślne z flagą `damaged` (ekran pokazuje informację).
 ///
 /// Etykieta i lista kontrolna nie są zapisywane (rigging_inputs.dart).
 library;
+
+import 'dart:async';
 
 import 'package:flutter/foundation.dart' show debugPrint;
 import '../../database/local_record_owner.dart';
@@ -22,6 +24,7 @@ class RiggingStoreLoad {
 }
 
 class RiggingStore {
+  static Future<void>? _writes;
   static const String key = 'rigging_inputs_v1';
 
   const RiggingStore({this.captureOwner});
@@ -30,8 +33,11 @@ class RiggingStore {
 
   Future<RiggingStoreLoad> load() async {
     try {
+      final pending = _writes;
+      if (pending != null) await pending;
       final prefs = await OwnedPrefs.instance(captureOwner)
           .timeout(const Duration(seconds: 2));
+      await prefs.reload().timeout(const Duration(seconds: 2));
       final raw = prefs.get(key);
       if (raw == null) return const RiggingStoreLoad(null);
       if (raw is! String) {
@@ -46,12 +52,25 @@ class RiggingStore {
   }
 
   Future<void> save(RiggingSavedInputs inputs) async {
-    try {
-      final prefs = await OwnedPrefs.instance(captureOwner);
-      await prefs.setString(key, encodeRiggingInputs(inputs));
-    } catch (e) {
-      // Kalkulator działa dalej w tej sesji.
-      debugPrint('[rigging] save failed: $e');
-    }
+    final prefs = await OwnedPrefs.instance(captureOwner);
+    final encoded = encodeRiggingInputs(inputs);
+    final previous = _writes;
+    final write = () async {
+      if (previous != null) await previous;
+      if (!await prefs.setString(key, encoded)) {
+        throw StateError('Could not save rigging settings');
+      }
+      await prefs.reload();
+      if (prefs.getString(key) != encoded) {
+        throw StateError('Rigging settings were not persisted');
+      }
+    }();
+    final settled =
+        write.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _writes = settled;
+    unawaited(settled.then((_) {
+      if (identical(_writes, settled)) _writes = null;
+    }));
+    return write;
   }
 }
