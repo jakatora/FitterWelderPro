@@ -695,6 +695,30 @@ void main() {
       expect(await queued(), 0);
     });
 
+    test('druga operacja usuwania utrzymuje blokadę po zakończeniu pierwszej',
+        () async {
+      await FeedbackConsent.instance.installId();
+      final firstEntered = Completer<void>(), secondEntered = Completer<void>();
+      final firstGate = Completer<bool>(), secondGate = Completer<bool>();
+      final first = uploader.eraseAll(deleteOnServer: (_) {
+        firstEntered.complete();
+        return firstGate.future;
+      });
+      await firstEntered.future;
+      final second = uploader.eraseAll(deleteOnServer: (_) {
+        secondEntered.complete();
+        return secondGate.future;
+      });
+      await secondEntered.future;
+      firstGate.complete(false);
+      await first;
+      final status = (await uploader.flush(client: ok())).status;
+      secondGate.complete(false);
+      await second;
+      expect(status, UploadStatus.erasing);
+      expect(requests, isEmpty);
+    });
+
     test('w trakcie kasowania nic nie wychodzi', () async {
       await fill(0, 1, kind: FeedbackKind.explicit);
       await FeedbackConsent.instance.installId();

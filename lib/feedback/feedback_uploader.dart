@@ -172,7 +172,8 @@ class FeedbackUploader {
 
   Future<UploadOutcome>? _inFlight;
   final Set<Future<void>> _active = {};
-  bool _erasing = false;
+  int _erasingCount = 0;
+  bool get _erasing => _erasingCount > 0;
 
   static Uri get endpoint =>
       Uri.parse('${BackendConfig.baseUrl}${BackendConfig.feedback}');
@@ -223,7 +224,7 @@ class FeedbackUploader {
   Future<FeedbackEraseResult> eraseAll({
     required Future<bool> Function(String feedbackId) deleteOnServer,
   }) async {
-    _erasing = true;
+    _erasingCount++;
     try {
       await _consent.revoke();
       await waitIdle();
@@ -252,7 +253,7 @@ class FeedbackUploader {
           ? FeedbackEraseResult.nothingOnServer
           : FeedbackEraseResult.erased;
     } finally {
-      _erasing = false;
+      _erasingCount--;
     }
   }
 
@@ -450,7 +451,7 @@ class FeedbackUploader {
   void resetForTest() {
     _inFlight = null;
     _active.clear();
-    _erasing = false;
+    _erasingCount = 0;
   }
 }
 
