@@ -22,6 +22,8 @@
 /// Czysty Dart (bez Fluttera).
 library;
 
+import 'dart:math' as math;
+
 import '../../utils/decimal_parse.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -384,10 +386,56 @@ class FerriteSiteResult {
   int get validCount => values.where((v) => v != null).length;
 }
 
-/// Wynik interpolacji / średniej ucięty do siatki 1e-9: szum
+/// Pomocnicze wyrównanie interpolacji PMI do siatki 1e-9: szum
 /// zmiennoprzecinkowy (30,000000000000004) nie zamienia „równo z granicą”
 /// w „poza zakresem”. Odczyty mają najwyżej kilka miejsc po przecinku.
 double ferriteSnap(double x) => (x * 1e9).roundToDouble() / 1e9;
+
+/// Canonical decimal value of an already validated finite double.
+(BigInt, int) _decimalParts(double value) {
+  final parts = value.toString().split('e');
+  final mantissa = parts.first;
+  final dot = mantissa.indexOf('.');
+  final scale = (dot < 0 ? 0 : mantissa.length - dot - 1) -
+      (parts.length == 1 ? 0 : int.parse(parts[1]));
+  return (BigInt.parse(mantissa.replaceAll('.', '')), scale);
+}
+
+/// Sum decimal readings exactly, then round the rational mean once to double.
+/// No fixed decimal grid and no intermediate floating-point sum overflow.
+double _ferriteMean(List<double> values) {
+  final parts = values.map(_decimalParts).toList();
+  final scale = parts.fold<int>(0, (s, p) => math.max(s, p.$2));
+  final ten = BigInt.from(10);
+  var numerator = BigInt.zero;
+  for (final (coefficient, places) in parts) {
+    numerator += coefficient * ten.pow(scale - places);
+  }
+  if (numerator == BigInt.zero) return 0;
+  var denominator = ten.pow(scale) * BigInt.from(values.length);
+
+  // Round the binary significand to nearest, ties to even. Clamping the
+  // exponent to -1074 also handles subnormal values and underflow to zero.
+  var exponent = numerator.bitLength - denominator.bitLength;
+  if (exponent >= 0
+      ? numerator < denominator << exponent
+      : numerator << -exponent < denominator) {
+    exponent--;
+  }
+  final shift = math.max(exponent - 52, -1074);
+  if (shift < 0) {
+    numerator <<= -shift;
+  } else {
+    denominator <<= shift;
+  }
+  var significand = numerator ~/ denominator;
+  final twiceRemainder = (numerator % denominator) << 1;
+  if (twiceRemainder > denominator ||
+      twiceRemainder == denominator && significand.isOdd) {
+    significand += BigInt.one;
+  }
+  return significand.toDouble() * math.pow(2.0, shift);
+}
 
 /// Ocena jednego miejsca. [requirement] `null` — preset nieznany (brak
 /// werdyktu). [preset] — skąd zakres (`null` = ze specyfikacji, wpisany);
@@ -476,8 +524,7 @@ FerriteSiteResult evaluateFerriteSite(
   if (anyInvalid) {
     return none(FerriteNoVerdict.invalidReading, statuses: statuses);
   }
-  final mean = ferriteSnap(
-      values.fold<double>(0, (a, v) => a + v!) / values.length);
+  final mean = _ferriteMean(values.cast<double>());
   if (n == null) {
     return none(FerriteNoVerdict.invalidCount, statuses: statuses, mean: mean);
   }
@@ -521,12 +568,20 @@ String _sep(String s, bool en) => en ? s : s.replaceAll('.', ',');
 /// Liczba „tak jak wpisana” — najkrótszy zapis, bez zaokrąglania.
 String ferriteExact(double v, {required bool en}) {
   if (!v.isFinite) return '—';
-  var s = v.toString();
-  if (s.contains('e') || s.contains('E')) {
-    s = v.toStringAsFixed(12).replaceFirst(RegExp(r'\.?0+$'), '');
-  } else if (s.endsWith('.0')) {
-    s = s.substring(0, s.length - 2);
+  final (coefficient, scale) = _decimalParts(v);
+  final digits = coefficient.abs().toString();
+  final sign = v.isNegative ? '-' : '';
+  final String magnitude;
+  if (scale <= 0) {
+    magnitude = '$digits${'0' * -scale}';
+  } else if (digits.length <= scale) {
+    magnitude = '0.${'0' * (scale - digits.length)}$digits';
+  } else {
+    final point = digits.length - scale;
+    magnitude = '${digits.substring(0, point)}.${digits.substring(point)}';
   }
+  var s = '$sign$magnitude';
+  if (s.contains('.')) s = s.replaceFirst(RegExp(r'\.?0+$'), '');
   return _sep(s, en);
 }
 

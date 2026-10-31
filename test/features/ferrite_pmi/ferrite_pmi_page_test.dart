@@ -157,6 +157,25 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   for (final language in AppLanguage.values) {
+    for (final reading in ['29.9999999996', '70.0000000004']) {
+      testWidgets('averaging preserves an out-of-range verdict: $language/$reading',
+          (tester) async {
+        await _pump(tester, language: language);
+        await _tapKey(tester, 'fp-new');
+        await _enter(tester, 'fp-req-min', '30');
+        await _enter(tester, 'fp-req-max', '70');
+        await _tapKey(tester, 'fp-rule-average');
+        await _enter(tester, 'fp-min-count', '1');
+        await _addReadings(tester, 0, [reading]);
+        expect(_has('fp-site-0-verdict-fail'), isTrue);
+        expect(_has('fp-ferrite-verdict-fail'), isTrue);
+        expect(_has('fp-site-0-verdict-pass'), isFalse);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
+  for (final language in AppLanguage.values) {
     testWidgets('restored invalid measurement cannot show a green history result: $language',
         (tester) async {
       final raw = jsonEncode([{

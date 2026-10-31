@@ -5,6 +5,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cut_list_app/domain/ferrite_pmi/ferrite.dart';
+import 'ferrite_mean_reference.dart';
 
 const _fn30to70 = FerriteRequirement(min: 30, max: 70, unit: FerriteUnit.fn);
 
@@ -29,6 +30,45 @@ FerriteSiteResult _eval(
         preset: preset);
 
 void main() {
+  test('decimal means match independent rational reference values', () {
+    for (final (readings, expected) in ferriteMeanReferences) {
+      final result = _eval(readings,
+          req: const FerriteRequirement(min: 0, unit: FerriteUnit.fn),
+          rule: FerriteRule.average, n: '1');
+      expect(result.mean, double.parse(expected), reason: readings.join(' / '));
+      expect(result.mean!.isFinite, isTrue);
+      expect(result.verdict, FerriteVerdict.pass);
+    }
+  });
+
+  test('averaging cannot round an out-of-range reading into conformance', () {
+    for (final text in ['29.9999999996', '70.0000000004']) {
+      final single = _eval([text], rule: FerriteRule.average, n: '1');
+      expect(single.verdict, FerriteVerdict.fail, reason: text);
+      expect(single.mean, double.parse(text));
+      final repeated = _eval([text, text], rule: FerriteRule.average, n: '2');
+      expect(repeated.verdict, FerriteVerdict.fail, reason: text);
+      expect(repeated.mean, double.parse(text));
+    }
+  });
+
+  test('a finite average does not overflow when the sum is larger than double', () {
+    const bounds = FerriteRequirement(min: 1e308, max: 1e308, unit: FerriteUnit.fn);
+    final result = _eval(['1e308', '1e308'], req: bounds,
+        rule: FerriteRule.average, n: '2');
+    expect(result.mean, 1e308);
+    expect(result.verdict, FerriteVerdict.pass);
+  });
+
+  test('exact formatting preserves values in scientific notation in PL and EN', () {
+    for (final value in [1e30, -1e30, 1e-13, double.minPositive, double.maxFinite]) {
+      for (final en in [false, true]) {
+        final text = ferriteExact(value, en: en);
+        expect(double.parse(text.replaceAll(',', '.')), value, reason: text);
+      }
+    }
+  });
+
   group('każdy odczyt w zakresie (domyślna reguła)', () {
     test('28, 31, 45 przy FN 30–70 → poza zakresem (28 poniżej)', () {
       final r = _eval(['28', '31', '45']);
