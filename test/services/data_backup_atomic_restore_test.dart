@@ -314,6 +314,43 @@ void main() {
     expect(await second.readAsBytes(), isNot(firstBytes));
   });
 
+  test('simultaneous backups remain independently restorable', () async {
+    await _insertProject('a', 'Source project');
+    final stamp = DateTime(2026, 10, 31, 10);
+    final archives = await Future.wait([
+      DataBackup.createBackupFile(now: stamp),
+      DataBackup.createBackupFile(now: stamp),
+    ]);
+    expect(archives.map((file) => file.path).toSet(), hasLength(2));
+    for (final archive in archives) {
+      expect(await Directory(p.join(archive.parent.path, 'staging')).exists(),
+          isFalse);
+      await _useCurrentPhone(phoneB);
+      await DataBackup.restore(archive.path);
+      expect(await _projectNames(), ['Source project']);
+    }
+  });
+
+  test('failed export removes its temporary directory and keeps older backup', () async {
+    await _insertProject('a', 'Keep project');
+    final first = await DataBackup.createBackupFile();
+    final firstBytes = await first.readAsBytes();
+    final before = phoneA.temp.listSync().map((entry) => entry.path).toSet();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_pathProvider, (call) async {
+      if (call.method == 'getTemporaryDirectory') {
+        return phoneA.temp.path;
+      }
+      throw PlatformException(code: 'fixture_documents_unavailable');
+    });
+    await expectLater(DataBackup.createBackupFile(),
+        throwsA(isA<PlatformException>()));
+    expect(phoneA.temp.listSync().map((entry) => entry.path).toSet(), before);
+    expect(await first.readAsBytes(), firstBytes);
+    await _useCurrentPhone(phoneA);
+    expect(await _projectNames(), ['Keep project']);
+  });
+
   test('photo aliases are rejected before changing projects or existing photos', () async {
     await _insertProject('a', 'Source A');
     final archive = await backupAndCarry();
