@@ -35,9 +35,24 @@ String _manifest({
       'createdAt': _when.toUtc().toIso8601String(),
       'databases': databases,
       'photoCount': photoCount,
+      if (format >= 2) 'recordFiles': <String>[],
     });
 
 void main() {
+  test('format 2 refuses a missing declared measurement history file', () {
+    final manifest = jsonDecode(_manifest()) as Map;
+    manifest['recordFiles'] = ['records/ferrite_pmi.json'];
+    expect(
+        () => describeBackup(
+            entryNames: ['manifest.json', 'db/cutlist.db'],
+            manifestBytes: utf8.encode(jsonEncode(manifest))),
+        throwsA(isA<BackupFormatException>()
+            .having((e) => e.messageEn, 'message', contains('incomplete'))));
+    manifest['recordFiles'] = ['records/auth.json'];
+    expect(() => BackupManifest.decode(utf8.encode(jsonEncode(manifest))),
+        throwsA(isA<BackupFormatException>()));
+  });
+
   group('backupFileName', () {
     test('is sortable, zero padded and second-resolution', () {
       expect(backupFileName(DateTime(2026, 8, 30, 14, 35, 2)),
@@ -170,7 +185,10 @@ void main() {
 
     for (final fieldOffset in [30, 32]) {
       test('reads central directory field $fieldOffset and the next entry', () {
-        final original = _zip({'a.txt': [1], 'b.txt': [2]});
+        final original = _zip({
+          'a.txt': [1],
+          'b.txt': [2]
+        });
         final originalView = ByteData.sublistView(original);
         final directoryOffset =
             originalView.getUint32(original.length - 6, Endian.little);
@@ -178,12 +196,16 @@ void main() {
         // A valid empty extra-field block, or a four-byte file comment.
         final bytes = Uint8List.fromList([
           ...original.sublist(0, firstEntryEnd),
-          0xfe, 0xca, 0, 0,
+          0xfe,
+          0xca,
+          0,
+          0,
           ...original.sublist(firstEntryEnd),
         ]);
         final view = ByteData.sublistView(bytes);
         view.setUint16(directoryOffset + fieldOffset, 4, Endian.little);
-        view.setUint32(bytes.length - 10,
+        view.setUint32(
+            bytes.length - 10,
             originalView.getUint32(original.length - 10, Endian.little) + 4,
             Endian.little);
         final source = BytesZipSource(bytes);
@@ -194,13 +216,15 @@ void main() {
       });
     }
 
-    test('reads entries when an archive comment contains an EOCD signature', () {
+    test('reads entries when an archive comment contains an EOCD signature',
+        () {
       final original = _zip({'a.txt': utf8.encode('hello')});
       final comment = Uint8List(24);
       ByteData.sublistView(comment).setUint32(0, 0x06054b50, Endian.little);
       ByteData.sublistView(original)
           .setUint16(original.length - 2, comment.length, Endian.little);
-      final source = BytesZipSource(Uint8List.fromList([...original, ...comment]));
+      final source =
+          BytesZipSource(Uint8List.fromList([...original, ...comment]));
       final entries = readZipDirectory(source);
       expect(entries.map((e) => e.name), ['a.txt']);
       expect(readZipEntryBytes(source, entries.single), utf8.encode('hello'));

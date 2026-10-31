@@ -85,13 +85,16 @@
 /// vanishing.
 ///
 /// ## What is deliberately NOT in the backup
-/// Everything stored in `SharedPreferences`: the user profile, the welder
+/// General settings in `SharedPreferences`: the user profile, the welder
 /// identity (stamp), the accepted rules version, and — decisively — the
 /// Premium entitlement. (Since v21 the welder's CERTIFICATES are rows in
 /// `cutlist.db` and DO travel with the backup; only the stamp stays behind.) A backup file is user-editable and freely
 /// shareable; restoring preferences would turn "send me your backup" into a
 /// way to copy someone's paid status and to bypass the consent gate. The
 /// restore dialog says this out loud instead of pretending otherwise.
+/// The explicit measurement-history allowlist is an exception: ferrite/PMI
+/// records and their two raw recovery copies travel in format 2, scoped to
+/// the exporting owner. No other preference keys are imported.
 ///
 /// ## Shape of this file
 /// As in `weld_journal_export.dart`, the top half is PURE Dart — file naming,
@@ -116,6 +119,8 @@ import 'package:uuid/uuid.dart';
 import '../data/app_database.dart' as module_db;
 import '../database/db.dart' as cutlist_db;
 import '../database/local_record_owner.dart';
+import '../features/ferrite_pmi/ferrite_pmi_store.dart';
+import 'ferrite_pmi_backup.dart';
 import 'heat_photo_storage.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -131,7 +136,7 @@ const String kBackupApp = 'fitter-welder-pro';
 const String kBackupFormatKey = 'format';
 
 /// Current archive layout version.
-const int kBackupFormatVersion = 1;
+const int kBackupFormatVersion = 2;
 
 /// Entry that identifies the archive. Its absence is the "foreign file" test.
 const String kManifestEntry = 'manifest.json';
@@ -372,6 +377,7 @@ class BackupManifest {
   final DateTime createdAt;
   final List<String> databases;
   final int photoCount;
+  final List<String> recordFiles;
 
   const BackupManifest({
     required this.app,
@@ -379,6 +385,7 @@ class BackupManifest {
     required this.createdAt,
     required this.databases,
     required this.photoCount,
+    this.recordFiles = const [],
   });
 
   /// UTC on the wire so a backup made in one time zone and read in another
@@ -390,6 +397,7 @@ class BackupManifest {
         'createdAt': createdAt.toUtc().toIso8601String(),
         'databases': databases,
         'photoCount': photoCount,
+        if (formatVersion >= 2) 'recordFiles': recordFiles,
       });
 
   static BackupManifest decode(List<int> bytes) {
@@ -426,6 +434,13 @@ class BackupManifest {
     }
 
     final photos = raw['photoCount'];
+    final records = raw['recordFiles'];
+    if (format >= 2 &&
+        (records is! List ||
+            records.any((value) => value != FerritePmiBackup.entry) ||
+            records.toSet().length != records.length)) {
+      throw _notOurBackup;
+    }
 
     return BackupManifest(
       app: kBackupApp,
@@ -433,6 +448,7 @@ class BackupManifest {
       createdAt: created,
       databases: dbs.cast<String>().toList(growable: false),
       photoCount: photos is int ? photos : 0,
+      recordFiles: format >= 2 ? (records as List).cast<String>() : const [],
     );
   }
 }
@@ -476,9 +492,12 @@ BackupContents describeBackup({
   final manifest = BackupManifest.decode(manifestBytes);
 
   void requirePortableFileName(String file) {
-    if (file == '.' || file == '..' ||
-        file.endsWith('.') || file.endsWith(' ') ||
-        file.codeUnits.any((unit) => unit < 32 || unit == 0x5c || unit == 0x3a)) {
+    if (file == '.' ||
+        file == '..' ||
+        file.endsWith('.') ||
+        file.endsWith(' ') ||
+        file.codeUnits
+            .any((unit) => unit < 32 || unit == 0x5c || unit == 0x3a)) {
       throw const BackupFormatException(
         messagePl: 'Kopia zawiera nieprawidłową ścieżkę pliku. '
             'Nie można bezpiecznie jej odczytać.',
@@ -522,6 +541,16 @@ BackupContents describeBackup({
             'wymienionego w opisie. Plik mógł się nie doczytać do końca.',
         messageEn: 'The backup is incomplete — a database listed in its '
             'manifest is missing. The file may have been truncated.',
+      );
+    }
+  }
+
+  for (final name in manifest.recordFiles) {
+    if (!entryNames.contains(name)) {
+      throw const BackupFormatException(
+        messagePl: 'Kopia jest niekompletna — brakuje pliku historii pomiarów.',
+        messageEn:
+            'The backup is incomplete — a measurement history file is missing.',
       );
     }
   }
@@ -1117,14 +1146,13 @@ class _ProjectTree {
         tree.projectMap.putIfAbsent(id, () => const Uuid().v4());
       }
     }
-    Future<Set<Object?>> notOwned(String table) async =>
-        !liveTables.contains(table)
-            ? <Object?>{}
-            : (await txn.rawQuery(
-                    'SELECT id FROM $table WHERE NOT ($_ownedProject)',
-                    [owner]))
-                .map((r) => r['id'])
-                .toSet();
+    Future<Set<Object?>> notOwned(String table) async => !liveTables
+            .contains(table)
+        ? <Object?>{}
+        : (await txn.rawQuery(
+                'SELECT id FROM $table WHERE NOT ($_ownedProject)', [owner]))
+            .map((r) => r['id'])
+            .toSet();
     final foreignSegments = await notOwned('segments');
     for (final row in tables['segments'] ?? const <Map<String, Object?>>[]) {
       if (foreignSegments.contains(row['id'])) {
@@ -1413,10 +1441,9 @@ Future<void> _refill(
       for (final spec in _ownedParents.entries) {
         final parent = spec.key;
         if (!liveTables.contains(parent)) continue;
-        final parentColumns =
-            (await txn.rawQuery('PRAGMA table_info($parent)'))
-                .map((r) => r['name'])
-                .toSet();
+        final parentColumns = (await txn.rawQuery('PRAGMA table_info($parent)'))
+            .map((r) => r['name'])
+            .toSet();
         if (!parentColumns.contains('owner_scope')) continue;
         final state = parentStates[parent] = _ParentRestore();
         final existing =
@@ -1426,8 +1453,7 @@ Future<void> _refill(
             .map((r) => r['id'])
             .toSet();
         if (tables.containsKey(parent) || wipeTablesNotInBackup) {
-          for (final row
-              in tables[parent] ?? const <Map<String, Object?>>[]) {
+          for (final row in tables[parent] ?? const <Map<String, Object?>>[]) {
             final sourceId = row['id'];
             if (preserveWeldParamOwner &&
                 (row['owner_scope'] ?? LocalRecordOwner.guest) !=
@@ -1456,7 +1482,8 @@ Future<void> _refill(
       }
     }
     final childParent = <String, String>{
-      for (final parent in parentStates.keys) _ownedParents[parent]!.child: parent,
+      for (final parent in parentStates.keys)
+        _ownedParents[parent]!.child: parent,
     };
     final projectTree = weldParamsOwner == null
         ? null
@@ -1575,8 +1602,8 @@ Future<void> _refill(
           if (entry.key == 'weld_journal') {
             ownedRow['id'] = journalIdMap[ownedRow['id']] ?? ownedRow['id'];
           } else if (parentStates.containsKey(entry.key)) {
-            ownedRow['id'] =
-                parentStates[entry.key]!.idMap[ownedRow['id']] ?? ownedRow['id'];
+            ownedRow['id'] = parentStates[entry.key]!.idMap[ownedRow['id']] ??
+                ownedRow['id'];
           } else if (projectTree != null && entry.key == 'projects') {
             ownedRow['id'] =
                 projectTree.projectMap[ownedRow['id']] ?? ownedRow['id'];
@@ -1749,6 +1776,13 @@ class DataBackup {
   /// from a driver test without opening a share sheet nobody can dismiss.
   static Future<File> createBackupFile({DateTime? now}) async {
     final owner = await LocalRecordOwner.capture();
+    return FerritePmiStore.exclusive(() => _createBackupFile(owner, now: now));
+  }
+
+  static Future<File> _createBackupFile(LocalRecordOwner owner,
+      {DateTime? now}) async {
+    owner.requireCurrent();
+    final measurements = await FerritePmiBackup.capture(owner);
     final stamp = now ?? DateTime.now();
     final tempDir = await getTemporaryDirectory();
     final exportDir = await tempDir.createTemp('fwp_backup_');
@@ -1786,8 +1820,7 @@ class DataBackup {
       if (await heatDir.exists()) {
         final owned = <File>[
           for (final item in heatDir.listSync(followLinks: false))
-            if (item is File &&
-                !foreignOnly.contains(p.basename(item.path)))
+            if (item is File && !foreignOnly.contains(p.basename(item.path)))
               item,
         ];
         // Stable order keeps two backups of unchanged data byte-comparable,
@@ -1814,12 +1847,15 @@ class DataBackup {
         createdAt: stamp,
         databases: snapshots.keys.toList(growable: false),
         photoCount: photos.length,
+        recordFiles: const [FerritePmiBackup.entry],
       );
 
       final sink = target.openWrite();
       final zip = ZipBuilder(sink.add);
       try {
         zip.addFile(kManifestEntry, utf8.encode(manifest.encode()),
+            modified: stamp);
+        zip.addFile(FerritePmiBackup.entry, measurements.encode(),
             modified: stamp);
         for (final entry in snapshots.entries) {
           zip.addFile(
@@ -2059,6 +2095,11 @@ class DataBackup {
   static Future<RestoreReport> restore(String path,
       {LocalRecordOwner? expectedOwner}) async {
     final owner = expectedOwner ?? await LocalRecordOwner.capture();
+    return FerritePmiStore.exclusive(() => _restore(path, owner));
+  }
+
+  static Future<RestoreReport> _restore(
+      String path, LocalRecordOwner owner) async {
     owner.requireCurrent();
     final tempDir = await getTemporaryDirectory();
     final staging = await tempDir.createTemp('fwp_restore_');
@@ -2068,6 +2109,20 @@ class DataBackup {
       source = FileZipSource.open(File(path));
       final entries = _indexEntries(source);
       final contents = _describe(source, entries);
+
+      Map<String, Object?>? measurementValues;
+      if (contents.manifest.recordFiles.contains(FerritePmiBackup.entry)) {
+        try {
+          measurementValues = FerritePmiBackup.decode(
+              readZipEntryBytes(source, entries[FerritePmiBackup.entry]!));
+        } catch (_) {
+          throw const BackupFormatException(
+            messagePl: 'Plik historii pomiarów w kopii jest nieprawidłowy.',
+            messageEn:
+                'The measurement history file in this backup is invalid.',
+          );
+        }
+      }
 
       // ---- Phase 1: read the whole archive. Live data still untouched.
       final tablesByDatabase =
@@ -2138,6 +2193,10 @@ class DataBackup {
       final photoRollback = _PhotoRollback(
           heatDir, Directory(p.join(rollbackDir.path, 'heat_photos')));
       final committed = <_LiveDatabase>[];
+      final measurementRollback = measurementValues == null
+          ? null
+          : await FerritePmiBackup.capture(owner);
+      var measurementsTouched = false;
       var rows = 0;
       var restoredDatabases = 0;
       final skipped = <SkippedTable>[];
@@ -2172,8 +2231,20 @@ class DataBackup {
             dropped['${db.fileName}/${e.key}'] = e.value;
           }
         }
+        if (measurementValues != null) {
+          measurementsTouched = true;
+          await measurementRollback!.apply(measurementValues);
+        }
+        owner.requireCurrent();
       } catch (error) {
         final rollbackErrors = <Object>[];
+        if (measurementsTouched) {
+          try {
+            await measurementRollback!.rollback();
+          } catch (e) {
+            rollbackErrors.add(e);
+          }
+        }
         for (final db in committed.reversed) {
           try {
             await restoreTablesInto(

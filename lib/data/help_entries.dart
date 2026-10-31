@@ -1762,10 +1762,10 @@ List<HelpCategory> kHelpCategories = [
           'How do I move my data to a new phone?',
         ),
         answer: _bi(
-          'Profil → „Kopia zapasowa" tworzy jeden plik ZIP (projekty, cut listy, dziennik spoin, zdjęcia, rejestr uprawnień, Biblioteka WPS). '
+          'Profil → „Kopia zapasowa" tworzy jeden plik ZIP (projekty, cut listy, dziennik spoin, zdjęcia, rejestr uprawnień, Biblioteka WPS, historia ferrytu i PMI). '
           'Zapisz go albo wyślij sobie, a na nowym telefonie: Profil → „Przywróć z pliku" (nadpisuje dane na tym telefonie). '
           'Na Androidzie z włączoną kopią Google system może też sam odtworzyć projekty i dziennik — bez imienia, zgód i identyfikatora czatu.',
-          'Profile → "Back up my data" creates one ZIP file (projects, cut lists, weld journal, photos, qualification register, WPS library). '
+          'Profile → "Back up my data" creates one ZIP file (projects, cut lists, weld journal, photos, qualification register, WPS library, ferrite and PMI history). '
           'Save it or send it to yourself, and on the new phone: Profile → "Restore from a file" (overwrites the data on that phone). '
           'On Android with Google backup on, the system may also restore projects and the journal itself — without your name, consents or chat identifier.',
         ),

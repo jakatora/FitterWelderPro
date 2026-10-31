@@ -13,11 +13,19 @@
 //     absolute path outside the app and never made it into the archive.
 
 import 'dart:io';
+import 'dart:convert';
+import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+
+import 'package:cut_list_app/domain/ferrite_pmi/ferrite_pmi_protocol.dart';
+import 'package:cut_list_app/features/ferrite_pmi/ferrite_pmi_store.dart';
 
 import 'package:cut_list_app/data/app_database.dart' as module_db;
 import 'package:cut_list_app/database/db.dart';
@@ -34,6 +42,19 @@ import 'package:cut_list_app/services/data_backup.dart';
 import '../support/test_account.dart';
 
 const _pathProvider = MethodChannel('plugins.flutter.io/path_provider');
+
+class _FailHistoryOnce extends InMemorySharedPreferencesStore {
+  _FailHistoryOnce(super.data) : super.withData();
+  bool failed = false;
+  @override
+  Future<bool> setValue(String type, String key, Object value) async {
+    if (!failed && key == 'flutter.${FerritePmiStore.corruptBackupKey}') {
+      failed = true;
+      return false;
+    }
+    return super.setValue(type, key, value);
+  }
+}
 
 /// One simulated device: its own documents, temp and databases directories.
 class _Phone {
@@ -182,6 +203,7 @@ void main() {
   });
 
   setUp(() async {
+    SharedPreferences.setMockInitialValues({});
     await seedGuestAccount();
     sandbox = await Directory.systemTemp.createTemp('fwp_restore_');
     phoneA = _Phone(Directory(p.join(sandbox.path, 'phone_a')));
@@ -209,6 +231,179 @@ void main() {
         await DataBackup.createBackupFile(now: DateTime(2026, 9, 24, 10));
     return archive.copy(p.join(sandbox.path, 'carried-backup.zip'));
   }
+
+  test(
+      'autosave waits for restore and is not overwritten by the imported history',
+      () async {
+    const imported = FerritePmiProtocol(
+        id: 'imported', date: '2026-10-31', title: 'Imported');
+    const edited = FerritePmiProtocol(
+        id: 'edited', date: '2026-10-31', title: 'User edit');
+    await const FerritePmiStore().upsert(imported);
+    final carried = await backupAndCarry();
+    await _useCurrentPhone(phoneB);
+    SharedPreferences.setMockInitialValues({});
+    await AppDatabase.get();
+    final entered = Completer<void>();
+    final proceed = Completer<void>();
+    DataBackup.debugBeforeDatabaseCommit = (_) async {
+      if (!entered.isCompleted) {
+        entered.complete();
+        await proceed.future;
+      }
+    };
+    try {
+      final restoring = DataBackup.restore(carried.path);
+      await entered.future;
+      var saved = false;
+      final saving =
+          const FerritePmiStore().upsert(edited).then((_) => saved = true);
+      await Future<void>.delayed(Duration.zero);
+      expect(saved, isFalse);
+      proceed.complete();
+      await restoring;
+      await saving;
+      expect((await const FerritePmiStore().load()).map((p) => p.id),
+          containsAll(['imported', 'edited']));
+    } finally {
+      if (!proceed.isCompleted) proceed.complete();
+      DataBackup.debugBeforeDatabaseCommit = null;
+    }
+  });
+
+  Future<File> rewriteArchive(File archive,
+      Map<String, List<int>> Function(Map<String, List<int>>) edit) async {
+    final source = FileZipSource.open(archive);
+    final Map<String, List<int>> entries;
+    try {
+      entries = {
+        for (final entry in readZipDirectory(source))
+          entry.name: readZipEntryBytes(source, entry)
+      };
+    } finally {
+      source.close();
+    }
+    final bytes = BytesBuilder();
+    final zip = ZipBuilder(bytes.add);
+    edit(entries).forEach((name, data) => zip.addFile(name, data));
+    zip.finish();
+    return File(p.join(sandbox.path, 'edited.zip'))
+        .writeAsBytes(bytes.takeBytes());
+  }
+
+  test('legacy v1 backup leaves the target measurement history unchanged',
+      () async {
+    await _insertProject('source');
+    final carried = await backupAndCarry();
+    final legacy = await rewriteArchive(carried, (entries) {
+      final manifest = jsonDecode(utf8.decode(entries[kManifestEntry]!)) as Map;
+      manifest[kBackupFormatKey] = 1;
+      manifest.remove('recordFiles');
+      entries[kManifestEntry] = utf8.encode(jsonEncode(manifest));
+      entries.remove('records/ferrite_pmi.json');
+      return entries;
+    });
+    await _useCurrentPhone(phoneB);
+    SharedPreferences.setMockInitialValues(
+        {FerritePmiStore.key: 'target raw history'});
+    await DataBackup.restore(legacy.path);
+    expect(
+        (await SharedPreferences.getInstance()).getString(FerritePmiStore.key),
+        'target raw history');
+  });
+
+  test('unknown settings in a history payload fail before database writes',
+      () async {
+    await _insertProject('source');
+    final carried = await backupAndCarry();
+    final invalid = await rewriteArchive(carried, (entries) {
+      entries['records/ferrite_pmi.json'] =
+          utf8.encode(jsonEncode({'auth_token': 'forged'}));
+      return entries;
+    });
+    await _useCurrentPhone(phoneB);
+    await _insertProject('target');
+    SharedPreferences.setMockInitialValues(
+        {FerritePmiStore.key: 'target raw history'});
+    await expectLater(DataBackup.restore(invalid.path),
+        throwsA(isA<BackupFormatException>()));
+    expect(
+        (await (await AppDatabase.get()).query('projects')).map((r) => r['id']),
+        ['target']);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(FerritePmiStore.key), 'target raw history');
+    expect(prefs.get('auth_token'), isNull);
+  });
+
+  test('partial history write rolls back history and both databases', () async {
+    await _insertProject('source-project');
+    SharedPreferences.setMockInitialValues({
+      FerritePmiStore.key: '[]',
+      FerritePmiStore.corruptBackupKey: 'source original',
+    });
+    final carried = await backupAndCarry();
+    await _useCurrentPhone(phoneB);
+    await _insertProject('target-project');
+    final old = <String, Object>{
+      FerritePmiStore.key: '["target raw history"]',
+      FerritePmiStore.corruptBackupKey: 'target first original',
+      FerritePmiStore.corruptLastBackupKey: 'target second original',
+    };
+    SharedPreferences.setMockInitialValues(old);
+    SharedPreferencesStorePlatform.instance = _FailHistoryOnce({
+      for (final e in old.entries) 'flutter.${e.key}': e.value,
+    });
+    await expectLater(DataBackup.restore(carried.path),
+        throwsA(isA<BackupFormatException>()));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    for (final e in old.entries) {
+      expect(prefs.get(e.key), e.value);
+    }
+    final db = await AppDatabase.get();
+    expect(
+        (await db.query('projects')).map((r) => r['id']), ['target-project']);
+  });
+
+  test(
+      'backup carries ferrite PMI history and retained original data to a new phone',
+      () async {
+    const protocol = FerritePmiProtocol(
+      id: 'inspection',
+      date: '2026-10-31',
+      title: 'W-12',
+      unreadableSites: [
+        {
+          'loc': 'future-location',
+          'readings': ['12']
+        }
+      ],
+      unreadablePmi: [
+        {
+          'id': 'xrf',
+          'r': {'unknown-element': '80'}
+        }
+      ],
+    );
+    final history = jsonEncode([protocol.toJson()]);
+    SharedPreferences.setMockInitialValues({
+      FerritePmiStore.key: history,
+      FerritePmiStore.corruptBackupKey: 'first original damaged history',
+      FerritePmiStore.corruptLastBackupKey: 'second original damaged history',
+    });
+    final carried = await backupAndCarry();
+    await _useCurrentPhone(phoneB);
+    SharedPreferences.setMockInitialValues({});
+    await AppDatabase.get();
+    await DataBackup.restore(carried.path);
+    final restored = await const FerritePmiStore().load();
+    expect(restored.map((p) => p.toJson()), [protocol.toJson()]);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(FerritePmiStore.corruptBackupKey),
+        'first original damaged history');
+    expect(prefs.getString(FerritePmiStore.corruptLastBackupKey),
+        'second original damaged history');
+  });
 
   test(
       'odtworzenie na świeżym telefonie przywraca dziennik spoin, kupony '

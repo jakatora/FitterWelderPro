@@ -9,6 +9,9 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cut_list_app/domain/ferrite_pmi/ferrite_pmi_protocol.dart';
+import 'package:cut_list_app/features/ferrite_pmi/ferrite_pmi_store.dart';
 
 import 'package:cut_list_app/data/app_database.dart' as module_db;
 import 'package:cut_list_app/database/db.dart';
@@ -65,6 +68,7 @@ void main() {
   });
 
   setUp(() async {
+    SharedPreferences.setMockInitialValues({});
     await seedGuestAccount();
     sandbox = await Directory.systemTemp.createTemp('fwp_backup_owner_');
     documents = Directory(p.join(sandbox.path, 'documents'));
@@ -116,6 +120,35 @@ void main() {
     await f.writeAsBytes(utf8.encode('PHOTO-$name'));
     return f.path;
   }
+
+  test(
+      'PMI backup carries only its owner and restores only into the target owner',
+      () async {
+    const store = FerritePmiStore();
+    const guest = FerritePmiProtocol(
+        id: 'guest', date: '2026-10-31', title: 'GUEST_PRIVATE_PMI');
+    await store.upsert(guest);
+    AccountService.instance = account;
+    await account.signIn('A', 'fixture-password');
+    const a =
+        FerritePmiProtocol(id: 'a', date: '2026-10-31', title: 'A_PRIVATE_PMI');
+    await store.upsert(a);
+    await account.signIn('B', 'fixture-password');
+    const b =
+        FerritePmiProtocol(id: 'b', date: '2026-10-31', title: 'B_PRIVATE_PMI');
+    await store.upsert(b);
+    await account.signIn('A', 'fixture-password');
+    final archive = await DataBackup.createBackupFile();
+    final bytes = latin1.decode(await archive.readAsBytes());
+    expect(bytes, contains('A_PRIVATE_PMI'));
+    expect(bytes, isNot(contains('B_PRIVATE_PMI')));
+    expect(bytes, isNot(contains('GUEST_PRIVATE_PMI')));
+    await account.signIn('B', 'fixture-password');
+    await DataBackup.restore(archive.path);
+    expect((await store.load()).map((p) => p.toJson()), [a.toJson()]);
+    await account.signIn('A', 'fixture-password');
+    expect((await store.load()).map((p) => p.toJson()), [a.toJson()]);
+  });
 
   test('eksport konta A niesie tylko jego certyfikaty, potwierdzenia i skany',
       () async {
@@ -241,7 +274,8 @@ void main() {
         reason: 'historia certyfikatów innych kont nie wpada do bazy');
   });
 
-  test('kupony i WPS: eksport tylko właściciela, restore przemapowuje id '
+  test(
+      'kupony i WPS: eksport tylko właściciela, restore przemapowuje id '
       'i odwołania spoiny', () async {
     final coupons = CouponDao();
     final wpsDao = WpsDao();
@@ -256,7 +290,11 @@ void main() {
         result: CouponResult.ok,
         notes: 'COUPON-a'));
     await wpsDao.upsert(const WpsRecord(
-        id: 'w-a', wpsNo: 'WPS-A', notes: 'WPSNOTE-a', createdAt: 1, updatedAt: 1));
+        id: 'w-a',
+        wpsNo: 'WPS-A',
+        notes: 'WPSNOTE-a',
+        createdAt: 1,
+        updatedAt: 1));
     final welded = weld('s-a');
     await WeldJournalDao().insert(WeldEntry.fromRow({
       ...welded.toRow(),
@@ -273,7 +311,11 @@ void main() {
         result: CouponResult.ok,
         notes: 'COUPON-b'));
     await wpsDao.upsert(const WpsRecord(
-        id: 'w-b', wpsNo: 'WPS-B', notes: 'WPSNOTE-b', createdAt: 1, updatedAt: 1));
+        id: 'w-b',
+        wpsNo: 'WPS-B',
+        notes: 'WPSNOTE-b',
+        createdAt: 1,
+        updatedAt: 1));
     await account.signIn('A', 'fixture-password');
 
     final archive = await (await DataBackup.createBackupFile(
@@ -306,7 +348,8 @@ void main() {
     expect((await WeldJournalDao().listAll()).single.couponId, 'c-a');
   });
 
-  test('projekty listy cięć: kopia A przywrócona na B dostaje nowe id, '
+  test(
+      'projekty listy cięć: kopia A przywrócona na B dostaje nowe id, '
       'odwołania idą za nią, A nietknięte', () async {
     AccountService.instance = account;
     await account.signIn('A', 'fixture-password');
@@ -382,7 +425,8 @@ void main() {
     expect(seg.id, isNot('sa'));
     final lib = (await ComponentLibraryDao().listAll()).single;
     expect(lib.id, isNot('el-a'));
-    expect(seg.endLibraryId, lib.id, reason: 'segment wskazuje kopię kształtki');
+    expect(seg.endLibraryId, lib.id,
+        reason: 'segment wskazuje kopię kształtki');
     final heat = (await ComponentHeatDao().listForProject(copy.id)).single;
     expect(heat.heatNo, 'H-A');
     expect(heat.segmentId, seg.id);
@@ -398,8 +442,8 @@ void main() {
     final ownSeg = (await SegmentDao().listForProject('pa')).single;
     expect(ownSeg.id, 'sa');
     expect(ownSeg.endLibraryId, 'el-a');
-    expect((await ComponentHeatDao().listForProject('pa')).single.segmentId,
-        'sa');
+    expect(
+        (await ComponentHeatDao().listForProject('pa')).single.segmentId, 'sa');
     expect(await CutMarkDao().forProject('pa'), hasLength(1));
     expect((await HeatPhotoDao().listForProject('pa')).single.id, 'ph-a');
     expect((await ComponentLibraryDao().listAll()).single.id, 'el-a');

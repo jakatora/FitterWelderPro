@@ -76,6 +76,11 @@ class FerritePmiStore {
   static Future<void>? _tail;
   static int _inFlight = 0;
 
+  /// Backup/restore uses the same queue as autosave. The callback must not
+  /// call this store's queued methods recursively.
+  static Future<T> exclusive<T>(Future<T> Function() operation) =>
+      _serial(operation);
+
   static Future<T> _serial<T>(Future<T> Function() op) {
     final prev = _inFlight > 0 ? _tail : null;
     _inFlight++;
