@@ -75,6 +75,35 @@ class _DelayedSchedulePlatform extends _FakePlatform {
   }
 }
 
+class _FailingSchedulePlatform extends _FakePlatform {
+  bool failSchedule = true;
+  bool failCancel = false;
+  int scheduleRequests = 0;
+  final active = <int>{};
+
+  @override
+  Future<void> schedule(List<PlannedReminder> reminders) async {
+    scheduleRequests++;
+    if (reminders.isNotEmpty) {
+      active.add(reminders.first.id);
+    }
+    if (failSchedule) {
+      throw StateError('fixture partial schedule');
+    }
+    active.addAll(reminders.map((r) => r.id));
+    await super.schedule(reminders);
+  }
+
+  @override
+  Future<void> cancel(Iterable<int> ids) async {
+    if (failCancel) {
+      throw StateError('fixture cancellation unavailable');
+    }
+    active.removeAll(ids);
+    await super.cancel(ids);
+  }
+}
+
 PlannedReminder _r(int id) => PlannedReminder(
       id: id,
       fireAt: DateTime(2027, 1, 1, 9),
@@ -209,6 +238,40 @@ void main() {
     expect(platform.active, {3});
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getStringList(QualificationReminders.idsPrefsKey), ['3']);
+  });
+
+  test('partial platform schedule is cancelled after failure', () async {
+    final platform = _FailingSchedulePlatform();
+    final reminders = QualificationReminders(platform: platform);
+    await reminders.enable([_r(1), _r(2)]);
+    expect(platform.active, isEmpty);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getStringList(QualificationReminders.idsPrefsKey), isNull);
+  });
+
+  test('failed cleanup preserves IDs for a later cancellation retry', () async {
+    final platform = _FailingSchedulePlatform()..failCancel = true;
+    final reminders = QualificationReminders(platform: platform);
+    await reminders.enable([_r(1), _r(2)]);
+    expect(platform.active, {1});
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getStringList(QualificationReminders.idsPrefsKey), ['1', '2']);
+    platform.failCancel = false;
+    await reminders.disable();
+    expect(platform.active, isEmpty);
+    expect(prefs.getStringList(QualificationReminders.idsPrefsKey), isNull);
+  });
+
+  test('failed cancellation keeps the old plan without installing another', () async {
+    final platform = _FailingSchedulePlatform()..failSchedule = false;
+    final reminders = QualificationReminders(platform: platform);
+    await reminders.enable([_r(1)]);
+    platform.failCancel = true;
+    await reminders.reschedule([_r(2)]);
+    expect(platform.scheduleRequests, 1);
+    expect(platform.active, {1});
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getStringList(QualificationReminders.idsPrefsKey), ['1']);
   });
 
   test('wtyczka: powiadomienia tylko na Androidzie i iOS', () {

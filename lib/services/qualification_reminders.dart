@@ -346,29 +346,34 @@ class QualificationReminders {
     final current = await _enabledKeyNow();
     if (current == null || !sessionCurrent()) return;
     try {
-      await _cancelStored();
+      if (!await _cancelStored()) return;
       if (!sessionCurrent()) return;
-      await _platform.schedule(plan);
-      if (!sessionCurrent()) {
-        await _platform.cancel(plan.map((r) => r.id));
-        return;
-      }
       final prefs = await SharedPreferences.getInstance();
+      if (!sessionCurrent()) return;
+      // Persist the full set before the platform can install even one alarm.
+      // If scheduling or cleanup fails, these IDs remain available for retry.
+      if (!await prefs.setStringList(
+          idsKey, [for (final r in plan) r.id.toString()])) {
+        throw StateError('Could not store reminder IDs');
+      }
+      if (ownerScoped && current.owner != null) {
+        if (!await prefs.setString(scheduleOwnerKey, current.owner!)) {
+          throw StateError('Could not store reminder owner');
+        }
+      }
       if (!sessionCurrent()) {
-        await _platform.cancel(plan.map((r) => r.id));
+        await _cancelStored();
         return;
       }
-      await prefs
-          .setStringList(idsKey, [for (final r in plan) r.id.toString()]);
-      if (ownerScoped && current.owner != null) {
-        await prefs.setString(scheduleOwnerKey, current.owner!);
-      }
+      await _platform.schedule(plan);
+      if (!sessionCurrent()) await _cancelStored();
     } catch (e) {
       debugPrint('[reminders] reschedule failed: $e');
+      await _cancelStored();
     }
   }
 
-  Future<void> _cancelStored() async {
+  Future<bool> _cancelStored() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final ids = (prefs.getStringList(idsKey) ?? const <String>[])
@@ -378,8 +383,10 @@ class QualificationReminders {
       if (ids.isNotEmpty) await _platform.cancel(ids);
       await prefs.remove(idsKey);
       if (ownerScoped) await prefs.remove(scheduleOwnerKey);
+      return true;
     } catch (e) {
       debugPrint('[reminders] cancel failed: $e');
+      return false;
     }
   }
 }
