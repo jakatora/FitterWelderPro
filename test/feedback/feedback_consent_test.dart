@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cut_list_app/services/legal_consent.dart';
 // Zgoda na feedback (domyślnie brak) i losowy identyfikator X-Feedback-Id.
 
@@ -6,6 +7,7 @@ import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import 'package:cut_list_app/feedback/feedback_consent.dart';
 import 'package:cut_list_app/feedback/feedback_store.dart';
@@ -13,10 +15,81 @@ import 'package:cut_list_app/legal/legal_texts.dart';
 
 import 'feedback_test_utils.dart';
 
+class _UnpersistedConsentDisk extends InMemorySharedPreferencesStore {
+  _UnpersistedConsentDisk(this.refuse) : super.empty();
+  final bool refuse;
+  @override
+  Future<bool> setValue(String type, String key, Object value) async => !refuse;
+}
+
+class _RefusedRevokeDisk extends InMemorySharedPreferencesStore {
+  _RefusedRevokeDisk() : super.empty();
+  @override
+  Future<bool> remove(String key) async => false;
+}
+
+class _DelayedGrantDisk extends InMemorySharedPreferencesStore {
+  _DelayedGrantDisk() : super.empty();
+  final entered = Completer<void>(), release = Completer<void>();
+  @override
+  Future<bool> setValue(String type, String key, Object value) async {
+    if (key == 'flutter.${FeedbackConsent.prefsKey}') {
+      entered.complete();
+      await release.future;
+    }
+    return super.setValue(type, key, value);
+  }
+}
+
 FeedbackConsent get consent => FeedbackConsent.instance;
 
 void main() {
   setUp(seedFeedback);
+
+  for (final refuse in [false, true]) {
+    test('nieutrwalona zgoda nie pozwala na wysyłkę (odmowa: $refuse)',
+        () async {
+      SharedPreferencesStorePlatform.instance = _UnpersistedConsentDisk(refuse);
+      expect(await consent.grant(), isFalse);
+      expect(await consent.isGranted(), isFalse);
+    });
+  }
+
+  test('cofnięcie zgody blokuje wysyłkę mimo odmowy usunięcia', () async {
+    SharedPreferencesStorePlatform.instance = _RefusedRevokeDisk();
+    expect(await consent.grant(), isTrue);
+    await consent.revoke();
+    expect(await consent.isGranted(), isFalse);
+  });
+
+  test('opóźnione udzielenie zgody nie odżywa po cofnięciu i restarcie',
+      () async {
+    final disk = _DelayedGrantDisk();
+    SharedPreferencesStorePlatform.instance = disk;
+    final granting = consent.grant();
+    await disk.entered.future;
+    final revoking = consent.revoke();
+    await Future<void>.delayed(Duration.zero);
+    disk.release.complete();
+    await granting;
+    expect(await revoking, isTrue);
+    consent.resetForTest();
+    expect(await consent.isGranted(), isFalse);
+  });
+
+  test('pełne usunięcie wygrywa z opóźnionym zapisem zgody', () async {
+    final disk = _DelayedGrantDisk();
+    SharedPreferencesStorePlatform.instance = disk;
+    final granting = consent.grant();
+    await disk.entered.future;
+    final clearing = consent.clearAll();
+    await Future<void>.delayed(Duration.zero);
+    disk.release.complete();
+    await granting;
+    expect(await clearing, isTrue);
+    consent.resetForTest();
+    expect(await consent.isGranted(), isFalse);
+  });
 
   group('zgoda', () {
     test('domyślnie brak zgody', () async {

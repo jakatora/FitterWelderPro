@@ -9,6 +9,7 @@
 //   czatu i nie da się go z nim powiązać; służy tylko limitom serwera
 //   i kasowaniu zgłoszeń („Usuń moje dane”).
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
@@ -44,10 +45,29 @@ class FeedbackConsent {
   static final RegExp installIdFormat = RegExp(r'^[A-Za-z0-9_-]{22,64}$');
 
   Future<String>? _pendingId;
+  bool _revoked = false;
+  int _consentRevision = 0;
+  Future<void>? _consentWrites;
+
+  Future<T> _serialConsent<T>(Future<T> Function() operation) {
+    final previous = _consentWrites;
+    final result =
+        previous == null ? operation() : previous.then((_) => operation());
+    final settled =
+        result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _consentWrites = settled;
+    unawaited(settled.then((_) {
+      if (identical(_consentWrites, settled)) _consentWrites = null;
+    }));
+    return result;
+  }
 
   Future<FeedbackConsentState> read() async {
+    if (_revoked) return FeedbackConsentState.none;
     try {
       final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      if (_revoked) return FeedbackConsentState.none;
       final raw = prefs.getString(prefsKey);
       if (raw == null || raw.isEmpty) return FeedbackConsentState.none;
       final decoded = jsonDecode(raw);
@@ -71,32 +91,45 @@ class FeedbackConsent {
   Future<bool> isGranted() async => (await read()).granted;
 
   /// Zapisuje zgodę z datą polityki [kLegalUpdated]. false = zapis się nie udał.
-  Future<bool> grant({DateTime? now}) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      return await prefs.setString(
-        prefsKey,
-        jsonEncode({
+  Future<bool> grant({DateTime? now}) {
+    final revision = ++_consentRevision;
+    return _serialConsent(() async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final encoded = jsonEncode({
           'granted': true,
           'at': (now ?? DateTime.now()).toUtc().toIso8601String(),
           'policy': kLegalUpdated,
-        }),
-      );
-    } catch (e) {
-      debugPrint('FeedbackConsent.grant: ${e.runtimeType}');
-      return false;
-    }
+        });
+        if (!await prefs.setString(prefsKey, encoded)) return false;
+        await prefs.reload();
+        final persisted = prefs.getString(prefsKey) == encoded;
+        if (revision != _consentRevision) return false;
+        if (persisted) _revoked = false;
+        return persisted;
+      } catch (e) {
+        debugPrint('FeedbackConsent.grant: ${e.runtimeType}');
+        return false;
+      }
+    });
   }
 
   /// Cofnięcie zgody: od teraz nic nie jest wysyłane. Kolejka i identyfikator
   /// zostają (identyfikator jest potrzebny do skasowania danych na serwerze).
-  Future<void> revoke() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(prefsKey);
-    } catch (e) {
-      debugPrint('FeedbackConsent.revoke: ${e.runtimeType}');
-    }
+  Future<bool> revoke() {
+    _revoked = true;
+    _consentRevision++;
+    return _serialConsent(() async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final removed = await prefs.remove(prefsKey);
+        await prefs.reload();
+        return removed && !prefs.containsKey(prefsKey);
+      } catch (e) {
+        debugPrint('FeedbackConsent.revoke: ${e.runtimeType}');
+        return false;
+      }
+    });
   }
 
   /// Identyfikator do nagłówka `X-Feedback-Id`; tworzony przy pierwszym użyciu.
@@ -132,20 +165,24 @@ class FeedbackConsent {
   /// użyj `eraseAllFeedback` (feedback_uploader.dart), które najpierw czeka na
   /// wysyłkę w toku i kasuje dane na serwerze, a identyfikator usuwa dopiero
   /// po sukcesie.
-  Future<bool> clearAll() async {
-    if (!await FeedbackStore.instance.clear()) return false;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (!await prefs.remove(prefsKey)) return false;
-      await prefs.reload();
-      if (prefs.containsKey(prefsKey)) return false;
-      if (!await prefs.remove(installIdKey)) return false;
-      await prefs.reload();
-      return !prefs.containsKey(installIdKey);
-    } catch (e) {
-      debugPrint('FeedbackConsent.clearAll: ${e.runtimeType}');
-      return false;
-    }
+  Future<bool> clearAll() {
+    _revoked = true;
+    _consentRevision++;
+    return _serialConsent(() async {
+      if (!await FeedbackStore.instance.clear()) return false;
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        if (!await prefs.remove(prefsKey)) return false;
+        await prefs.reload();
+        if (prefs.containsKey(prefsKey)) return false;
+        if (!await prefs.remove(installIdKey)) return false;
+        await prefs.reload();
+        return !prefs.containsKey(installIdKey);
+      } catch (e) {
+        debugPrint('FeedbackConsent.clearAll: ${e.runtimeType}');
+        return false;
+      }
+    });
   }
 
   /// 24 bajty z `Random.secure()` w base64url bez dopełnienia = 32 znaki.
@@ -159,6 +196,9 @@ class FeedbackConsent {
   @visibleForTesting
   void resetForTest() {
     _pendingId = null;
+    _revoked = false;
+    _consentRevision = 0;
+    _consentWrites = null;
   }
 }
 
