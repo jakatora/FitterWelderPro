@@ -29,11 +29,12 @@ class _RefusedRevokeDisk extends InMemorySharedPreferencesStore {
 }
 
 class _DelayedGrantDisk extends InMemorySharedPreferencesStore {
-  _DelayedGrantDisk() : super.empty();
+  _DelayedGrantDisk({this.key = FeedbackConsent.prefsKey}) : super.empty();
+  final String key;
   final entered = Completer<void>(), release = Completer<void>();
   @override
   Future<bool> setValue(String type, String key, Object value) async {
-    if (key == 'flutter.${FeedbackConsent.prefsKey}') {
+    if (key == 'flutter.${this.key}') {
       entered.complete();
       await release.future;
     }
@@ -89,6 +90,31 @@ void main() {
     expect(await clearing, isTrue);
     consent.resetForTest();
     expect(await consent.isGranted(), isFalse);
+  });
+
+  for (final refuse in [false, true]) {
+    test(
+        'nieutrwalony identyfikator nie jest zwracany do wysyłki (odmowa: $refuse)',
+        () async {
+      SharedPreferencesStorePlatform.instance = _UnpersistedConsentDisk(refuse);
+      await expectLater(consent.installId(), throwsStateError);
+      expect(await consent.storedInstallId(), isNull);
+    });
+  }
+
+  test('usunięcie danych nie pozwala odtworzyć opóźnionego identyfikatora',
+      () async {
+    final disk = _DelayedGrantDisk(key: FeedbackConsent.installIdKey);
+    SharedPreferencesStorePlatform.instance = disk;
+    final creating = consent.installId();
+    await disk.entered.future;
+    final clearing = consent.clearAll();
+    await Future<void>.delayed(Duration.zero);
+    disk.release.complete();
+    await creating;
+    expect(await clearing, isTrue);
+    consent.resetForTest();
+    expect(await consent.storedInstallId(), isNull);
   });
 
   group('zgoda', () {

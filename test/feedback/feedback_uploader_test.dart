@@ -38,6 +38,16 @@ class _RefusedQueueRemoval extends InMemorySharedPreferencesStore {
   }
 }
 
+class _UnpersistedIdDisk extends InMemorySharedPreferencesStore {
+  _UnpersistedIdDisk(this.refuse) : super.empty();
+  final bool refuse;
+  @override
+  Future<bool> setValue(String type, String key, Object value) async {
+    if (key == 'flutter.${FeedbackConsent.installIdKey}') return !refuse;
+    return super.setValue(type, key, value);
+  }
+}
+
 void main() {
   final requests = <http.Request>[];
   late FeedbackUploader uploader;
@@ -58,6 +68,25 @@ void main() {
     seedFeedback();
     uploader = FeedbackUploader();
   });
+
+  for (final refuse in [false, true]) {
+    for (final explicit in [false, true]) {
+      test('błąd ID zatrzymuje HTTP (odmowa: $refuse, jawne: $explicit)',
+          () async {
+        SharedPreferencesStorePlatform.instance = _UnpersistedIdDisk(refuse);
+        await FeedbackConsent.instance.grant();
+        await fill(0, 1, kind: FeedbackKind.explicit);
+        final out = explicit
+            ? await uploader.sendExplicit(uid(0), client: ok())
+            : await uploader.flush(client: ok());
+        expect(out.status, UploadStatus.serverError);
+        expect(out.requests, 0);
+        expect(requests, isEmpty);
+        expect(await queued(), 1);
+        expect(await FeedbackConsent.instance.storedInstallId(), isNull);
+      });
+    }
+  }
 
   test('BEZ ZGODY: zero żądań, kolejka nietknięta, brak identyfikatora',
       () async {

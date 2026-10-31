@@ -134,17 +134,24 @@ class FeedbackConsent {
 
   /// Identyfikator do nagłówka `X-Feedback-Id`; tworzony przy pierwszym użyciu.
   Future<String> installId() {
-    return _pendingId ??= _loadOrCreateId().whenComplete(() {
+    return _pendingId ??= _serialConsent(_loadOrCreateId).whenComplete(() {
       _pendingId = null;
     });
   }
 
   Future<String> _loadOrCreateId() async {
     final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
     final stored = prefs.getString(installIdKey);
     if (stored != null && installIdFormat.hasMatch(stored)) return stored;
     final id = generateInstallId();
-    await prefs.setString(installIdKey, id);
+    if (!await prefs.setString(installIdKey, id)) {
+      throw StateError('Could not save feedback installation ID');
+    }
+    await prefs.reload();
+    if (prefs.getString(installIdKey) != id) {
+      throw StateError('Feedback installation ID was not persisted');
+    }
     return id;
   }
 
@@ -153,6 +160,7 @@ class FeedbackConsent {
   Future<String?> storedInstallId() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
       final stored = prefs.getString(installIdKey);
       return stored != null && installIdFormat.hasMatch(stored) ? stored : null;
     } catch (_) {
