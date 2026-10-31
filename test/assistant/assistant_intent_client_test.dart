@@ -51,6 +51,15 @@ void main() {
   group('klient /ai/intent', () {
     const client = AssistantIntentClient();
 
+    test('temporary API throttle does not claim a daily limit', () async {
+      final result = await withServer(
+        () => client.classify('Co oznacza DN?', AppLanguage.pl),
+        (_) async => _json({'error': {'code': 'API_RATE_LIMITED'}}, 429),
+      );
+      expect(result, isA<RemoteIntentUnavailable>().having(
+          (r) => r.kind, 'kind', RemoteUnavailableKind.busy));
+    });
+
     test('kształt żądania: nagłówki tożsamości, text, lang, intents_version',
         () async {
       final r = await withServer(

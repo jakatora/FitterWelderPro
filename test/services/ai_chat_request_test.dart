@@ -120,6 +120,19 @@ void main() {
   }
 
   group('limity i błędy serwera mają własne komunikaty', () {
+    test('minute throttling is not presented as a daily quota', () async {
+      for (final lang in AppLanguage.values) {
+        AppLanguageController.current = lang;
+        final reply = await send('Co oznacza DN?', http.Response(
+            '{"error":{"code":"API_RATE_LIMITED","message":"SERVER_DETAIL"}}', 429));
+        expect(reply.kind, AiReplyKind.unavailable);
+        expect(reply.text, contains(lang == AppLanguage.en ? 'a moment' : 'chwilę'));
+        expect(reply.text, isNot(contains('SERVER_DETAIL')));
+        expect(reply.text, isNot(contains('jutro')));
+        expect(reply.text, isNot(contains('tomorrow')));
+      }
+    });
+
     test('402 PREMIUM_REQUIRED', () async {
       final r = await send(
           'Preheat P91?',

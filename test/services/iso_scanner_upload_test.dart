@@ -356,10 +356,12 @@ void main() {
       await expectLater(
         scan(
           path,
-          jsonError(429, 'RATE_LIMITED', 'Za dużo skanów — spróbuj za minutę.',
+          jsonError(429, 'API_RATE_LIMITED', 'Za dużo skanów — spróbuj za minutę.',
               headers: {'retry-after': '40'}),
         ),
         throwsA(isA<IsoScannerAiException>()
+            .having((e) => e.code, 'code', 'API_RATE_LIMITED')
+            .having((e) => e.reachedModel, 'reachedModel', isFalse)
             .having((e) => e.isDailyLimit, 'isDailyLimit', isFalse)
             .having((e) => e.message, 'message', contains('minut'))),
       );

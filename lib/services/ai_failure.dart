@@ -13,6 +13,7 @@ class AiFailure {
     'AI_CONFIG',
     'AI_PLAN_INVALID',
     'AI_CONTEXT_CHANGED',
+    'API_RATE_LIMITED',
     'PREMIUM_REQUIRED',
     'INSTALL_SECRET_REQUIRED',
     'INSTALL_SECRET_INVALID',
@@ -58,6 +59,11 @@ class AiFailure {
           : 'Nie udało się uwierzytelnić połączenia z AI. Spróbuj ponownie; jeśli włączono profil zawodowy dla AI, sprawdź sesję konta.';
     }
     if (status == 429) {
+      if (code == 'API_RATE_LIMITED') {
+        return en
+            ? 'Too many requests at once. Wait a moment and try again.'
+            : 'Zbyt wiele żądań naraz. Odczekaj chwilę i spróbuj ponownie.';
+      }
       return en
           ? 'Daily AI limit reached. Try again tomorrow.'
           : 'Osiągnięto dzienny limit AI. Spróbuj jutro.';

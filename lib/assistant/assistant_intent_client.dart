@@ -20,6 +20,7 @@ import 'package:http/http.dart' as http;
 import '../config/backend_config.dart';
 import '../i18n/app_language.dart';
 import '../services/premium_service.dart';
+import '../services/ai_failure.dart';
 import 'assistant_intents.dart';
 
 enum RemoteUnavailableKind {
@@ -103,6 +104,10 @@ class AssistantIntentClient {
         return const RemoteIntentUnavailable(
             RemoteUnavailableKind.premiumRequired);
       case 429:
+        if (AiFailure.fromHttp(resp.statusCode, resp.bodyBytes).code ==
+            'API_RATE_LIMITED') {
+          return const RemoteIntentUnavailable(RemoteUnavailableKind.busy);
+        }
         return const RemoteIntentUnavailable(RemoteUnavailableKind.dailyLimit);
       case 503:
         return const RemoteIntentUnavailable(RemoteUnavailableKind.busy);

@@ -219,6 +219,12 @@ class AiChatService {
           case 402:
             return _notice(AiReplyKind.premiumRequired);
           case 429:
+            if (failure.code == 'API_RATE_LIMITED') {
+              return ChatMessage(
+                  role: ChatRole.assistant,
+                  text: failure.message(AppLanguageController.current),
+                  kind: AiReplyKind.unavailable);
+            }
             return _notice(AiReplyKind.dailyLimit);
           case 503:
             return ChatMessage(

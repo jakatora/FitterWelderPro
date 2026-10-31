@@ -57,6 +57,7 @@ void main() {
     (502, 'AI_CONFIG', 'konfiguracji', 'configuration'),
     (200, 'AI_PLAN_INVALID', 'poprawnej propozycji', 'valid proposal'),
     (429, null, 'dzienny limit', 'Daily AI limit'),
+    (429, 'API_RATE_LIMITED', 'chwilę', 'a moment'),
   ]) {
     test('diagnostic $status/$code is distinct in both languages', () {
       final failure = AiFailure(status, code: code);
