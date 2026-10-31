@@ -2029,17 +2029,14 @@ class DataBackup {
       {LocalRecordOwner? expectedOwner}) async {
     final owner = expectedOwner ?? await LocalRecordOwner.capture();
     owner.requireCurrent();
-    final source = FileZipSource.open(File(path));
     final tempDir = await getTemporaryDirectory();
-    final staging = Directory(
-      p.join(
-          tempDir.path, 'fwp_restore_${DateTime.now().millisecondsSinceEpoch}'),
-    );
+    final staging = await tempDir.createTemp('fwp_restore_');
+    FileZipSource? source;
 
     try {
+      source = FileZipSource.open(File(path));
       final entries = _indexEntries(source);
       final contents = _describe(source, entries);
-      await staging.create(recursive: true);
 
       // ---- Phase 1: read the whole archive. Live data still untouched.
       final tablesByDatabase =
@@ -2206,8 +2203,11 @@ class DataBackup {
         droppedColumns: dropped,
       );
     } finally {
-      source.close();
-      if (await staging.exists()) await staging.delete(recursive: true);
+      try {
+        source?.close();
+      } finally {
+        if (await staging.exists()) await staging.delete(recursive: true);
+      }
     }
   }
 
