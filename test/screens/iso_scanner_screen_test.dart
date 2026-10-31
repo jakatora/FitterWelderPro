@@ -4,6 +4,11 @@
 // (iso_scans, v24) i otwiera się ponownie bez płatnego skanu.
 
 import 'dart:convert';
+import 'dart:async';
+import 'package:cut_list_app/config/feature_flags.dart';
+import 'dart:io';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+import 'package:cut_list_app/services/scan_consent.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -55,13 +60,36 @@ Map<String, dynamic> _envelope() => <String, dynamic>{
           },
         ],
         'components': [
-          {'id': 'E1', 'type': 'elbow90', 'label': '90° LR', 'confidence': 'high'},
-          {'id': 'E2', 'type': 'elbow90', 'label': '90° LR', 'confidence': 'high'},
+          {
+            'id': 'E1',
+            'type': 'elbow90',
+            'label': '90° LR',
+            'confidence': 'high'
+          },
+          {
+            'id': 'E2',
+            'type': 'elbow90',
+            'label': '90° LR',
+            'confidence': 'high'
+          },
         ],
       },
       'tookMs': 30000,
       'model': 'claude-sonnet-5',
     };
+
+class _DelayedScanPrefs extends InMemorySharedPreferencesStore {
+  _DelayedScanPrefs() : super.empty();
+  final entered = Completer<void>(), release = Completer<void>();
+  @override
+  Future<Map<String, Object>> getAll() async {
+    if (!entered.isCompleted) {
+      entered.complete();
+      await release.future;
+    }
+    return super.getAll();
+  }
+}
 
 void main() {
   useTestDatabase();
@@ -82,6 +110,67 @@ void main() {
       await flushTestDatabase(tester);
       await tester.pump(const Duration(milliseconds: 120));
     }
+  }
+
+  for (final exhausted in [false, true]) {
+    testWidgets('dwuklik nie dubluje skanu i zwalnia blokadę: limit=$exhausted',
+        (tester) async {
+      tester.view.physicalSize = const Size(1100, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      ScanConsent.resetForTest();
+      late Directory dir;
+      await tester.runAsync(() async {
+        dir = await Directory.systemTemp.createTemp('fwp-double-scan-');
+        final photo = File('${dir.path}/drawing.png');
+        await photo.writeAsBytes(base64Decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='));
+        await IsoScanDao().insert(IsoScanRecord(
+            id: 'double',
+            name: 'Dwuklik',
+            imagePath: photo.path,
+            envelopeJson: jsonEncode(_envelope()),
+            createdAt: 1));
+      });
+      addTearDown(() async {
+        await File('${dir.path}/drawing.png').delete();
+        await dir.delete();
+      });
+      await tester.pumpWidget(app(const IsoScannerScreen()));
+      await settle(tester);
+      await tester.ensureVisible(find.text('Dwuklik'));
+      await tester.tap(find.text('Dwuklik'));
+      await settle(tester);
+      SharedPreferences.setMockInitialValues({});
+      final disk = _DelayedScanPrefs();
+      if (exhausted) {
+        final now = DateTime.now();
+        final day =
+            '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+        await disk.setValue('String', 'flutter.iso_scan_day_v1', day);
+        await disk.setValue(
+            'Int', 'flutter.iso_scan_count_v1', kAiScanDailyLimitPerDevice);
+      }
+      SharedPreferencesStorePlatform.instance = disk;
+      final scan = find.byTooltip('Analizuj AI');
+      await tester.tap(scan);
+      await tester.tap(scan);
+      await disk.entered.future;
+      disk.release.complete();
+      await settle(tester);
+      expect(
+          find.byType(AlertDialog), exhausted ? findsNothing : findsOneWidget);
+      if (!exhausted) {
+        await tester.tap(find.text('Anuluj').last);
+        await settle(tester);
+      }
+      expect(
+          tester
+              .widget<IconButton>(find.byWidgetPredicate((widget) =>
+                  widget is IconButton && widget.tooltip == 'Analizuj AI'))
+              .onPressed,
+          isNotNull);
+    });
   }
 
   testWidgets(

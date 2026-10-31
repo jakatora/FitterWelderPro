@@ -368,34 +368,52 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
 
   // ── AI analysis ─────────────────────────────────────────────────────────
   Future<void> _runAiAnalysis() async {
+    if (_aiBusy) return;
     final path = _imagePath;
     if (path == null) return;
 
-    // Spend the daily budget before the request, not after: a scan the
-    // fitter cannot afford should never leave the phone.
-    final left = await _ScanBudget.remainingToday();
-    if (!mounted) return;
-    setState(() => _scansLeft = left);
-    if (left <= 0) {
-      await Haptic.error();
+    // Reserve the operation before the first await: budget/consent may be slow.
+    setState(() {
+      _aiBusy = true;
+      _aiStatus = _tr(
+          'Sprawdzam limit i zgodę…', 'Checking scan limit and consent…');
+    });
+    var readyToUpload = false;
+    try {
+      // Spend the daily budget before the request, not after: a scan the
+      // fitter cannot afford should never leave the phone.
+      final left = await _ScanBudget.remainingToday();
       if (!mounted) return;
-      _toast(_tr(
-        'Dzienny limit skanów wyczerpany '
-            '($kAiScanDailyLimitPerDevice/$kAiScanDailyLimitPerDevice). '
-            'Odnowi się po północy — do tego czasu użyj Zeszytu ISO albo '
-            'kreatora segmentu.',
-        'Daily scan limit used up '
-            '($kAiScanDailyLimitPerDevice/$kAiScanDailyLimitPerDevice). '
-            'It resets after midnight — until then use the ISO notebook or '
-            'the segment builder.',
-      ));
-      return;
-    }
+      setState(() => _scansLeft = left);
+      if (left <= 0) {
+        await Haptic.error();
+        if (!mounted) return;
+        _toast(_tr(
+          'Dzienny limit skanów wyczerpany '
+              '($kAiScanDailyLimitPerDevice/$kAiScanDailyLimitPerDevice). '
+              'Odnowi się po północy — do tego czasu użyj Zeszytu ISO albo '
+              'kreatora segmentu.',
+          'Daily scan limit used up '
+              '($kAiScanDailyLimitPerDevice/$kAiScanDailyLimitPerDevice). '
+              'It resets after midnight — until then use the ISO notebook or '
+              'the segment builder.',
+        ));
+        return;
+      }
 
-    // The photo leaves the phone for our server and Anthropic — ask once
-    // (and again after the rules change) before the first upload.
-    if (!await ensureScanConsent(context)) return;
-    if (!mounted) return;
+      // The photo leaves the phone for our server and Anthropic — ask once
+      // (and again after the rules change) before the first upload.
+      if (!await ensureScanConsent(context)) return;
+      if (!mounted) return;
+      readyToUpload = true;
+    } finally {
+      if (!readyToUpload && mounted) {
+        setState(() {
+          _aiBusy = false;
+          _aiStatus = null;
+        });
+      }
+    }
 
     setState(() {
       _aiBusy = true;
