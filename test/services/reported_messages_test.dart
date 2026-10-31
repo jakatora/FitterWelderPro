@@ -81,7 +81,7 @@ void main() {
       final store = ReportedMessages.instance;
       store.resetForTest();
       await store.load();
-      await store.clear();
+      expect(await store.clear(), isFalse);
       await store.add(13);
       final prefs = await SharedPreferences.getInstance();
       await prefs.reload();

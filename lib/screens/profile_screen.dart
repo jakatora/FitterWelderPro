@@ -95,7 +95,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _save() async {
     // Ten sam walidator co krok imienia przed czatem (user_profile.dart).
-    final firstErr = describeNameProblem(context, checkNamePart(_firstCtrl.text));
+    final firstErr =
+        describeNameProblem(context, checkNamePart(_firstCtrl.text));
     var lastErr = describeNameProblem(context, checkNamePart(_lastCtrl.text));
     if (firstErr == null &&
         lastErr == null &&
@@ -253,7 +254,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       await DataBackup.shareBackupFile(file);
     } catch (error) {
       if (mounted) {
-        messenger.showSnackBar(SnackBar(content: Text(_describeBackupError(error))));
+        messenger
+            .showSnackBar(SnackBar(content: Text(_describeBackupError(error))));
       }
     }
   }
@@ -285,7 +287,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
     final contents = found;
     final ownerAtApproval = approvedOwner;
-    if (!read || contents == null || ownerAtApproval == null || !mounted) return;
+    if (!read || contents == null || ownerAtApproval == null || !mounted) {
+      return;
+    }
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -352,7 +356,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final restored = await _runBlocking(
       context.tr(pl: 'Przywracam dane…', en: 'Restoring your data…'),
       () async {
-        outcome = await DataBackup.restore(path, expectedOwner: ownerAtApproval);
+        outcome =
+            await DataBackup.restore(path, expectedOwner: ownerAtApproval);
       },
     );
     final report = outcome;
@@ -512,7 +517,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final gotIt = context.tr(pl: 'Rozumiem', en: 'Got it');
 
     // 2. Telefon.
-    await _eraseLocalData(resetIdentity: !keepIdentity);
+    final localOk = await _eraseLocalData(resetIdentity: !keepIdentity);
+    if (!mounted) return;
+    if (!localOk) {
+      await _showDeletionInfo(
+        title: context.tr(
+            pl: 'Niepełne usunięcie danych', en: 'Data deletion incomplete'),
+        body: '${_serverSummary(server)}\n\n${context.tr(
+          pl: 'Nie udało się usunąć z telefonu oznaczeń zgłoszonych wiadomości. Ponów usunięcie danych.',
+          en: 'Could not delete reported message markers from this phone. Retry data deletion.',
+        )}',
+      );
+      return;
+    }
     if (!mounted) return;
     Haptic.saved();
     // Wracamy na ekran główny od nowa. Kalkulatory działają dalej; czat przy
@@ -709,7 +726,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Future<void> _showDeletionInfo({required String title, required String body}) {
+  Future<void> _showDeletionInfo(
+      {required String title, required String body}) {
     return showDialog<void>(
       context: context,
       builder: (dctx) => AlertDialog(
@@ -730,7 +748,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   /// tożsamość spawacza, blokady, zgłoszone wiadomości i — gdy
   /// [resetIdentity] — identyfikator i sekret instalacji (nowa para powstanie
   /// dopiero przy następnym kontakcie z serwerem; nic nie leci na serwer).
-  Future<void> _eraseLocalData({required bool resetIdentity}) async {
+  Future<bool> _eraseLocalData({required bool resetIdentity}) async {
     await UserProfileService.instance.clear();
     await LegalConsent.instance.clear();
     // Zgoda na wysyłkę zdjęć do skanera to osobna zgoda — bez tego skaner po
@@ -738,7 +756,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await ScanConsent.clear();
     // Historia asystenta trzyma opisy zapisanych operacji (parametry, notatki).
     await AssistantHistoryStore.instance.clear();
-    await ReportedMessages.instance.clear();
+    final reportedCleared = await ReportedMessages.instance.clear();
     // Tego brakowało. Bez tego wywołania „usuń moje dane" zostawiało na
     // telefonie komplet danych spawacza (stempel, nr WPQR, e-mail), a
     // weld_journal_screen dalej pre-wypełniał nimi pole „spawacz" — nowe
@@ -749,6 +767,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       await BlockedUsers.instance.unblock(u.deviceId);
     }
     if (resetIdentity) await PremiumService.instance.resetIdentity();
+    return reportedCleared;
   }
 
   // ───────────────────────────── Zgody ─────────────────────────────────────
@@ -811,7 +830,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     Haptic.saved();
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(context.tr(pl: 'Zgoda wycofana.', en: 'Consent withdrawn.')),
+      content:
+          Text(context.tr(pl: 'Zgoda wycofana.', en: 'Consent withdrawn.')),
     ));
   }
 
@@ -901,7 +921,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
               children: [
                 _Identity(name: fullName),
-                ListTile(leading: const Icon(Icons.account_circle_outlined), title: Text(context.tr(pl: 'Konto i profil zawodowy', en: 'Account and professional profile')), onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const AccountScreen()))),
+                ListTile(
+                    leading: const Icon(Icons.account_circle_outlined),
+                    title: Text(context.tr(
+                        pl: 'Konto i profil zawodowy',
+                        en: 'Account and professional profile')),
+                    onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                            builder: (_) => const AccountScreen()))),
                 // Ostrzeżenie o uprawnieniu tuż pod nazwiskiem, bo to ten sam
                 // temat: czym się podpisujesz. Znika samo, gdy WPQR jest
                 // ważny albo nie ma daty — i znika od razu po „usuń moje
@@ -951,8 +978,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   controller: _firstCtrl,
                   textCapitalization: TextCapitalization.words,
                   maxLength: kNamePartMaxLength,
-                  decoration: InputDecoration(
-                      errorText: _firstError, counterText: ''),
+                  decoration:
+                      InputDecoration(errorText: _firstError, counterText: ''),
                   onChanged: (_) {
                     if (_firstError != null) setState(() => _firstError = null);
                     setState(() {}); // odśwież podgląd podpisu
@@ -965,8 +992,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   controller: _lastCtrl,
                   textCapitalization: TextCapitalization.words,
                   maxLength: kNamePartMaxLength,
-                  decoration: InputDecoration(
-                      errorText: _lastError, counterText: ''),
+                  decoration:
+                      InputDecoration(errorText: _lastError, counterText: ''),
                   onChanged: (_) {
                     if (_lastError != null) setState(() => _lastError = null);
                     setState(() {});

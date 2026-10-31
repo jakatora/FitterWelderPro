@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import 'package:cut_list_app/assistant/assistant_history.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
@@ -79,6 +80,16 @@ Finder _inDialog(String text) => find.descendant(
       matching: find.textContaining(text),
     );
 
+class _FailedMarkerRemoval extends InMemorySharedPreferencesStore {
+  _FailedMarkerRemoval(this.refuse) : super.empty();
+  final bool refuse;
+  @override
+  Future<bool> remove(String key) async {
+    if (key == 'flutter.${ReportedMessages.prefsKey}') return !refuse;
+    return super.remove(key);
+  }
+}
+
 void main() {
   useGuestAccount();
   final requests = <http.Request>[];
@@ -96,6 +107,32 @@ void main() {
   });
 
   tearDown(() => ApiClient.instance.debugSetClient(null));
+
+  for (final refuse in [true, false]) {
+    testWidgets(
+        'profil ostrzega o nieusuniętych oznaczeniach (odmowa: $refuse)',
+        (tester) async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(ReportedMessages.prefsKey, '[11]');
+      ReportedMessages.instance.resetForTest();
+      final values = await SharedPreferencesStorePlatform.instance.getAll();
+      final disk = _FailedMarkerRemoval(refuse);
+      for (final entry in values.entries) {
+        await disk.setValue('String', entry.key, entry.value);
+      }
+      SharedPreferencesStorePlatform.instance = disk;
+      backend((_) async =>
+          _json(200, {'ok': true, 'deleted': {}, 'premium_retained': false}));
+      await _openProfile(tester);
+      await _confirmDelete(tester);
+      expect(find.text('Data deletion incomplete'), findsOneWidget);
+      expect(_inDialog('Could not delete reported message markers'),
+          findsOneWidget);
+      await prefs.reload();
+      expect(prefs.getString(ReportedMessages.prefsKey), '[11]');
+      expect(find.byType(ProfileScreen), findsOneWidget);
+    });
+  }
 
   testWidgets('okno potwierdzenia mówi o serwerze i o telefonie',
       (tester) async {

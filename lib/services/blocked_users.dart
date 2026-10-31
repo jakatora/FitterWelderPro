@@ -198,7 +198,7 @@ class ReportedMessages {
       });
 
   /// „Usuń moje dane".
-  Future<void> clear() => _serial(() async {
+  Future<bool> clear() => _serial(() async {
         final loading = _loading;
         if (loading != null) await loading;
         _ids.clear();
@@ -211,6 +211,7 @@ class ReportedMessages {
         } catch (_) {
           _readFailed = true;
         }
+        return !_readFailed;
       });
 
   /// Tylko do testów.
