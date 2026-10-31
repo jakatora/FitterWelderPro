@@ -52,6 +52,29 @@ class _DelayedPermissionPlatform extends _FakePlatform {
   }
 }
 
+class _DelayedSchedulePlatform extends _FakePlatform {
+  final started = Completer<void>();
+  final release = Completer<void>();
+  final active = <int>{};
+  int requests = 0;
+
+  @override
+  Future<void> schedule(List<PlannedReminder> reminders) async {
+    if (++requests == 1) {
+      started.complete();
+      await release.future;
+    }
+    active.addAll(reminders.map((r) => r.id));
+    await super.schedule(reminders);
+  }
+
+  @override
+  Future<void> cancel(Iterable<int> ids) async {
+    active.removeAll(ids);
+    await super.cancel(ids);
+  }
+}
+
 PlannedReminder _r(int id) => PlannedReminder(
       id: id,
       fireAt: DateTime(2027, 1, 1, 9),
@@ -137,6 +160,55 @@ void main() {
     expect(await first, isFalse);
     expect(await reminders.isEnabled(), isFalse);
     expect(platform.scheduled, isEmpty);
+  });
+
+  test('disable cancels a schedule still being installed by the platform', () async {
+    SharedPreferences.setMockInitialValues({QualificationReminders.enabledPrefsKey: true});
+    final platform = _DelayedSchedulePlatform();
+    final reminders = QualificationReminders(platform: platform);
+    final scheduling = reminders.reschedule([_r(1)]);
+    await platform.started.future;
+    final disabling = reminders.disable();
+    await Future<void>.delayed(Duration.zero);
+    platform.release.complete();
+    await Future.wait([scheduling, disabling]);
+    expect(platform.active, isEmpty);
+    expect(await reminders.isEnabled(), isFalse);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getStringList(QualificationReminders.idsPrefsKey), isNull);
+  });
+
+  test('overlapping reschedules leave only the newest plan and stored IDs', () async {
+    SharedPreferences.setMockInitialValues({QualificationReminders.enabledPrefsKey: true});
+    final platform = _DelayedSchedulePlatform();
+    final reminders = QualificationReminders(platform: platform);
+    final first = reminders.reschedule([_r(1)]);
+    await platform.started.future;
+    final second = reminders.reschedule([_r(2)]);
+    await Future<void>.delayed(Duration.zero);
+    platform.release.complete();
+    await Future.wait([first, second]);
+    expect(platform.active, {2});
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getStringList(QualificationReminders.idsPrefsKey), ['2']);
+  });
+
+  test('a later enable wins over disable queued behind an older schedule', () async {
+    SharedPreferences.setMockInitialValues({QualificationReminders.enabledPrefsKey: true});
+    final platform = _DelayedSchedulePlatform();
+    final reminders = QualificationReminders(platform: platform);
+    final scheduling = reminders.reschedule([_r(1)]);
+    await platform.started.future;
+    final disabling = reminders.disable();
+    final enabling = reminders.enable([_r(3)]);
+    await Future<void>.delayed(Duration.zero);
+    platform.release.complete();
+    await Future.wait([scheduling, disabling]);
+    expect(await enabling, isTrue);
+    expect(await reminders.isEnabled(), isTrue);
+    expect(platform.active, {3});
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getStringList(QualificationReminders.idsPrefsKey), ['3']);
   });
 
   test('wtyczka: powiadomienia tylko na Androidzie i iOS', () {

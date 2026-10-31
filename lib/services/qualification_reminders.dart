@@ -25,6 +25,8 @@
 /// otwarciu aplikacji plan i tak liczy się od nowa.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -177,6 +179,23 @@ class QualificationReminders {
 
   final ReminderPlatform _platform;
   int _enableRevision = 0;
+  Future<void>? _updates;
+
+  Future<T> _serialize<T>(Future<T> Function() action) {
+    final previous = _updates;
+    final operation = previous == null
+        ? Future<T>.sync(action)
+        : previous.then((_) => action());
+    final settled = operation.then<void>((_) {},
+        onError: (Object error, StackTrace stack) {});
+    _updates = settled;
+    unawaited(settled.then((_) {
+      if (identical(_updates, settled)) {
+        _updates = null;
+      }
+    }));
+    return operation;
+  }
 
   static const String enabledPrefsKey = 'welder_cert_reminders_enabled_v1';
   static const String idsPrefsKey = 'welder_cert_reminder_ids_v1';
@@ -217,7 +236,9 @@ class QualificationReminders {
   /// Po zmianie konta: harmonogram ułożony dla INNEGO właściciela jest
   /// anulowany od razu (nie czeka na następne przeliczenie rejestru). Ten
   /// sam właściciel po ponownym uruchomieniu aplikacji — nic się nie dzieje.
-  Future<void> syncWithAccount() async {
+  Future<void> syncWithAccount() => _serialize(_syncWithAccount);
+
+  Future<void> _syncWithAccount() async {
     if (!ownerScoped || !supported) return;
     final current = await _enabledKeyNow();
     if (current == null) return;
@@ -260,50 +281,65 @@ class QualificationReminders {
     }
     if (!granted) return false;
     if (!currentRequest()) return false;
-    final current = await _enabledKeyNow();
-    if (current == null || !currentRequest()) return false;
-    try {
-      final prefs = await SharedPreferences.getInstance();
+    return _serialize(() async {
       if (!currentRequest()) return false;
-      await prefs.setBool(current.key, true);
-    } catch (_) {
-      return false;
-    }
-    if (!currentRequest()) return false;
-    await reschedule(plan);
-    return currentRequest();
+      final current = await _enabledKeyNow();
+      if (current == null || !currentRequest()) return false;
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        if (!currentRequest()) return false;
+        await prefs.setBool(current.key, true);
+      } catch (_) {
+        return false;
+      }
+      if (!currentRequest()) return false;
+      await _reschedule(plan, requestedBy);
+      return currentRequest();
+    });
   }
 
   /// Wyłącza (dla bieżącego właściciela) i anuluje wszystko, co
   /// zaplanowaliśmy.
-  Future<void> disable() async {
+  Future<void> disable() {
     _enableRevision++;
-    final current = await _enabledKeyNow();
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (current != null) await prefs.setBool(current.key, false);
-    } catch (_) {
-      // Anulujemy mimo to.
-    }
-    await _cancelStored();
+    final currentOwner = _enabledKeyNow();
+    return _serialize(() async {
+      final current = await currentOwner;
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        if (current != null) await prefs.setBool(current.key, false);
+      } catch (_) {
+        // Anulujemy mimo to.
+      }
+      await _cancelStored();
+    });
   }
 
   /// Zastępuje poprzedni plan [plan]em. Nic nie robi, gdy przypomnienia są
   /// wyłączone. Nigdy nie rzuca — błąd platformy nie może zablokować zapisu
   /// certyfikatu.
-  Future<void> reschedule(List<PlannedReminder> plan) async {
-    LocalRecordOwner? requestedBy;
-    if (ownerScoped) {
-      try {
-        requestedBy = await _captureOwner();
-      } catch (_) {
-        return;
-      }
+  Future<void> reschedule(List<PlannedReminder> plan) {
+    // Start capturing now: a queued plan must keep its original owner.
+    final requestedBy = _ownerForUpdate();
+    return _serialize(() async => _reschedule(plan, await requestedBy));
+  }
+
+  Future<LocalRecordOwner?> _ownerForUpdate() async {
+    if (!ownerScoped) return null;
+    try {
+      return await _captureOwner();
+    } catch (_) {
+      return null;
     }
+  }
+
+  Future<void> _reschedule(
+      List<PlannedReminder> plan, LocalRecordOwner? requestedBy) async {
+    if (ownerScoped && requestedBy == null) return;
     bool sessionCurrent() => requestedBy?.isCurrent ?? true;
     if (!await isEnabled()) {
       // Wyłączone dla tego właściciela — harmonogram innego nie zostaje.
-      if (sessionCurrent()) await syncWithAccount();
+      if (sessionCurrent()) await _syncWithAccount();
       return;
     }
     if (!sessionCurrent()) return;
