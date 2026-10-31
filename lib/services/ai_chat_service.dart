@@ -90,6 +90,7 @@ class ChatMessage {
   /// Each entry is the heading of the knowledge-base section the response
   /// drew from (e.g. "Iteration 75 — P91 welding").
   final List<String> citations;
+  final bool needsClarification;
 
   ChatMessage({
     required this.role,
@@ -97,6 +98,7 @@ class ChatMessage {
     DateTime? timestamp,
     this.citations = const [],
     this.kind = AiReplyKind.demo,
+    this.needsClarification = false,
   }) : timestamp = timestamp ?? DateTime.now();
 }
 
@@ -107,10 +109,10 @@ const int kChatHistoryMax = 6;
 /// Same UTF-16 length bound as the server's chat message schema.
 const int kChatQuestionMaxChars = 2000;
 
-String chatQuestionTooLongNotice(AppLanguage language) =>
-    language == AppLanguage.en
-        ? 'Shorten the question to $kChatQuestionMaxChars characters and try again. Nothing was sent.'
-        : 'Skróć pytanie do $kChatQuestionMaxChars znaków i spróbuj ponownie. Treść nie została wysłana.';
+String chatQuestionTooLongNotice(AppLanguage language) => language ==
+        AppLanguage.en
+    ? 'Shorten the question to $kChatQuestionMaxChars characters and try again. Nothing was sent.'
+    : 'Skróć pytanie do $kChatQuestionMaxChars znaków i spróbuj ponownie. Treść nie została wysłana.';
 
 /// Historia do wysłania: same pary „pytanie → odpowiedź modelu lub potwierdzony wynik aplikacji" (bez
 /// powitania, pomocy offline, komunikatów o limitach i bez pytania, które
@@ -175,8 +177,11 @@ class AiChatService {
 
     final completeQuestion = questionClarification?.sourceWithReply(trimmed);
     if (questionClarification != null && completeQuestion == null) {
-      return ChatMessage(role: ChatRole.assistant,
-          text: AppLanguageController.isEnglish ? 'Give the complete question again.' : 'Podaj ponownie całe pytanie.',
+      return ChatMessage(
+          role: ChatRole.assistant,
+          text: AppLanguageController.isEnglish
+              ? 'Give the complete question again.'
+              : 'Podaj ponownie całe pytanie.',
           kind: AiReplyKind.localDialogue);
     }
     final fallbackQuestion = completeQuestion ?? trimmed;
@@ -209,9 +214,13 @@ class AiChatService {
               ...profile.body,
               'message': trimmed,
               if (questionClarification != null)
-                'question_clarification': {'user_turns': questionClarification.userTurns},
+                'question_clarification': {
+                  'user_turns': questionClarification.userTurns
+                },
+              'conversation_mode': true,
               if (isoSummary != null) 'iso_summary': isoSummary.toJson(),
-              if (calculatorContext != null) 'calculator_context': calculatorContext.toJson(),
+              if (calculatorContext != null)
+                'calculator_context': calculatorContext.toJson(),
               'history': chatHistoryForRequest(history)
                   .map((m) => {
                         'role': m.role.name,
@@ -223,7 +232,8 @@ class AiChatService {
               'device_id': PremiumService.instance.deviceId,
             }),
           )
-          .timeout(const Duration(seconds: 25));
+          // Grounded answer plus one bounded research request (25 s each).
+          .timeout(const Duration(seconds: 60));
       profile.requireCurrent();
       if (resp.statusCode != 200) {
         debugPrint('AiChatService: backend ${resp.statusCode}');
@@ -264,22 +274,28 @@ class AiChatService {
       final body = decoded;
       final text = body['text'];
       final rawCitations = body['citations'];
+      final needsClarification = body['needs_clarification'];
       if (text is! String ||
           text.trim().isEmpty ||
+          needsClarification != null && needsClarification is! bool ||
           rawCitations != null &&
               (rawCitations is! List ||
                   rawCitations.any((citation) => citation is! String))) {
         throw const FormatException('Invalid chat response');
       }
-      if (questionClarification != null && body['question_clarification_used'] != true) {
-        return ChatMessage(role: ChatRole.assistant,
+      if (questionClarification != null &&
+          body['question_clarification_used'] != true) {
+        return ChatMessage(
+            role: ChatRole.assistant,
             text: AppLanguageController.isEnglish
                 ? 'The earlier details could not be included. Please ask the complete question again.'
                 : 'Nie udało się uwzględnić wcześniejszych szczegółów. Zadaj całe pytanie ponownie.',
             kind: AiReplyKind.localDialogue);
       }
-      if (calculatorContext != null && body['calculator_context_used'] != true) {
-        return ChatMessage(role: ChatRole.assistant,
+      if (calculatorContext != null &&
+          body['calculator_context_used'] != true) {
+        return ChatMessage(
+            role: ChatRole.assistant,
             text: AppLanguageController.isEnglish
                 ? 'The server has not confirmed calculator context support. Ask again after the backend update.'
                 : 'Serwer nie potwierdził obsługi danych kalkulatora. Zapytaj ponownie po aktualizacji backendu.',
@@ -296,11 +312,36 @@ class AiChatService {
       final cites = rawCitations == null
           ? const <String>[]
           : (rawCitations as List).cast<String>().toList();
+      final sources = <String>[];
+      final rawSources = body['web_sources'];
+      if (rawSources != null) {
+        if (rawSources is! List || rawSources.length > 6) {
+          throw const FormatException('Invalid web sources');
+        }
+        for (final source in rawSources) {
+          if (source is! Map ||
+              source['title'] is! String ||
+              source['url'] is! String) {
+            throw const FormatException('Invalid web source');
+          }
+          final uri = Uri.tryParse(source['url'] as String);
+          if (uri == null ||
+              uri.scheme != 'https' ||
+              uri.host.isEmpty ||
+              uri.userInfo.isNotEmpty) {
+            throw const FormatException('Invalid source URL');
+          }
+          sources.add('${source['title']}\n$uri');
+        }
+      }
       return ChatMessage(
         role: ChatRole.assistant,
-        text: text,
-        citations: cites,
+        text: sources.isEmpty
+            ? text
+            : '$text\n\n${AppLanguageController.isEnglish ? 'External sources' : 'Źródła internetowe'}:\n${sources.join('\n\n')}',
+        citations: [...cites, ...sources],
         kind: AiReplyKind.live,
+        needsClarification: needsClarification == true,
       );
     } on FormatException {
       return ChatMessage(

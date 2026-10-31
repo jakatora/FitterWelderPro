@@ -4,6 +4,7 @@ import 'package:cut_list_app/assistant/assistant_ai_client.dart';
 import 'package:cut_list_app/database/db.dart';
 import 'package:cut_list_app/database/iso_drawing_dao.dart';
 import 'package:cut_list_app/screens/iso_notebook_screen.dart';
+import 'package:cut_list_app/services/ai_chat_service.dart';
 import '../support/test_database.dart';
 import 'ai_chat_execution_test.dart' show mount;
 import 'global_pipe_slope_flow_test.dart' show say, settle;
@@ -17,15 +18,21 @@ void main() {
     (true, 'Czy możesz zmienić drugi odcinek na 500 mm?', 2, 1),
     (true, 'Could you please set the second pipe to 500 mm?', 2, 1),
     (false, 'Nie zmieniaj drugiego odcinka na 500 mm', 2, 0),
-    (false, 'Jak zmienić drugi odcinek na 500 mm?', 2, 1),
-    (false, 'Czy mogę zmienić drugi odcinek na 500 mm?', 2, 1),
+    (false, 'Jak zmienić drugi odcinek na 500 mm?', 2, 0),
+    (false, 'Czy mogę zmienić drugi odcinek na 500 mm?', 2, 0),
   ]) {
     final (correct, source, proposedOrdinal, expectedCalls) = scenario;
     testWidgets(
         'AI proposed dimension edits actual pipe only when original target agrees: $correct $source',
         (t) async {
       var calls = 0;
-      await mount(t, interpret: (request) async {
+      var answers = 0;
+      await mount(t, chatSender: (text, history) async {
+        answers++;
+        return ChatMessage(role: ChatRole.assistant,
+            text: 'Wyjaśnienie zmiany wymiaru bez wykonania operacji.',
+            kind: AiReplyKind.live);
+      }, interpret: (request) async {
         calls++;
         final capability = (request['capabilities'] as List)
             .cast<Map>()
@@ -47,6 +54,7 @@ void main() {
       expect(calls, 0);
       await say(t, source);
       expect(calls, expectedCalls);
+      expect(answers, source.startsWith('Jak ') || source.startsWith('Czy mogę ') ? 1 : 0);
       await settle(t);
       await flushTestDatabase(t);
       final stored = await t.runAsync(() => IsoDrawingDao().latest());

@@ -79,10 +79,10 @@ class _ConsentScreenState extends State<ConsentScreen> {
             )
           : context.tr(
               pl: 'AI pomaga rozumieć polecenia i odpowiadać na pytania. Do serwera '
-                  'wysyłamy treść, kilka ostatnich wymian rozmowy i udostępnione dane bieżącego kalkulatora. Przeczytaj i zaakceptuj zasady. Polecenia '
+                  'wysyłamy treść, kilka ostatnich wymian rozmowy i udostępnione dane bieżącego kalkulatora. Gdy wiedza aplikacji nie wystarczy, AI może wyszukać informacje w internecie i wskazać źródła. Przeczytaj i zaakceptuj zasady. Polecenia '
                   'rozpoznane na telefonie działają bez tego.',
               en: 'AI helps understand commands and answer questions. We send the text, '
-                  'a few recent conversation turns and shared inputs of the current calculator to our server. Read and accept the rules first. Commands recognised '
+                  'a few recent conversation turns and shared inputs of the current calculator to our server. If app knowledge is insufficient, AI can search the web and cite sources. Read and accept the rules first. Commands recognised '
                   'on the phone work without this.',
             );
     } else {

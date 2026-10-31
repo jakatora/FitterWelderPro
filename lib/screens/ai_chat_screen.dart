@@ -1,4 +1,5 @@
 import '../assistant/ai_clarification.dart';
+import '../assistant/knowledge_question.dart';
 import '../assistant/skills/core/account_sign_out_skill.dart';
 import '../assistant/calculator_question_context.dart';
 import '../security/credential_text.dart';
@@ -13,6 +14,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../assistant/assistant_engine.dart';
 import '../assistant/assistant_parser.dart' show parseAssistantCommand;
@@ -191,6 +193,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   final _conversationRoutes = <Route<bool>>{};
   AssistantAiUnavailable? _aiUnavailable;
   AiClarification? _aiClarification;
+  AiClarification? _knowledgeClarification;
   String? get _aiQuestion => _aiClarification?.question;
   void _rememberAi(String text, String response,
       {bool addMessages = true, AiReplyKind kind = AiReplyKind.nativeAction}) {
@@ -720,6 +723,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     _aiEpoch++;
     _aiQueue.cancel();
     _aiClarification = null;
+    _knowledgeClarification = null;
     _aiClient?.close();
     _aiClient = null;
     setState(() {
@@ -736,6 +740,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     _aiThinking = false;
     _aiQueue.cancel();
     _aiClarification = null;
+    _knowledgeClarification = null;
     _pendingKnowledgeAnswer = null;
     _pendingIntent = null;
     _pendingField = null;
@@ -1361,6 +1366,9 @@ class _AiChatScreenState extends State<AiChatScreen>
           classifyFeedback(text, lastTurnFailed: false) ==
               FeedbackKind.explicit) {
         await _reportProblem(text, lang);
+        return;
+      }
+      if (_pendingField == null && await _tryKnowledgeQuestion(text, lang)) {
         return;
       }
       // Negation and existing native workflows retain ownership. Unknown
@@ -2760,6 +2768,43 @@ class _AiChatScreenState extends State<AiChatScreen>
       _localResult is ConfirmResult ||
       _isoPort.hasPendingQuestion;
 
+  Future<bool> _tryKnowledgeQuestion(String text, AppLanguage lang) async {
+    final u = Utterance(text, lang: lang, byVoice: _voiceUsed);
+    _brainContext.lang = lang;
+    if (isNegatedCommand(u) ||
+        requestsConversationAction(u) ||
+        const {'anuluj', 'cancel', 'stop', 'nie', 'no'}.contains(u.folded)) {
+      _knowledgeClarification = null;
+      return false;
+    }
+    if (_awaitingNativeInput || _aiClarification != null) return false;
+    final clarification = _knowledgeClarification;
+    if (clarification == null) {
+      if (!isKnowledgeQuestion(u)) return false;
+      if (parseAssistantCommand(text).intent == kIntentQueryMyParams) {
+        return false;
+      }
+      // Exact numeric lookups retain the app's deterministic calculations.
+      if (!isExplanationQuestion(u) &&
+          _brain.recognizesCalculation(u, _brainContext) &&
+          _brain.recognizesLocalRequest(u, _brainContext)) {
+        return false;
+      }
+    }
+    final epoch = _conversationEpoch;
+    setState(() {
+      _inputCtrl.text = text;
+      _cmdCtrl.clear();
+    });
+    try {
+      await _send(questionClarification: clarification);
+    } finally {
+      if (mounted && epoch == _conversationEpoch) setState(() => _busy = false);
+    }
+    return true;
+  }
+
+
   // Knowledge is a side conversation while a native action awaits a value or
   // confirmation. Keep its question/controls and queued steps visible.
   void _appendKnowledgeReply(ChatMessage reply) {
@@ -2794,6 +2839,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   Future<void> _send({AiClarification? questionClarification}) async {
+    questionClarification ??= _knowledgeClarification;
     final epoch = _conversationEpoch;
     final text = _inputCtrl.text.trim();
     if (text.isEmpty || _typing.value) return;
@@ -2890,6 +2936,13 @@ class _AiChatScreenState extends State<AiChatScreen>
         return;
       }
       setState(() {
+        if (reply.kind == AiReplyKind.live) {
+          _knowledgeClarification = reply.needsClarification
+              ? AiClarification(
+                  question: reply.text,
+                  userTurns: [...?questionClarification?.userTurns, text])
+              : null;
+        }
         _appendKnowledgeReply(reply);
       });
       if (reply.kind == AiReplyKind.live) {
@@ -3976,6 +4029,12 @@ class _DemoChip extends StatelessWidget {
 /// Opens a small read-only dialog with the citation tag (e.g. "Iteration 27 §C").
 void _showCitation(BuildContext context, String citation) {
   final cs = Theme.of(context).colorScheme;
+  final lines = citation.split('\n');
+  final sourceUrl = lines.length > 1 ? Uri.tryParse(lines.last) : null;
+  final isWeb = sourceUrl != null &&
+      sourceUrl.scheme == 'https' &&
+      sourceUrl.host.isNotEmpty &&
+      sourceUrl.userInfo.isEmpty;
   showDialog<void>(
     context: context,
     builder: (dctx) => AlertDialog(
@@ -3998,14 +4057,32 @@ void _showCitation(BuildContext context, String citation) {
       ),
       content: Text(
         context.tr(
-          pl: 'Cytat wskazuje sekcję bazy wiedzy albo pomocy, z której pochodzi '
-              'odpowiedź.',
-          en: 'The citation points to the knowledge-base or help section the '
-              'answer came from.',
+          pl: isWeb
+              ? 'Źródło internetowe wykorzystane przy odpowiedzi. Możesz otworzyć oryginalny materiał.'
+              : 'Cytat wskazuje sekcję bazy wiedzy albo pomocy, z której pochodzi '
+                  'odpowiedź.',
+          en: isWeb
+              ? 'An external source used for this answer. You can open the original material.'
+              : 'The citation points to the knowledge-base or help section the '
+                  'answer came from.',
         ),
         style: const TextStyle(fontSize: 12, color: _kTextPrimary, height: 1.5),
       ),
       actions: [
+        if (isWeb)
+          TextButton(
+            onPressed: () async {
+              final opened = await launchUrl(sourceUrl,
+                  mode: LaunchMode.externalApplication);
+              if (!opened && dctx.mounted) {
+                ScaffoldMessenger.of(dctx).showSnackBar(SnackBar(
+                    content: Text(dctx.tr(
+                        pl: 'Nie udało się otworzyć źródła.',
+                        en: 'Could not open the source.'))));
+              }
+            },
+            child: Text(context.tr(pl: 'Otwórz źródło', en: 'Open source')),
+          ),
         TextButton(
           onPressed: () => Navigator.pop(dctx),
           child: const Text('OK'),
