@@ -91,6 +91,34 @@ void main() {
     expect(reply.kind, AiReplyKind.live);
   });
 
+  for (final raw in [
+    '{}',
+    '{"text":null}',
+    '{"text":""}',
+    '{"text":" \\n\\t"}',
+    '{"text":42}',
+    '{"text":"OK","citations":"not a list"}',
+    '{"text":"OK","citations":[{"secret":"SERVER_DETAIL"}]}',
+    '[]',
+    'invalid json SERVER_DETAIL',
+  ]) {
+    test('invalid successful chat response is unavailable: $raw', () async {
+      for (final language in AppLanguage.values) {
+        AppLanguageController.current = language;
+        final reply = await send('Co oznacza DN?', http.Response(raw, 200));
+        expect(reply.kind, AiReplyKind.unavailable);
+        expect(reply.text, contains(language == AppLanguage.en
+            ? 'valid answer' : 'poprawnej odpowiedzi'));
+        expect(reply.text, isNot(contains('SERVER_DETAIL')));
+        expect(reply.citations, isEmpty);
+        expect(chatHistoryForRequest([
+          ChatMessage(role: ChatRole.user, text: 'Co oznacza DN?'),
+          reply,
+        ]), isEmpty);
+      }
+    });
+  }
+
   group('limity i błędy serwera mają własne komunikaty', () {
     test('402 PREMIUM_REQUIRED', () async {
       final r = await send(

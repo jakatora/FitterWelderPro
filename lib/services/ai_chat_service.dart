@@ -236,8 +236,20 @@ class AiChatService {
             citations: help.citations,
             kind: AiReplyKind.offlineHelp);
       }
-      final body =
-          jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('Invalid chat response');
+      }
+      final body = decoded;
+      final text = body['text'];
+      final rawCitations = body['citations'];
+      if (text is! String ||
+          text.trim().isEmpty ||
+          rawCitations != null &&
+              (rawCitations is! List ||
+                  rawCitations.any((citation) => citation is! String))) {
+        throw const FormatException('Invalid chat response');
+      }
       if (questionClarification != null && body['question_clarification_used'] != true) {
         return ChatMessage(role: ChatRole.assistant,
             text: AppLanguageController.isEnglish
@@ -260,15 +272,22 @@ class AiChatService {
                 : 'Serwer nie potwierdził obsługi kontekstu rysunku ISO. Zaktualizuj backend lub użyj podsumowania rysunku w aplikacji.',
             kind: AiReplyKind.unavailable);
       }
-      final text = body['text'] as String? ?? '(empty response)';
-      final cites =
-          (body['citations'] as List?)?.map((c) => c.toString()).toList() ??
-              const <String>[];
+      final cites = rawCitations == null
+          ? const <String>[]
+          : (rawCitations as List).cast<String>().toList();
       return ChatMessage(
         role: ChatRole.assistant,
         text: text,
         citations: cites,
         kind: AiReplyKind.live,
+      );
+    } on FormatException {
+      return ChatMessage(
+        role: ChatRole.assistant,
+        text: AppLanguageController.isEnglish
+            ? 'The server did not return a valid answer. Try again.'
+            : 'Serwer nie zwrócił poprawnej odpowiedzi. Spróbuj ponownie.',
+        kind: AiReplyKind.unavailable,
       );
     } catch (e) {
       // Network down, timeout, TLS failure, etc. — pomoc offline, żeby monter
