@@ -475,16 +475,30 @@ BackupContents describeBackup({
   if (manifestBytes == null) throw _notOurBackup;
   final manifest = BackupManifest.decode(manifestBytes);
 
+  void requirePortableFileName(String file) {
+    if (file == '.' || file == '..' ||
+        file.codeUnits.any((unit) => unit < 32 || unit == 0x5c || unit == 0x3a)) {
+      throw const BackupFormatException(
+        messagePl: 'Kopia zawiera nieprawidłową ścieżkę pliku. '
+            'Nie można bezpiecznie jej odczytać.',
+        messageEn: 'The backup contains an unsafe file path. '
+            'It cannot be read safely.',
+      );
+    }
+  }
+
   final databaseEntries = <String, String>{};
   final photoEntries = <String>[];
   for (final name in entryNames) {
     if (name.startsWith(kDbEntryPrefix)) {
       final file = name.substring(kDbEntryPrefix.length);
       if (file.isEmpty || file.contains('/')) continue;
+      requirePortableFileName(file);
       databaseEntries[file] = name;
     } else if (name.startsWith(kPhotoEntryPrefix)) {
       final file = name.substring(kPhotoEntryPrefix.length);
       if (file.isEmpty || file.contains('/')) continue;
+      requirePortableFileName(file);
       photoEntries.add(name);
     }
   }

@@ -275,6 +275,24 @@ void main() {
       });
     }
 
+    for (final name in [
+      r'db/..\escape.db',
+      r'db/C:\outside.db',
+      'db/C:outside.db',
+      r'heat_photos/..\escape.jpg',
+      'heat_photos/C:outside.jpg',
+      'db/..',
+    ]) {
+      test('rejects a path escaping portable backup folders: $name', () {
+        expect(
+            () => describeBackup(
+                  entryNames: [kManifestEntry, 'db/cutlist.db', name],
+                  manifestBytes: utf8.encode(_manifest()),
+                ),
+            throwsA(isA<BackupFormatException>()));
+      });
+    }
+
     test('lists the databases and photos it will restore', () {
       final contents = describeBackup(
         entryNames: const [
