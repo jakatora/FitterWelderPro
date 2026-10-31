@@ -114,6 +114,16 @@ class AssistantBrain {
     return false;
   }
 
+  /// Native summaries read actual form/drawing values rather than AI estimates.
+  bool recognizesReadback(Utterance u, AssistantContext ctx) {
+    if (isNegatedCommand(u)) return false;
+    return skills.where((s) => s.readOnly && s.id.endsWith('.summary')).any((s) {
+      final match = _safeMatch(s, u, ctx);
+      return match != null && !match.requiresAiInterpretation &&
+          match.score >= threshold;
+    });
+  }
+
   /// Detect an independent command while another UI workflow is asking a
   /// question. Matching never executes the command or changes pending state.
   bool recognizesNewCommand(Utterance u, AssistantContext ctx,
