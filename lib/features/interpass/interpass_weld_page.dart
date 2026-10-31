@@ -282,6 +282,10 @@ class _InterpassWeldPageState extends State<_OwnedInterpassWeldPage>
     });
     unawaited(widget.store.saveUnit(u).catchError((Object e) {
       debugPrint('[interpass] unit save failed: $e');
+      if (!mounted || !widget.session.isCurrent) return;
+      _snack('ip-unit-save-failed',
+          pl: 'Nie udało się zapamiętać jednostki temperatury. Bieżące wartości są przeliczone poprawnie.',
+          en: 'Could not remember the temperature unit. Current values are converted correctly.');
     }));
   }
 

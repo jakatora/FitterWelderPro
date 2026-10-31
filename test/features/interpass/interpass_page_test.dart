@@ -10,6 +10,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import 'package:cut_list_app/domain/weld_journal/weld_entry.dart';
 import 'package:cut_list_app/domain/welding/interpass_log.dart';
@@ -20,6 +21,15 @@ import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/theme/app_theme.dart';
 
 final _now = DateTime(2026, 10, 17, 7, 30);
+
+class _RefuseUnitDisk extends InMemorySharedPreferencesStore {
+  _RefuseUnitDisk() : super.empty();
+  @override
+  Future<bool> setValue(String type, String key, Object value) async {
+    if (key == 'flutter.${InterpassStore.unitKey}') return false;
+    return super.setValue(type, key, value);
+  }
+}
 
 /// Zegar domyślny testów: start 07:30, każdy dodany pomiar przesuwa go
 /// o 5 min (sąsiednie ściegi muszą być odległe o co najmniej 1 min).
@@ -181,6 +191,15 @@ Future<String?> _shareTextOf(WidgetTester tester) async {
 String? _lastShared;
 
 void main() {
+  testWidgets('odmowa zapisu jednostki jest widoczna, konwersja działa',
+      (tester) async {
+    SharedPreferencesStorePlatform.instance = _RefuseUnitDisk();
+    await _pump(tester);
+    await _newWeld(tester);
+    await _tapKey(tester, 'ip-unit-f');
+    expect(_field(tester, 'ip-f-preMin'), '212');
+    expect(find.byKey(const ValueKey('ip-unit-save-failed')), findsOneWidget);
+  });
   useGuestAccount();
   setUp(() {
     SharedPreferences.setMockInitialValues({});
