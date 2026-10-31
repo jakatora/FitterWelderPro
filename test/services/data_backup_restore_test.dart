@@ -233,6 +233,44 @@ void main() {
   }
 
   test(
+      'backup preserves a future protocol schema without assessing it after restore',
+      () async {
+    final current = const FerritePmiProtocol(
+            id: 'current',
+            date: '2026-10-31',
+            title: 'Known protocol',
+            customMin: '30',
+            customMax: '70')
+        .toJson();
+    current['sites'] = [
+      {
+        'id': 's',
+        'loc': 'weld',
+        'readings': ['45']
+      }
+    ];
+    final raw = jsonEncode([
+      current,
+      {...current, 'id': 'future', 'v': 2}
+    ]);
+    SharedPreferences.setMockInitialValues({FerritePmiStore.key: raw});
+    final carried = await backupAndCarry();
+    await _useCurrentPhone(phoneB);
+    SharedPreferences.setMockInitialValues({});
+    await AppDatabase.get();
+    await DataBackup.restore(carried.path);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(FerritePmiStore.key), raw,
+        reason: 'Transport must retain the exact original history');
+    final report = await const FerritePmiStore().loadReport();
+    expect(report.protocols.map((p) => p.id), ['current']);
+    expect(report.droppedProtocols, 1);
+    expect(report.backupFailed, isFalse);
+    expect(prefs.getString(FerritePmiStore.corruptBackupKey), raw,
+        reason: 'An unsupported protocol remains recoverable on the new phone');
+  });
+
+  test(
       'autosave waits for restore and is not overwritten by the imported history',
       () async {
     const imported = FerritePmiProtocol(
