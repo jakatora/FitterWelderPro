@@ -168,6 +168,44 @@ void main() {
       });
     }
 
+    for (final fieldOffset in [30, 32]) {
+      test('reads central directory field $fieldOffset and the next entry', () {
+        final original = _zip({'a.txt': [1], 'b.txt': [2]});
+        final originalView = ByteData.sublistView(original);
+        final directoryOffset =
+            originalView.getUint32(original.length - 6, Endian.little);
+        final firstEntryEnd = directoryOffset + 46 + 'a.txt'.length;
+        // A valid empty extra-field block, or a four-byte file comment.
+        final bytes = Uint8List.fromList([
+          ...original.sublist(0, firstEntryEnd),
+          0xfe, 0xca, 0, 0,
+          ...original.sublist(firstEntryEnd),
+        ]);
+        final view = ByteData.sublistView(bytes);
+        view.setUint16(directoryOffset + fieldOffset, 4, Endian.little);
+        view.setUint32(bytes.length - 10,
+            originalView.getUint32(original.length - 10, Endian.little) + 4,
+            Endian.little);
+        final source = BytesZipSource(bytes);
+        final entries = readZipDirectory(source);
+        expect(entries.map((e) => e.name), ['a.txt', 'b.txt']);
+        expect(readZipEntryBytes(source, entries[0]), [1]);
+        expect(readZipEntryBytes(source, entries[1]), [2]);
+      });
+    }
+
+    test('reads entries when an archive comment contains an EOCD signature', () {
+      final original = _zip({'a.txt': utf8.encode('hello')});
+      final comment = Uint8List(24);
+      ByteData.sublistView(comment).setUint32(0, 0x06054b50, Endian.little);
+      ByteData.sublistView(original)
+          .setUint16(original.length - 2, comment.length, Endian.little);
+      final source = BytesZipSource(Uint8List.fromList([...original, ...comment]));
+      final entries = readZipDirectory(source);
+      expect(entries.map((e) => e.name), ['a.txt']);
+      expect(readZipEntryBytes(source, entries.single), utf8.encode('hello'));
+    });
+
     test('addFile after finish is a programming error, not silent corruption',
         () {
       final zip = ZipBuilder(BytesBuilder().add);

@@ -818,7 +818,8 @@ List<ZipEntry> readZipDirectory(ZipSource source) {
   final tail = source.read(total - tailLength, tailLength);
   var eocd = -1;
   for (var i = tail.length - 22; i >= 0; i--) {
-    if (_rd32(tail, i) == _kEocdSig) {
+    if (_rd32(tail, i) == _kEocdSig &&
+        i + 22 + _rd16(tail, i + 20) == tail.length) {
       eocd = i;
       break;
     }
