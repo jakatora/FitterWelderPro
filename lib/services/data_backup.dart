@@ -403,7 +403,7 @@ class BackupManifest {
     if (raw['app'] != kBackupApp) throw _notOurBackup;
 
     final format = raw[kBackupFormatKey];
-    if (format is! int) throw _notOurBackup;
+    if (format is! int || format < 1) throw _notOurBackup;
     if (format > kBackupFormatVersion) {
       throw const BackupFormatException(
         messagePl: 'Ta kopia pochodzi z nowszej wersji aplikacji. '
@@ -421,7 +421,9 @@ class BackupManifest {
     }
 
     final dbs = raw['databases'];
-    if (dbs is! List) throw _notOurBackup;
+    if (dbs is! List || dbs.any((value) => value is! String)) {
+      throw _notOurBackup;
+    }
 
     final photos = raw['photoCount'];
 
@@ -429,7 +431,7 @@ class BackupManifest {
       app: kBackupApp,
       formatVersion: format,
       createdAt: created,
-      databases: dbs.whereType<String>().toList(growable: false),
+      databases: dbs.cast<String>().toList(growable: false),
       photoCount: photos is int ? photos : 0,
     );
   }

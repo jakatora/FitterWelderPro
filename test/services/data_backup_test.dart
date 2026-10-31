@@ -105,7 +105,8 @@ void main() {
       expect(entries.keys.toSet(),
           {kManifestEntry, 'db/cutlist.db', 'heat_photos/a.jpg'});
       expect(readZipEntryBytes(source, entries['db/cutlist.db']!), _fakeDb());
-      expect(readZipEntryBytes(source, entries['heat_photos/a.jpg']!).length, 5000);
+      expect(readZipEntryBytes(source, entries['heat_photos/a.jpg']!).length,
+          5000);
       expect(readZipEntryBytes(source, entries['heat_photos/a.jpg']!)[4999],
           4999 % 256);
     });
@@ -119,7 +120,9 @@ void main() {
     });
 
     test('keeps non-ASCII entry names readable', () {
-      final source = BytesZipSource(_zip({'heat_photos/wytop-ąćę.jpg': [1, 2]}));
+      final source = BytesZipSource(_zip({
+        'heat_photos/wytop-ąćę.jpg': [1, 2]
+      }));
       expect(readZipDirectory(source).single.name, 'heat_photos/wytop-ąćę.jpg');
     });
 
@@ -132,13 +135,15 @@ void main() {
 
     test('rejects a file that is not a ZIP at all', () {
       final source = BytesZipSource(utf8.encode('%PDF-1.7 this is a drawing'));
-      expect(() => readZipDirectory(source), throwsA(isA<BackupFormatException>()));
+      expect(() => readZipDirectory(source),
+          throwsA(isA<BackupFormatException>()));
     });
 
     test('rejects a truncated archive', () {
       final full = _zip({'a.txt': utf8.encode('hello')});
       final cut = BytesZipSource(full.sublist(0, full.length - 10));
-      expect(() => readZipDirectory(cut), throwsA(isA<BackupFormatException>()));
+      expect(
+          () => readZipDirectory(cut), throwsA(isA<BackupFormatException>()));
     });
 
     test('a flipped byte inside an entry fails the CRC check', () {
@@ -151,7 +156,8 @@ void main() {
           throwsA(isA<BackupFormatException>()));
     });
 
-    test('addFile after finish is a programming error, not silent corruption', () {
+    test('addFile after finish is a programming error, not silent corruption',
+        () {
       final zip = ZipBuilder(BytesBuilder().add);
       zip.finish();
       expect(() => zip.addFile('a', const [1]), throwsStateError);
@@ -164,7 +170,8 @@ void main() {
     });
 
     test('rejects a renamed text file and anything too short', () {
-      expect(looksLikeSqliteDatabase(utf8.encode('not a database at all')), isFalse);
+      expect(looksLikeSqliteDatabase(utf8.encode('not a database at all')),
+          isFalse);
       expect(looksLikeSqliteDatabase(const [1, 2, 3]), isFalse);
     });
   });
@@ -188,7 +195,8 @@ void main() {
 
     test('rejects json from another app', () {
       expect(
-        () => BackupManifest.decode(utf8.encode(_manifest(app: 'some-other-app'))),
+        () => BackupManifest.decode(
+            utf8.encode(_manifest(app: 'some-other-app'))),
         throwsA(isA<BackupFormatException>()),
       );
     });
@@ -203,12 +211,32 @@ void main() {
         () => BackupManifest.decode(
             utf8.encode(_manifest(format: kBackupFormatVersion + 1))),
         throwsA(predicate((e) =>
-            e is BackupFormatException && e.messageEn.contains('newer version'))),
+            e is BackupFormatException &&
+            e.messageEn.contains('newer version'))),
       );
     });
   });
 
   group('describeBackup', () {
+    for (final invalid in <Map<String, Object?>>[
+      {kBackupFormatKey: 0},
+      {kBackupFormatKey: -1},
+      {
+        'databases': ['cutlist.db', 42]
+      },
+    ]) {
+      test('rejects malformed manifest before restore: $invalid', () {
+        final manifest = jsonDecode(_manifest()) as Map<String, dynamic>;
+        manifest.addAll(invalid);
+        expect(
+            () => describeBackup(
+                  entryNames: const [kManifestEntry, 'db/cutlist.db'],
+                  manifestBytes: utf8.encode(jsonEncode(manifest)),
+                ),
+            throwsA(isA<BackupFormatException>()));
+      });
+    }
+
     test('lists the databases and photos it will restore', () {
       final contents = describeBackup(
         entryNames: const [
@@ -218,11 +246,13 @@ void main() {
           'heat_photos/a.jpg',
           'heat_photos/b.jpg',
         ],
-        manifestBytes: utf8.encode(
-            _manifest(databases: ['cutlist.db', 'cut_list_app.db'], photoCount: 2)),
+        manifestBytes: utf8.encode(_manifest(
+            databases: ['cutlist.db', 'cut_list_app.db'], photoCount: 2)),
       );
-      expect(contents.databaseEntries,
-          {'cutlist.db': 'db/cutlist.db', 'cut_list_app.db': 'db/cut_list_app.db'});
+      expect(contents.databaseEntries, {
+        'cutlist.db': 'db/cutlist.db',
+        'cut_list_app.db': 'db/cut_list_app.db'
+      });
       expect(contents.photoCount, 2);
       expect(contents.manifest.createdAt.toUtc(), _when.toUtc());
     });
@@ -292,7 +322,8 @@ void main() {
 
   group('zipEntryBaseName', () {
     test('handles both separators, so Android backups restore on iOS', () {
-      expect(zipEntryBaseName('/data/user/0/app/files/heat_photos/x.jpg'), 'x.jpg');
+      expect(zipEntryBaseName('/data/user/0/app/files/heat_photos/x.jpg'),
+          'x.jpg');
       expect(zipEntryBaseName(r'C:\Users\jan\heat_photos\x.jpg'), 'x.jpg');
       expect(zipEntryBaseName('x.jpg'), 'x.jpg');
       expect(zipEntryBaseName(''), '');
@@ -449,8 +480,8 @@ void main() {
   group('archiveNameForExternalPhoto', () {
     test('keeps the file name readable and marks it as adopted', () {
       final taken = <String>{};
-      final name =
-          archiveNameForExternalPhoto('/storage/DCIM/Camera/IMG_0001.jpg', taken);
+      final name = archiveNameForExternalPhoto(
+          '/storage/DCIM/Camera/IMG_0001.jpg', taken);
       expect(name, startsWith('ext-'));
       expect(name, endsWith('-IMG_0001.jpg'));
       expect(taken, contains(name));
@@ -506,7 +537,10 @@ void main() {
       expect(
         droppedColumnsWithData([
           {'id': 'a', 'date': '2026-09-20'}
-        ], {'id', 'date'}),
+        ], {
+          'id',
+          'date'
+        }),
         isEmpty,
       );
     });
