@@ -47,6 +47,40 @@ FerritePmiProtocol _protocol() => FerritePmiProtocol(
     );
 
 void main() {
+  test(
+      'unknown chemical readings or uncertainties cannot disappear into conformity',
+      () {
+    for (final field in ['r', 'u']) {
+      final item =
+          const PmiItem(id: 'p', label: 'XRF', gradeId: '1.4404', readings: {
+        PmiElement.cr: '17',
+        PmiElement.ni: '11',
+        PmiElement.mo: '2.2',
+      }).toJson();
+      item[field] = {...(item[field] as Map), 'unrecognized-element': '80'};
+      final raw =
+          const FerritePmiProtocol(id: 'p', date: '2026-10-31').toJson();
+      raw['pmi'] = [item];
+      final restored = FerritePmiProtocol.fromJson(raw)!;
+      expect(restored.pmi, isEmpty,
+          reason: 'Do not assess a partial composition');
+      expect(restored.unreadablePmi, [item]);
+      expect(restored.incomplete, isTrue);
+      expect(restored.droppedOnLoad, 1);
+      final reloaded = FerritePmiProtocol.fromJson(
+          restored.copyWith(title: 'edited').toJson())!;
+      expect(reloaded.unreadablePmi, [item]);
+      expect(reloaded.droppedOnLoad, 0);
+      expect(ferritePmiProtocolText(reloaded, en: true, now: _now),
+          contains('Incomplete record'));
+      expect(ferritePmiProtocolText(reloaded, en: true, now: _now),
+          isNot(contains('CONFORMING')));
+      expect(PmiItem.fromJson(item).$1, isNull,
+          reason:
+              'Standalone parsing must not produce an apparently complete item');
+    }
+  });
+
   test('duplicate measurement identities are retained without aliasing edits',
       () {
     final firstSite = {

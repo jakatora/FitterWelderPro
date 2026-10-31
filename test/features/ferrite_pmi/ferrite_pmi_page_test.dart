@@ -157,6 +157,52 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   for (final language in AppLanguage.values) {
+    for (final field in ['r', 'u']) {
+      testWidgets(
+          'unknown PMI element remains visible after editing and sharing: $language/$field',
+          (tester) async {
+        final item =
+            const PmiItem(id: 'p', label: 'XRF', gradeId: '1.4404', readings: {
+          PmiElement.cr: '17',
+          PmiElement.ni: '11',
+          PmiElement.mo: '2.2',
+        }).toJson();
+        item[field] = {...(item[field] as Map), 'unknown-symbol': '80'};
+        SharedPreferences.setMockInitialValues({
+          FerritePmiStore.key: jsonEncode([
+            {
+              ...const FerritePmiProtocol(
+                      id: 'unknown', date: '2026-10-31', title: 'XRF')
+                  .toJson(),
+              'pmi': [item],
+            }
+          ])
+        });
+        final spy = await _pump(tester, language: language);
+        final warning = language == AppLanguage.en
+            ? 'Incomplete record'
+            : 'Niepełny protokół';
+        expect(find.textContaining(warning), findsOneWidget);
+        expect(
+            find.textContaining(language == AppLanguage.en
+                ? 'PMI XRF: CONFORMING'
+                : 'PMI XRF: ZGODNY'),
+            findsNothing);
+        await _tapKey(tester, 'fp-open-0');
+        await _enter(tester, 'fp-title', 'Edited XRF');
+        await _tapKey(tester, 'fp-share-bar');
+        expect(spy.texts.single.$1, contains(warning));
+        final saved = (await const FerritePmiStore().load()).single;
+        expect(saved.pmi, isEmpty);
+        expect(saved.unreadablePmi, [item]);
+        expect(saved.incomplete, isTrue);
+        expect((await const FerritePmiStore().loadReport()).damaged, isFalse);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
+  for (final language in AppLanguage.values) {
     testWidgets(
         'editing a restored duplicate cannot overwrite the other measurement: $language',
         (tester) async {

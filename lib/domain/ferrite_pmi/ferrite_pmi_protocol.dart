@@ -85,9 +85,10 @@ class PmiItem {
           if ((m[e] ?? '').isNotEmpty) e.name: m[e]!,
       };
 
-  /// Odczyty z JSON i liczba uszkodzeń. Nieznany pierwiastek jest pomijany;
-  /// nieczytelna wartość znanego pierwiastka pozostaje jako „?”.
-  static (Map<PmiElement, String>, int) _mapIn(Object? raw) {
+  /// Odczyty z JSON i liczba uszkodzeń. Nieznany pierwiastek uniemożliwia
+  /// odczyt całej pozycji (protokół zachowa jej oryginalny JSON).
+  /// Nieczytelna wartość znanego pierwiastka pozostaje jako „?”.
+  static (Map<PmiElement, String>?, int) _mapIn(Object? raw) {
     if (raw == null) return (const {}, 0);
     if (raw is! Map) return ({for (final e in PmiElement.values) e: '?'}, 1);
     final out = <PmiElement, String>{};
@@ -95,8 +96,7 @@ class PmiItem {
     for (final MapEntry(:key, :value) in raw.entries) {
       final e = PmiElement.byName(key);
       if (e == null) {
-        lost++;
-        continue;
+        return (null, lost + 1);
       }
       out[e] = value is String ? value : '?';
       if (value is! String) lost++;
@@ -113,7 +113,8 @@ class PmiItem {
         'u': _mapOut(uncertainty),
       };
 
-  /// `null` dla wpisu bez id; drugi element — ile odczytów pominięto.
+  /// `null` dla wpisu bez id albo z nieznanymi pierwiastkami. Wywołujący
+  /// musi zachować oryginalny wpis; nie oceniamy częściowego składu.
   static (PmiItem?, int) fromJson(Object? raw) {
     if (raw is! Map) return (null, 0);
     final id = raw['id'];
@@ -121,6 +122,7 @@ class PmiItem {
     String s(Object? v) => v is String ? v : '';
     final (r, lostR) = _mapIn(raw['r']);
     final (u, lostU) = _mapIn(raw['u']);
+    if (r == null || u == null) return (null, lostR + lostU);
     var lost = lostR + lostU;
     String technical(Object? value) {
       if (value == null || value is String) return s(value);
