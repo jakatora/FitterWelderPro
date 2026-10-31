@@ -842,7 +842,8 @@ List<ZipEntry> readZipDirectory(ZipSource source) {
     final nameLength = _rd16(directory, pos + 28);
     final extraLength = _rd16(directory, pos + 30);
     final commentLength = _rd16(directory, pos + 32);
-    if (pos + 46 + nameLength > directory.length) throw _damagedArchive;
+    final entryEnd = pos + 46 + nameLength + extraLength + commentLength;
+    if (entryEnd > directory.length) throw _damagedArchive;
     final nameBytes =
         Uint8List.sublistView(directory, pos + 46, pos + 46 + nameLength);
     entries.add(ZipEntry(
@@ -855,7 +856,7 @@ List<ZipEntry> readZipDirectory(ZipSource source) {
       size: _rd32(directory, pos + 24),
       localHeaderOffset: _rd32(directory, pos + 42),
     ));
-    pos += 46 + nameLength + extraLength + commentLength;
+    pos = entryEnd;
   }
   return entries;
 }

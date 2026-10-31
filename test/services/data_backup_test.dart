@@ -157,6 +157,17 @@ void main() {
           throwsA(isA<BackupFormatException>()));
     });
 
+    for (final fieldOffset in [30, 32]) {
+      test('rejects a central directory with truncated field $fieldOffset', () {
+        final bytes = _zip({'a.txt': utf8.encode('hello')});
+        final view = ByteData.sublistView(bytes);
+        final directoryOffset = view.getUint32(bytes.length - 6, Endian.little);
+        view.setUint16(directoryOffset + fieldOffset, 1, Endian.little);
+        expect(() => readZipDirectory(BytesZipSource(bytes)),
+            throwsA(isA<BackupFormatException>()));
+      });
+    }
+
     test('addFile after finish is a programming error, not silent corruption',
         () {
       final zip = ZipBuilder(BytesBuilder().add);
