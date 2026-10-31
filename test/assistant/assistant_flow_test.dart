@@ -116,6 +116,7 @@ Future<void> _pump(
   _FakeVoice? voice,
   AssistantChatSender? chatSender,
   AssistantMode mode = AssistantMode.act,
+  AppLanguage language = AppLanguage.pl,
   bool wide = false,
 }) async {
   tester.view.physicalSize =
@@ -123,7 +124,7 @@ Future<void> _pump(
   tester.view.devicePixelRatio = wide ? 1.0 : 2.5;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(AppLanguageScope(
-    controller: AppLanguageController(AppLanguage.pl),
+    controller: AppLanguageController(language),
     child: MaterialApp(
       home: AiChatScreen(
         initialMode: mode,
@@ -430,6 +431,40 @@ void main() {
   });
 
   group('tryb „Odpowiedz"', () {
+    for (final language in AppLanguage.values) {
+      for (final consented in [false, true]) {
+        testWidgets('long question remains editable without sending: $language/$consented',
+            (tester) async {
+          if (consented) seedOnboardedUser();
+          var sent = 0;
+          await _pump(tester, mode: AssistantMode.answer, language: language,
+              chatSender: (text, history) async {
+            sent++;
+            expect(text, 'Co oznacza DN?');
+            return ChatMessage(role: ChatRole.assistant, text: 'OK', kind: AiReplyKind.live);
+          });
+          final input = find.byKey(const Key('assistant-question-input'));
+          final text = List.filled(251, 'DN rury ').join().trim();
+          await tester.enterText(input, text);
+          await tester.tap(find.byKey(const Key('assistant-send')));
+          await _settle(tester);
+          expect(sent, 0);
+          expect(find.byType(ConsentScreen), findsNothing);
+          expect(tester.widget<TextField>(input).controller!.text, text);
+          expect(find.textContaining('2000'), findsOneWidget);
+          expect(AssistantHistoryStore.instance.entries, isEmpty);
+          await tester.enterText(input, 'Co oznacza DN?');
+          await tester.pump();
+          expect(find.textContaining('2000'), findsNothing);
+          await tester.tap(find.byKey(const Key('assistant-send')));
+          await _settle(tester);
+          expect(sent, consented ? 1 : 0);
+          expect(find.byType(ConsentScreen), consented ? findsNothing : findsOneWidget);
+          expect(tester.takeException(), isNull);
+        });
+      }
+    }
+
     testWidgets('bez zgody na zasady → ekran zgody, nic nie wysłane',
         (tester) async {
       var sent = 0;

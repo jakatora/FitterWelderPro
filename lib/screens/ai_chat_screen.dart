@@ -2798,6 +2798,9 @@ class _AiChatScreenState extends State<AiChatScreen>
     final text = _inputCtrl.text.trim();
     if (text.isEmpty || _typing.value) return;
     if (_blockCredentialInput(text)) return;
+    if (text.length > kChatQuestionMaxChars) {
+      return;
+    }
     _brainContext.invalidateActionReference();
     if (_listening) {
       await _speech.stop();
@@ -4357,37 +4360,44 @@ class _Composer extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Expanded(
-            child: TextField(
-              key: const Key('assistant-question-input'),
-              controller: controller,
-              focusNode: focusNode,
-              enabled: enabled,
-              minLines: 1,
-              maxLines: 4,
-              textInputAction: TextInputAction.send,
-              onSubmitted: (_) => onSend(),
-              style: const TextStyle(color: _kTextPrimary, fontSize: 14),
-              decoration: InputDecoration(
-                hintText: context.tr(
-                  pl: 'Zapytaj o WPS, preheat, NACE…',
-                  en: 'Ask about WPS, preheat, NACE…',
-                ),
-                hintStyle: const TextStyle(color: _kTextMut, fontSize: 15),
-                filled: true,
-                fillColor: _kBg,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(22),
-                  borderSide: const BorderSide(color: _kBorder),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(22),
-                  borderSide: const BorderSide(color: _kBorder),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(22),
-                  borderSide: const BorderSide(color: _kAccent, width: 1.2),
+            child: ValueListenableBuilder<TextEditingValue>(
+              valueListenable: controller,
+              builder: (context, value, _) => TextField(
+                key: const Key('assistant-question-input'),
+                controller: controller,
+                focusNode: focusNode,
+                enabled: enabled,
+                minLines: 1,
+                maxLines: 4,
+                textInputAction: TextInputAction.send,
+                onSubmitted: (_) => onSend(),
+                style: const TextStyle(color: _kTextPrimary, fontSize: 14),
+                decoration: InputDecoration(
+                  errorText: value.text.trim().length > kChatQuestionMaxChars
+                      ? chatQuestionTooLongNotice(context.language)
+                      : null,
+                  errorMaxLines: 4,
+                  hintText: context.tr(
+                    pl: 'Zapytaj o WPS, preheat, NACE…',
+                    en: 'Ask about WPS, preheat, NACE…',
+                  ),
+                  hintStyle: const TextStyle(color: _kTextMut, fontSize: 15),
+                  filled: true,
+                  fillColor: _kBg,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(22),
+                    borderSide: const BorderSide(color: _kBorder),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(22),
+                    borderSide: const BorderSide(color: _kBorder),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(22),
+                    borderSide: const BorderSide(color: _kAccent, width: 1.2),
+                  ),
                 ),
               ),
             ),

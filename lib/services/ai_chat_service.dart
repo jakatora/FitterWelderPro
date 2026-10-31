@@ -104,6 +104,14 @@ class ChatMessage {
 /// Ten sam limit ma backend (CHAT_HISTORY_MAX) — dłuższą historię przycina.
 const int kChatHistoryMax = 6;
 
+/// Same UTF-16 length bound as the server's chat message schema.
+const int kChatQuestionMaxChars = 2000;
+
+String chatQuestionTooLongNotice(AppLanguage language) =>
+    language == AppLanguage.en
+        ? 'Shorten the question to $kChatQuestionMaxChars characters and try again. Nothing was sent.'
+        : 'Skróć pytanie do $kChatQuestionMaxChars znaków i spróbuj ponownie. Treść nie została wysłana.';
+
 /// Historia do wysłania: same pary „pytanie → odpowiedź modelu lub potwierdzony wynik aplikacji" (bez
 /// powitania, pomocy offline, komunikatów o limitach i bez pytania, które
 /// jeszcze nie ma odpowiedzi — czyli bez bieżącego), najwyżej
@@ -150,6 +158,13 @@ class AiChatService {
           role: ChatRole.assistant,
           text: credentialInputNoticePl,
           kind: AiReplyKind.localDialogue);
+    }
+    if (trimmed.length > kChatQuestionMaxChars) {
+      return ChatMessage(
+        role: ChatRole.assistant,
+        text: chatQuestionTooLongNotice(AppLanguageController.current),
+        kind: AiReplyKind.localDialogue,
+      );
     }
     if (trimmed.isEmpty) {
       return ChatMessage(

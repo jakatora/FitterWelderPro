@@ -69,6 +69,29 @@ void main() {
     expect((jsonDecode(requests.single.body) as Map)['lang'], 'pl');
   });
 
+  test('overlong questions stay local and explain the limit in PL and EN', () async {
+    final text = List.filled(251, 'DN rury ').join().trim();
+    expect(text.length, greaterThan(2000));
+    for (final language in AppLanguage.values) {
+      AppLanguageController.current = language;
+      final reply = await send(text, http.Response('{"text":"should not be used"}', 200));
+      expect(requests, isEmpty);
+      expect(reply.kind, AiReplyKind.localDialogue);
+      expect(reply.text, contains('2000'));
+      expect(reply.text, contains(language == AppLanguage.en ? 'Shorten' : 'Skróć'));
+      expect(chatHistoryForRequest([
+        ChatMessage(role: ChatRole.user, text: text), reply,
+      ]), isEmpty);
+    }
+  });
+
+  test('a question of exactly 2000 characters is sent intact after trimming', () async {
+    final text = 'Co oznacza DN?'.padRight(2000, '.');
+    final reply = await send(' \n$text\t ', http.Response('{"text":"OK"}', 200));
+    expect(reply.kind, AiReplyKind.live);
+    expect((jsonDecode(requests.single.body) as Map)['message'], text);
+  });
+
   test('401 (brak sekretu) → tryb offline z pomocy w aplikacji', () async {
     final reply = await send(
       'Jak zrobić saddle cut?',
