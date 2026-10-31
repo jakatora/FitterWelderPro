@@ -109,6 +109,7 @@ class ConfinedSpaceStore {
     final prefs = await OwnedPrefs.instance(captureOwner);
     final Object? raw;
     try {
+      await prefs.reload();
       raw = prefs.get(key);
     } catch (_) {
       return const ConfinedSpaceLoad([], unreadable: true, readFailed: true);
@@ -137,17 +138,20 @@ class ConfinedSpaceStore {
   static Future<bool> _backup(SharedPreferences prefs, Object raw) async {
     final text = raw.toString();
     try {
+      await prefs.reload();
       final first = prefs.get(corruptBackupKey);
       if (first == text) return true;
       final last = prefs.get(corruptLastBackupKey);
       if (last == text) return true;
       if (first == null) {
-        return await prefs.setString(corruptBackupKey, text) &&
-            prefs.get(corruptBackupKey) == text;
+        final ok = await prefs.setString(corruptBackupKey, text);
+        await prefs.reload();
+        return ok && prefs.get(corruptBackupKey) == text;
       }
       if (last == null) {
-        return await prefs.setString(corruptLastBackupKey, text) &&
-            prefs.get(corruptLastBackupKey) == text;
+        final ok = await prefs.setString(corruptLastBackupKey, text);
+        await prefs.reload();
+        return ok && prefs.get(corruptLastBackupKey) == text;
       }
     } catch (_) {
       return false;
@@ -167,15 +171,21 @@ class ConfinedSpaceStore {
   /// Zapis całej listy — bez przycinania (limit pilnuje [_upsertNow]).
   Future<void> _write(List<ConfinedSpaceRecord> list) async {
     final prefs = await OwnedPrefs.instance(captureOwner);
+    await prefs.reload();
     final raw = prefs.get(key);
     if (raw != null && (raw is! String || raw.isNotEmpty) && _damaged(raw)) {
       if (!await _backup(prefs, raw)) {
         throw StateError('Could not preserve damaged $key before writing');
       }
     }
-    final ok = await prefs.setString(key,
-        jsonEncode(confinedSpaceRecordsToJson(sortConfinedSpaceRecords(list))));
+    final encoded =
+        jsonEncode(confinedSpaceRecordsToJson(sortConfinedSpaceRecords(list)));
+    final ok = await prefs.setString(key, encoded);
     if (!ok) throw StateError('SharedPreferences.setString($key) failed');
+    await prefs.reload();
+    if (prefs.get(key) != encoded) {
+      throw StateError('Confined space history was not persisted');
+    }
     changes.value++;
   }
 
