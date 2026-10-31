@@ -47,6 +47,19 @@ class _DelayFirstWritePreferences extends InMemorySharedPreferencesStore {
 void main() {
   const store = ElectrodeBatchStore();
 
+  test('odczyt podczas zapisu czeka na nową partię', () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = _DelayFirstWritePreferences();
+    SharedPreferencesStorePlatform.instance = disk;
+    final writing = store.save([_batch('nowa')]);
+    await disk.firstStarted.future;
+    final reading = store.load();
+    await Future<void>.delayed(Duration.zero);
+    disk.releaseFirst.complete();
+    await writing;
+    expect((await reading).map((batch) => batch.id), ['nowa']);
+  });
+
   test('uszkodzony JSON: pusta lista i kopia surowego zapisu', () async {
     SharedPreferences.setMockInitialValues(
         {kElectrodeBatchesPrefsKey: '{"v":1,"batches":[{"id":'});

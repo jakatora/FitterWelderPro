@@ -33,6 +33,8 @@ class ElectrodeBatchStore {
   static int _inFlight = 0;
 
   Future<List<ElectrodeBatch>> load() async {
+    final pending = _inFlight > 0 ? _tail : null;
+    if (pending != null) await pending;
     final prefs = await OwnedPrefs.instance(captureOwner);
     // `get`, nie `getString`: pod kluczem może leżeć inny typ (ręczna
     // edycja, stara wersja) — `getString` by wtedy rzucił.
