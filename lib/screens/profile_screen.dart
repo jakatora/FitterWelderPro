@@ -524,8 +524,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title: context.tr(
             pl: 'Niepełne usunięcie danych', en: 'Data deletion incomplete'),
         body: '${_serverSummary(server)}\n\n${context.tr(
-          pl: 'Nie udało się usunąć z telefonu całej historii asystenta, oznaczeń zgłoszonych wiadomości lub blokad autorów. Ponów usunięcie danych.',
-          en: 'Could not delete reported message markers, blocked authors or assistant history from this phone. Retry data deletion.',
+          pl: 'Nie udało się usunąć z telefonu całej historii asystenta, oznaczeń zgłoszonych wiadomości, blokad autorów lub zgody skanera. Ponów usunięcie danych.',
+          en: 'Could not delete reported message markers, blocked authors, assistant history or scanner consent from this phone. Retry data deletion.',
         )}',
       );
       return;
@@ -753,7 +753,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await LegalConsent.instance.clear();
     // Zgoda na wysyłkę zdjęć do skanera to osobna zgoda — bez tego skaner po
     // „usuń moje dane" dalej wysyłał zdjęcia bez pytania.
-    await ScanConsent.clear();
+    final scanCleared = await ScanConsent.clear();
     // Historia asystenta trzyma opisy zapisanych operacji (parametry, notatki).
     final historyCleared = await AssistantHistoryStore.instance.clear();
     final reportedCleared = await ReportedMessages.instance.clear();
@@ -765,7 +765,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await WelderIdentityService.instance.clear();
     final blockedCleared = await BlockedUsers.instance.clear();
     if (resetIdentity) await PremiumService.instance.resetIdentity();
-    return historyCleared && reportedCleared && blockedCleared;
+    return scanCleared && historyCleared && reportedCleared && blockedCleared;
   }
 
   // ───────────────────────────── Zgody ─────────────────────────────────────
@@ -819,8 +819,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
     if (ok != true) return;
+    var persisted = true;
     if (scanner) {
-      await ScanConsent.clear();
+      persisted = await ScanConsent.clear();
     } else {
       await LegalConsent.instance.clear();
     }
@@ -828,8 +829,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     Haptic.saved();
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content:
-          Text(context.tr(pl: 'Zgoda wycofana.', en: 'Consent withdrawn.')),
+      content: Text(persisted
+          ? context.tr(pl: 'Zgoda wycofana.', en: 'Consent withdrawn.')
+          : context.tr(
+              pl: 'Zgoda wycofana w tej sesji. Nie udało się usunąć zapisu z telefonu. Ponów wycofanie przed zamknięciem aplikacji.',
+              en: 'Consent withdrawn for this session. Could not delete the saved consent from this phone. Retry before closing the app.',
+            )),
     ));
   }
 
@@ -839,6 +844,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required String title,
     required DateTime? acceptedAt,
     required bool accepted,
+    bool withdrawalPending = false,
     required VoidCallback onWithdraw,
   }) {
     final status = accepted
@@ -872,7 +878,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   color: kText, fontWeight: FontWeight.w600, fontSize: 14)),
           subtitle: Text(status,
               style: const TextStyle(color: kTextMut, fontSize: 12)),
-          trailing: accepted
+          trailing: accepted || withdrawalPending
               ? TextButton(
                   key: ValueKey('consent-withdraw-$keyId'),
                   style: TextButton.styleFrom(
@@ -880,7 +886,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   onPressed: onWithdraw,
                   child: Text(
-                    context.tr(pl: 'Wycofaj', en: 'Withdraw'),
+                    withdrawalPending
+                        ? context.tr(pl: 'Ponów', en: 'Retry')
+                        : context.tr(pl: 'Wycofaj', en: 'Withdraw'),
                     style: const TextStyle(
                         color: kArc, fontWeight: FontWeight.w700),
                   ),
@@ -1151,6 +1159,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       en: 'Sending photos to the scanner'),
                   acceptedAt: ScanConsent.acceptedAt,
                   accepted: ScanConsent.isAccepted,
+                  withdrawalPending: ScanConsent.withdrawalPending,
                   onWithdraw: () => _withdrawConsent(scanner: true),
                 ),
 

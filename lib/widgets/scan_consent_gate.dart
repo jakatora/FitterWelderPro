@@ -28,6 +28,22 @@ class ScanConsent {
   static int? _acceptedVersion;
   static DateTime? _acceptedAt;
   static bool _hydrated = false;
+  static int _revision = 0;
+  static bool withdrawalPending = false;
+  static Future<void>? _writes;
+
+  static Future<T> _serial<T>(Future<T> Function() operation) {
+    final previous = _writes;
+    final pending =
+        previous == null ? operation() : previous.then((_) => operation());
+    final settled =
+        pending.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _writes = settled;
+    settled.then((_) {
+      if (identical(_writes, settled)) _writes = null;
+    });
+    return pending;
+  }
 
   static bool get isAccepted =>
       _acceptedVersion != null && _acceptedVersion! >= kLegalVersion;
@@ -37,15 +53,22 @@ class ScanConsent {
 
   static Future<void> load() async {
     if (_hydrated) return;
+    final revision = _revision;
     try {
       final prefs = await SharedPreferences.getInstance();
+      if (revision != _revision) return;
       final raw = prefs.getString(prefsKey);
       if (raw != null && raw.isNotEmpty) {
         final decoded = jsonDecode(raw);
         if (decoded is Map) {
-          _acceptedVersion = (decoded['version'] as num?)?.toInt();
+          final version = decoded['version'];
           final at = decoded['acceptedAt'];
-          _acceptedAt = at is String ? DateTime.tryParse(at) : null;
+          final acceptedAt = at is String ? DateTime.tryParse(at) : null;
+          // Incomplete or malformed records do not prove prior consent.
+          if (version is int && version > 0 && acceptedAt != null) {
+            _acceptedVersion = version;
+            _acceptedAt = acceptedAt;
+          }
         }
       }
     } catch (_) {
@@ -56,36 +79,49 @@ class ScanConsent {
     }
   }
 
-  static Future<void> accept() async {
+  static Future<void> accept() {
+    _revision++;
+    withdrawalPending = false;
     _acceptedVersion = kLegalVersion;
-    _acceptedAt = DateTime.now();
+    final acceptedAt = DateTime.now();
+    _acceptedAt = acceptedAt;
     _hydrated = true;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        prefsKey,
-        jsonEncode({
-          'version': kLegalVersion,
-          'acceptedAt': _acceptedAt!.toIso8601String(),
-        }),
-      );
-    } catch (_) {
-      // Zgoda obowiązuje w tej sesji; przy następnym starcie zapytamy znowu.
-    }
+    return _serial(() async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(
+          prefsKey,
+          jsonEncode({
+            'version': kLegalVersion,
+            'acceptedAt': acceptedAt.toIso8601String(),
+          }),
+        );
+      } catch (_) {
+        // Zgoda obowiązuje w tej sesji; przy następnym starcie zapytamy znowu.
+      }
+    });
   }
 
-  /// Wycofanie zgody — „Usuń moje dane" i „Wycofaj" w profilu. Kasuje zapis
-  /// z dysku i stan w pamięci, więc następny skan znowu zapyta o zgodę.
-  static Future<void> clear() async {
+  /// Wycofanie blokuje zgodę od razu; usunięcie czeka na wcześniejsze zapisy.
+  static Future<bool> clear() {
+    final revision = ++_revision;
+    withdrawalPending = true;
     _acceptedVersion = null;
     _acceptedAt = null;
     _hydrated = true;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(prefsKey);
-    } catch (_) {
-      // Stan w pamięci już wyczyszczony — w tej sesji skaner zapyta znowu.
-    }
+    return _serial(() async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        if (!await prefs.remove(prefsKey)) return false;
+        await prefs.reload();
+        final cleared = !prefs.containsKey(prefsKey);
+        if (revision == _revision) withdrawalPending = !cleared;
+        return cleared;
+      } catch (_) {
+        // Stan w pamięci już wyczyszczony — w tej sesji skaner zapyta znowu.
+        return false;
+      }
+    });
   }
 
   /// Tylko do testów.
@@ -93,6 +129,9 @@ class ScanConsent {
     _acceptedAt = null;
     _acceptedVersion = null;
     _hydrated = false;
+    _revision = 0;
+    withdrawalPending = false;
+    _writes = null;
   }
 }
 
@@ -109,7 +148,7 @@ Future<bool> ensureScanConsent(BuildContext context) async {
   );
   if (agreed != true) return false;
   await ScanConsent.accept();
-  return true;
+  return ScanConsent.isAccepted;
 }
 
 class _ScanConsentDialog extends StatelessWidget {

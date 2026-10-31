@@ -85,9 +85,10 @@ class _FailedMarkerRemoval extends InMemorySharedPreferencesStore {
       : super.empty();
   final String target;
   final bool refuse;
+  bool fail = true;
   @override
   Future<bool> remove(String key) async {
-    if (key == 'flutter.$target') return !refuse;
+    if (fail && key == 'flutter.$target') return !refuse;
     return super.remove(key);
   }
 }
@@ -109,6 +110,62 @@ void main() {
   });
 
   tearDown(() => ApiClient.instance.debugSetClient(null));
+
+  testWidgets('nieutrwalone wycofanie skanera ostrzega i pozwala ponowić',
+      (tester) async {
+    ScanConsent.resetForTest();
+    await ScanConsent.accept();
+    final values = await SharedPreferencesStorePlatform.instance.getAll();
+    final disk = _FailedMarkerRemoval(false, target: ScanConsent.prefsKey);
+    for (final entry in values.entries) {
+      await disk.setValue('String', entry.key, entry.value);
+    }
+    SharedPreferencesStorePlatform.instance = disk;
+    await _openProfile(tester);
+    final withdraw = find.byKey(const ValueKey('consent-withdraw-scanner'));
+    await tester.ensureVisible(withdraw);
+    await tester.tap(withdraw);
+    await _pumpFor(tester, 4);
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Withdraw'));
+    await _pumpFor(tester, 8);
+    expect(find.textContaining('Consent withdrawn for this session.'),
+        findsOneWidget);
+    expect(ScanConsent.isAccepted, isFalse);
+    expect(find.text('Retry'), findsOneWidget);
+    disk.fail = false;
+    await tester.tap(withdraw);
+    await _pumpFor(tester, 4);
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Withdraw'));
+    await _pumpFor(tester, 8);
+    expect(withdraw, findsNothing);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(prefs.getString(ScanConsent.prefsKey), isNull);
+  });
+
+  for (final refuse in [true, false]) {
+    testWidgets('profil wykrywa nieusuniętą zgodę skanera: $refuse',
+        (tester) async {
+      ScanConsent.resetForTest();
+      await ScanConsent.accept();
+      final values = await SharedPreferencesStorePlatform.instance.getAll();
+      final disk = _FailedMarkerRemoval(refuse, target: ScanConsent.prefsKey);
+      for (final entry in values.entries) {
+        await disk.setValue('String', entry.key, entry.value);
+      }
+      SharedPreferencesStorePlatform.instance = disk;
+      backend((_) async =>
+          _json(200, {'ok': true, 'deleted': {}, 'premium_retained': false}));
+      await _openProfile(tester);
+      await _confirmDelete(tester);
+      expect(find.text('Data deletion incomplete'), findsOneWidget);
+      expect(_inDialog('scanner consent'), findsOneWidget);
+      expect(ScanConsent.isAccepted, isFalse);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      expect(prefs.getString(ScanConsent.prefsKey), isNotNull);
+    });
+  }
 
   for (final refuse in [true, false]) {
     testWidgets(
