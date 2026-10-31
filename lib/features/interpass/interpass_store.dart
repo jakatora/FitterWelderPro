@@ -200,10 +200,15 @@ class InterpassStore {
     owner.requireCurrent();
     final prefs = await SharedPreferences.getInstance();
     owner.requireCurrent();
-    final ok = await prefs.setString(ownerKey(key, owner),
-        jsonEncode(interpassLogToJson(sortInterpassWelds(list))));
+    final encoded = jsonEncode(interpassLogToJson(sortInterpassWelds(list)));
+    final target = ownerKey(key, owner);
+    final ok = await prefs.setString(target, encoded);
     if (!ok) throw StateError('SharedPreferences.setString($key) failed');
+    await prefs.reload();
     owner.requireCurrent();
+    if (prefs.get(target) != encoded) {
+      throw StateError('Interpass history was not persisted');
+    }
     changes.value++;
   }
 
