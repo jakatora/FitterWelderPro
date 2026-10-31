@@ -17,6 +17,8 @@ void main() {
     'Dlaczego powstają pory w spoinie?',
     'How do I weld stainless steel with TIG?',
     'Explain the difference between MIG and MAG',
+    'Wyszukaj w internecie informacje o spawaniu hybrydowym',
+    'Search the web for hybrid welding information',
   ]) {
     testWidgets('answers question instead of asking for a module: $question',
         (t) async {

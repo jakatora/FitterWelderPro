@@ -1094,6 +1094,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     }
     if (plan.kind == 'answer') {
       setState(() {
+        if (!widget.embedded) _mode = AssistantMode.answer;
         if (pending != null) _commandSoFar = _commandBeforeAnswer;
         _busy = true;
         _inputCtrl.text = text;

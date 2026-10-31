@@ -7,7 +7,8 @@ final _question =
     RegExp(r'^(?:(?:prosze|please|hej|hey|powiedz mi|tell me)\s+)*'
         r'(?:jak\w*|dlaczego|czemu|czym|czy\b|co\b|ile\b|kiedy\b|'
         r'wyjasnij\w*|wytlumacz\w*|opisz\w*|explain\b|describe\b|'
-        r'what\b|why\b|how\b|which\b|when\b|(?:can|could) you\b)');
+        r'what\b|why\b|how\b|which\b|when\b|(?:can|could) you\b|'
+        r'(?:wyszukaj|poszukaj) w (?:internecie|sieci)\b|search the web\b|look up\b)');
 final _politeAction = RegExp(
     r'^(?:(?:prosze|please)\s+)*(?:czy (?:mozesz|moglbys)|can you|could you)\s+'
     r'(?:(?:mi|please)\s+)?(\w+)');

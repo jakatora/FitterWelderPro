@@ -9,6 +9,8 @@ void main() {
     'How do I change the dimension?',
     'Czy możesz wyjaśnić spawanie TIG?',
     'Could you please explain TIG welding?',
+    'Wyszukaj w internecie informacje o spawaniu hybrydowym',
+    'Search the web for hybrid welding information',
   ]) {
     test('explanation is not execution: $text',() {
       expect(isKnowledgeQuestion(Utterance(text, lang: AppLanguage.pl)),isTrue);
