@@ -23,6 +23,34 @@ class _DelayedPermissionEffects extends FakeEffects {
   }
 }
 
+class _DelayedScheduleEffects extends FakeEffects {
+  _DelayedScheduleEffects({this.failFirst = false});
+
+  final bool failFirst;
+  final scheduling = Completer<void>();
+  bool notificationActive = false;
+  int scheduleRequests = 0;
+
+  @override
+  Future<void> scheduleEndNotification({
+    required DateTime at, required String title, required String body,
+  }) async {
+    final request = ++scheduleRequests;
+    await scheduling.future;
+    if (failFirst && request == 1) {
+      throw StateError('fixture schedule failure');
+    }
+    notificationActive = true;
+    await super.scheduleEndNotification(at: at, title: title, body: body);
+  }
+
+  @override
+  Future<void> cancelEndNotification() async {
+    notificationActive = false;
+    await super.cancelEndNotification();
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -320,6 +348,61 @@ void main() {
       await flush();
       expect(fx.cancels, greaterThanOrEqualTo(1));
     });
+
+    for (final control in ['pause', 'reset', 'resume', 'dispose']) {
+      test('delayed schedule cannot leave an alarm after $control', () async {
+        final localFx = _DelayedScheduleEffects();
+        final local = WeldTimerService(
+          now: () => now, effects: localFx,
+          startTicker: (_) => null, observeLifecycle: false,
+        );
+        var disposed = false;
+        addTearDown(() { if (!disposed) { local.dispose(); } });
+        local.startPurge(const Duration(seconds: 60));
+        await flush();
+        local.didChangeAppLifecycleState(AppLifecycleState.paused);
+        await flush();
+        expect(localFx.scheduleRequests, 1);
+        switch (control) {
+          case 'pause': local.pause();
+          case 'reset': local.reset();
+          case 'resume': local.didChangeAppLifecycleState(AppLifecycleState.resumed);
+          case 'dispose': local.dispose(); disposed = true;
+        }
+        localFx.scheduling.complete();
+        await flush();
+        expect(localFx.notificationActive, isFalse);
+        expect(localFx.cancels, 1);
+      });
+    }
+
+    for (final failFirst in [false, true]) {
+      test('new timer notification survives old scheduling (failure: $failFirst)', () async {
+        final localFx = _DelayedScheduleEffects(failFirst: failFirst);
+        final local = WeldTimerService(
+          now: () => now, effects: localFx,
+          startTicker: (_) => null, observeLifecycle: false,
+        );
+        addTearDown(local.dispose);
+        local.startPurge(const Duration(seconds: 60));
+        await flush();
+        local.didChangeAppLifecycleState(AppLifecycleState.paused);
+        await flush();
+        expect(localFx.scheduleRequests, 1);
+        local.pause();
+        local.startPurge(const Duration(seconds: 120));
+        local.didChangeAppLifecycleState(AppLifecycleState.paused);
+        await flush();
+        localFx.scheduling.complete();
+        await flush();
+        expect(localFx.notificationActive, isTrue);
+        expect(localFx.scheduleRequests, 2);
+        expect(localFx.scheduled.last.$1, now.add(const Duration(seconds: 120)));
+        local.reset();
+        await flush();
+        expect(localFx.notificationActive, isFalse);
+      });
+    }
 
     test('dispose cancels an already scheduled end notification', () async {
       final localFx = FakeEffects();

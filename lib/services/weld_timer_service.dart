@@ -171,6 +171,8 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
   bool _observing = false;
   bool _inForeground = true;
   bool _notificationScheduled = false;
+  int _notificationRevision = 0;
+  Future<void>? _notificationOperation;
   bool? _notificationsGranted;
   Future<void>? _permission;
   bool _disposed = false;
@@ -460,11 +462,14 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
     final text = weldTimerAlarmText(currentAlarm,
         english: AppLanguageController.isEnglish);
     _notificationScheduled = true;
+    final revision = ++_notificationRevision;
     try {
-      await _effects.scheduleEndNotification(
-          at: at, title: text.title, body: text.body);
+      await _queueNotification(() => _effects.scheduleEndNotification(
+          at: at, title: text.title, body: text.body));
     } catch (e) {
-      _notificationScheduled = false;
+      if (revision == _notificationRevision) {
+        _notificationScheduled = false;
+      }
       debugPrint('[weld timer] schedule failed: $e');
     }
   }
@@ -474,7 +479,26 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
   void _cancelNotification() {
     if (!_notificationScheduled) return;
     _notificationScheduled = false;
-    _safe(_effects.cancelEndNotification);
+    _notificationRevision++;
+    _safe(() => _queueNotification(_effects.cancelEndNotification));
+  }
+
+  // A platform schedule may finish after pause/reset. Keep cancellation and
+  // later schedules in order so an old operation cannot restore a stale alarm.
+  Future<void> _queueNotification(Future<void> Function() action) {
+    final previous = _notificationOperation;
+    final operation = previous == null
+        ? Future<void>.sync(action)
+        : previous.then((_) => action());
+    final settled = operation.then<void>((_) {},
+        onError: (Object error, StackTrace stack) {});
+    _notificationOperation = settled;
+    unawaited(settled.then((_) {
+      if (identical(_notificationOperation, settled)) {
+        _notificationOperation = null;
+      }
+    }));
+    return operation;
   }
 
   void _safe(Future<void> Function() action) {
