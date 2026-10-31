@@ -7,9 +7,20 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import 'package:cut_list_app/domain/grinding/grinder_profile.dart';
 import 'package:cut_list_app/features/grinding/grinding_store.dart';
+
+class _Disk extends InMemorySharedPreferencesStore {
+  _Disk() : super.empty();
+  String? pretendKey;
+  @override
+  Future<bool> setValue(String type, String key, Object value) async {
+    if (pretendKey == null || pretendKey == key) return true;
+    return super.setValue(type, key, value);
+  }
+}
 
 const _a = GrinderProfile(id: 'a', name: 'A', maxRpm: 11000, diameterMm: 125);
 const _b = GrinderProfile(id: 'b', name: 'B', maxRpm: 8500, diameterMm: 180);
@@ -25,7 +36,26 @@ Future<List<String>> _ids() async {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   const store = GrinderStore();
+
+  test('pozorny sukces zapisu szlifierki jest wykrywany', () async {
+    SharedPreferences.setMockInitialValues({});
+    SharedPreferencesStorePlatform.instance = _Disk();
+    await expectLater(store.save([_a]), throwsStateError);
+  });
+
+  test('pozorna kopia nie pozwala nadpisać uszkodzonych profili', () async {
+    SharedPreferences.setMockInitialValues({});
+    final disk = _Disk()..pretendKey = 'flutter.${store.corruptKey}';
+    SharedPreferencesStorePlatform.instance = disk;
+    const damaged = '{broken grinders';
+    await disk.setValue('String', 'flutter.${store.key}', damaged);
+    await expectLater(store.save([_a]), throwsStateError);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(prefs.get(store.key), damaged);
+  });
 
   group('kolejka i zmiany po id', () {
     setUp(() => SharedPreferences.setMockInitialValues({}));

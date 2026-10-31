@@ -105,6 +105,7 @@ class GrinderStore {
     // edycja, stara wersja) — `getString` by wtedy rzucił.
     final Object? raw;
     try {
+      await prefs.reload();
       raw = prefs.get(key);
     } catch (e) {
       debugPrint('[grinding] read failed: $e');
@@ -183,14 +184,20 @@ class GrinderStore {
   Future<void> _write(
       SharedPreferences prefs, List<GrinderProfile> grinders) async {
     await _backupIfDamaged(prefs);
-    final ok = await prefs.setString(key, encodeGrinders(grinders));
+    final encoded = encodeGrinders(grinders);
+    final ok = await prefs.setString(key, encoded);
     if (!ok) throw StateError('SharedPreferences.setString($key) failed');
+    await prefs.reload();
+    if (prefs.get(key) != encoded) {
+      throw StateError('Grinder profiles were not persisted');
+    }
   }
 
   /// Przed nadpisaniem: zachowaj dokładnie bieżący uszkodzony zapis.
   /// Jeśli miejsce kopii zawiera inną wartość albo zapis kopii się nie uda,
   /// nie wolno nadpisać jedynej pozostałej surowej wartości.
   Future<void> _backupIfDamaged(SharedPreferences prefs) async {
+    await prefs.reload();
     final raw = prefs.get(key);
     if (raw == null) return;
     if (raw is String && !decodeGrinders(raw).lossy) return;
@@ -201,6 +208,7 @@ class GrinderStore {
       throw StateError('Backup for $key contains different data');
     }
     final ok = await prefs.setString(corruptKey, copy);
+    await prefs.reload();
     if (!ok || prefs.get(corruptKey) != copy) {
       throw StateError('Could not preserve damaged $key before writing');
     }
@@ -210,8 +218,13 @@ class GrinderStore {
   /// wersja jest najcenniejsza (późniejsze to już nadpisane resztki).
   Future<void> _backup(SharedPreferences prefs, String raw) async {
     try {
+      await prefs.reload();
       if (prefs.containsKey(corruptKey)) return;
-      await prefs.setString(corruptKey, raw);
+      final ok = await prefs.setString(corruptKey, raw);
+      await prefs.reload();
+      if (!ok || prefs.get(corruptKey) != raw) {
+        throw StateError('Grinder backup was not persisted');
+      }
     } catch (e) {
       // Kopia to zabezpieczenie — jej brak nie może zablokować ekranu.
       debugPrint('[grinding] backup failed: $e');
