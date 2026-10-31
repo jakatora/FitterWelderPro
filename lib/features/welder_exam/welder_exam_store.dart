@@ -12,9 +12,11 @@
 /// nienaruszoną; jeśli miejsce kopii zajmuje inny zapis, wstrzymuje zapis.
 library;
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show debugPrint, protected;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../database/local_record_owner.dart';
 import '../../services/owned_prefs.dart';
 
@@ -35,6 +37,7 @@ class WelderExamLoad {
 }
 
 class WelderExamStore {
+  static Future<void>? _writes;
   const WelderExamStore({this.captureOwner});
 
   final Future<LocalRecordOwner> Function()? captureOwner;
@@ -53,6 +56,8 @@ class WelderExamStore {
   /// Nigdy nie rzuca.
   Future<WelderExamLoad> load() async {
     try {
+      final pending = _writes;
+      if (pending != null) await pending;
       final raw = await readRaw();
       if (raw == null) return const WelderExamLoad(ExamStats());
       if (raw is! String) {
@@ -66,8 +71,39 @@ class WelderExamStore {
     }
   }
 
-  Future<void> save(ExamStats stats, {bool afterFailedRead = false}) async {
-    final prefs = await OwnedPrefs.instance(captureOwner);
+  Future<void> save(ExamStats stats, {bool afterFailedRead = false}) {
+    Object? captureError;
+    StackTrace? captureStack;
+    final prefsReady =
+        OwnedPrefs.instance(captureOwner).then<SharedPreferences?>(
+      (prefs) => prefs,
+      onError: (Object error, StackTrace stack) {
+        captureError = error;
+        captureStack = stack;
+        return null;
+      },
+    );
+    final encoded = encodeExamStats(stats);
+    final previous = _writes;
+    final write = () async {
+      if (previous != null) await previous;
+      final prefs = await prefsReady;
+      if (prefs == null) {
+        Error.throwWithStackTrace(captureError!, captureStack!);
+      }
+      await _saveNow(prefs, encoded, afterFailedRead: afterFailedRead);
+    }();
+    final settled =
+        write.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _writes = settled;
+    unawaited(settled.then((_) {
+      if (identical(_writes, settled)) _writes = null;
+    }));
+    return write;
+  }
+
+  Future<void> _saveNow(SharedPreferences prefs, String encoded,
+      {required bool afterFailedRead}) async {
     await prefs.reload();
     final raw = prefs.get(key);
     if (raw != null &&
@@ -85,7 +121,6 @@ class WelderExamStore {
         throw StateError('Exam stats backup was not persisted');
       }
     }
-    final encoded = encodeExamStats(stats);
     if (!await prefs.setString(key, encoded)) {
       throw StateError('Could not save exam stats');
     }

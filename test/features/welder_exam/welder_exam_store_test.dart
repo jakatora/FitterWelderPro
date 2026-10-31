@@ -1,6 +1,8 @@
 // Zapis statystyk egzaminu spawacza: uszkodzony JSON nie ginie — kopia pod
 // kluczem _corrupt przed nadpisaniem, tylko raz.
 
+import 'dart:async';
+import 'package:cut_list_app/database/local_record_owner.dart';
 import 'package:cut_list_app/domain/exam/exam_questions.dart';
 import 'package:cut_list_app/domain/exam/exam_session.dart';
 import 'package:cut_list_app/features/welder_exam/welder_exam_store.dart';
@@ -38,6 +40,35 @@ ExamStats _someStats() {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('opóźniony właściciel nie przywraca starszych statystyk egzaminu',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final owner = await LocalRecordOwner.capture();
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    var calls = 0;
+    final store = WelderExamStore(captureOwner: () async {
+      if (++calls == 1) {
+        entered.complete();
+        await release.future;
+      }
+      return owner;
+    });
+    final oldStats = _someStats();
+    final newStats = oldStats
+        .withAnswer(drawExamQuestions(seed: 2, en: false).first, correct: true);
+    final older = store.save(oldStats);
+    await entered.future;
+    final newer = store.save(newStats);
+    final reading = const WelderExamStore().load();
+    await Future<void>.delayed(Duration.zero);
+    release.complete();
+    await Future.wait([older, newer]);
+    expect(encodeExamStats((await reading).stats), encodeExamStats(newStats));
+    expect(encodeExamStats((await const WelderExamStore().load()).stats),
+        encodeExamStats(newStats));
+  });
 
   test('pozorny sukces zapisu statystyk jest wykrywany', () async {
     SharedPreferences.setMockInitialValues({});
