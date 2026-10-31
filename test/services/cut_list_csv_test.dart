@@ -10,6 +10,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cut_list_app/data/elbow_takeouts.dart';
@@ -79,6 +80,7 @@ String _csv(List<Segment> segs,
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late _OfflineHttpOverrides offline;
   HttpOverrides? previous;
 
@@ -318,6 +320,35 @@ void main() {
       );
       expect(cutListCsvFileName('', DateTime(2026, 1, 2, 3, 4)),
           'CutList_projekt_20260102-0304.csv');
+    });
+
+    test('sharing twice in one minute preserves both CSV attachments', () async {
+      final dir = await Directory.systemTemp.createTemp('fwp-csv-share-');
+      const provider = MethodChannel('plugins.flutter.io/path_provider');
+      const share = MethodChannel('dev.fluttercommunity.plus/share');
+      final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final paths = <String>[];
+      messenger.setMockMethodCallHandler(provider, (_) async => dir.path);
+      messenger.setMockMethodCallHandler(share, (call) async {
+        paths.add(((call.arguments as Map)['paths'] as List).single as String);
+        return 'dev.fluttercommunity.plus/share/success';
+      });
+      addTearDown(() async {
+        messenger.setMockMethodCallHandler(provider, null);
+        messenger.setMockMethodCallHandler(share, null);
+        await dir.delete(recursive: true);
+      });
+      final stamp = DateTime(2026, 10, 31, 10);
+      final firstCsv = _csv([_seg(1, 1200)], name: 'Łącznik; "A"\nPiętro 1');
+      final secondCsv = _csv([_seg(1, 2500)], name: 'Zmiana');
+      await shareCutListCsvFile(csv: firstCsv, projectName: 'Łącznik', now: stamp);
+      await shareCutListCsvFile(csv: secondCsv, projectName: 'Łącznik', now: stamp);
+      expect(paths, hasLength(2));
+      expect(paths.toSet(), hasLength(2));
+      expect(await File(paths[0]).readAsBytes(),
+          [0xEF, 0xBB, 0xBF, ...utf8.encode(firstCsv)]);
+      expect(await File(paths[1]).readAsBytes(),
+          [0xEF, 0xBB, 0xBF, ...utf8.encode(secondCsv)]);
     });
 
     test('zapis: UTF-8 z BOM (Excel poprawnie czyta „ś” i „ł”)', () async {

@@ -201,7 +201,8 @@ Future<void> shareCutListCsvFile({
   DateTime? now,
 }) async {
   final name = cutListCsvFileName(projectName, now ?? DateTime.now());
-  final dir = await getTemporaryDirectory();
+  final tempDir = await getTemporaryDirectory();
+  final dir = await tempDir.createTemp('fwp_cutlist_csv_');
   final file = await writeCutListCsvFile(
     directory: dir,
     fileName: name,
