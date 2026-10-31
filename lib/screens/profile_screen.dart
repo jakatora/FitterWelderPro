@@ -524,8 +524,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title: context.tr(
             pl: 'Niepełne usunięcie danych', en: 'Data deletion incomplete'),
         body: '${_serverSummary(server)}\n\n${context.tr(
-          pl: 'Nie udało się usunąć z telefonu całej historii asystenta, oznaczeń zgłoszonych wiadomości, blokad autorów lub zgody skanera. Ponów usunięcie danych.',
-          en: 'Could not delete reported message markers, blocked authors, assistant history or scanner consent from this phone. Retry data deletion.',
+          pl: 'Nie udało się usunąć z telefonu całej historii asystenta, oznaczeń zgłoszonych wiadomości, blokad autorów, zgody skanera lub tożsamości i uprawnień spawacza. Ponów usunięcie danych.',
+          en: 'Could not delete reported message markers, blocked authors, assistant history, scanner consent or welder identity and qualifications from this phone. Retry data deletion.',
         )}',
       );
       return;
@@ -762,10 +762,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // weld_journal_screen dalej pre-wypełniał nimi pole „spawacz" — nowe
     // spoiny podpisywały się człowiekiem, który właśnie kazał się usunąć.
     // WelderIdentityService.clear() istniał od P0-08 i nie wołał go NIKT.
-    await WelderIdentityService.instance.clear();
+    final identityCleared = await WelderIdentityService.instance.clear();
     final blockedCleared = await BlockedUsers.instance.clear();
     if (resetIdentity) await PremiumService.instance.resetIdentity();
-    return scanCleared && historyCleared && reportedCleared && blockedCleared;
+    return scanCleared &&
+        historyCleared &&
+        reportedCleared &&
+        blockedCleared &&
+        identityCleared;
   }
 
   // ───────────────────────────── Zgody ─────────────────────────────────────

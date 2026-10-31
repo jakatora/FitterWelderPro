@@ -4,6 +4,7 @@
 // Atrapa HTTP — zero prawdziwych połączeń.
 
 import '../support/test_account.dart';
+import '../support/test_database.dart';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -54,6 +55,7 @@ void _seed() {
 Future<void> _pumpFor(WidgetTester tester, int frames) async {
   for (var i = 0; i < frames; i++) {
     await tester.pump(const Duration(milliseconds: 120));
+    await flushTestDatabase(tester);
   }
 }
 
@@ -94,6 +96,7 @@ class _FailedMarkerRemoval extends InMemorySharedPreferencesStore {
 }
 
 void main() {
+  useTestDatabase();
   useGuestAccount();
   final requests = <http.Request>[];
 
@@ -110,6 +113,34 @@ void main() {
   });
 
   tearDown(() => ApiClient.instance.debugSetClient(null));
+
+  testWidgets('profil ostrzega o nieusuniętej tożsamości spawacza',
+      (tester) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        'welder_identity_v1',
+        jsonEncode({
+          'stamp': 'AA',
+          'email': 'welder@example.test',
+          'gdprConsentAt': '2026-10-31T08:00:00.000',
+          'qualificationDeclaredAt': '2026-10-31T08:00:00.000',
+        }));
+    final values = await SharedPreferencesStorePlatform.instance.getAll();
+    final disk = _FailedMarkerRemoval(false, target: 'welder_identity_v1');
+    for (final entry in values.entries) {
+      await disk.setValue('String', entry.key, entry.value);
+    }
+    SharedPreferencesStorePlatform.instance = disk;
+    backend((_) async =>
+        _json(200, {'ok': true, 'deleted': {}, 'premium_retained': false}));
+    await _openProfile(tester);
+    await _confirmDelete(tester);
+    expect(find.text('Data deletion incomplete'), findsOneWidget);
+    expect(_inDialog('welder identity and qualifications'), findsOneWidget);
+    await prefs.reload();
+    expect(
+        prefs.getString('welder_identity_v1'), contains('welder@example.test'));
+  });
 
   testWidgets('nieutrwalone wycofanie skanera ostrzega i pozwala ponowić',
       (tester) async {

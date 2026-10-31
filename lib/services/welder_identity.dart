@@ -299,20 +299,55 @@ class WelderIdentityService {
     }));
   }
 
+  Future<void>? _writes;
+
+  Future<bool> _serialForOwner(LocalRecordOwner? expectedOwner,
+      Future<bool> Function(LocalRecordOwner owner) operation) {
+    _watchAccount();
+    // Capture at invocation, before waiting behind an earlier owner's write.
+    final captured = (expectedOwner == null
+            ? LocalRecordOwner.capture()
+            : Future.value(expectedOwner))
+        .then<LocalRecordOwner?>((owner) => owner,
+            onError: (Object _, StackTrace __) => null);
+    Future<bool> run() async {
+      try {
+        final owner = await captured;
+        if (owner == null) return false;
+        owner.requireCurrent();
+        return await operation(owner);
+      } catch (_) {
+        return false;
+      }
+    }
+
+    final previous = _writes;
+    final pending = previous == null ? run() : previous.then((_) => run());
+    final settled = pending.then<void>((_) {});
+    _writes = settled;
+    settled.then((_) {
+      if (identical(_writes, settled)) _writes = null;
+    });
+    return pending;
+  }
+
   /// Saves the identity of [expectedOwner] (the account the editor was
   /// opened for) or of the current account. Refused — `false`, nothing
   /// written — when that session is no longer current.
   Future<bool> save(WelderIdentity identity,
-      {LocalRecordOwner? expectedOwner}) async {
-    _watchAccount();
+          {LocalRecordOwner? expectedOwner}) =>
+      _serialForOwner(expectedOwner, (owner) => _saveNow(identity, owner));
+
+  Future<bool> _saveNow(WelderIdentity identity, LocalRecordOwner owner) async {
     try {
-      final owner = expectedOwner ?? await LocalRecordOwner.capture();
       owner.requireCurrent();
       final prefs = await SharedPreferences.getInstance();
       owner.requireCurrent();
-      final ok = await prefs.setString(
-          prefsKeyFor(owner), jsonEncode(identity.toJson()));
+      final raw = jsonEncode(identity.toJson());
+      final ok = await prefs.setString(prefsKeyFor(owner), raw);
       if (!ok) return false;
+      await prefs.reload();
+      if (prefs.getString(prefsKeyFor(owner)) != raw) return false;
       if (owner.isCurrent) {
         _snapshot = _IdentitySnapshot(owner, identity);
         _changeController.add(identity);
@@ -334,24 +369,21 @@ class WelderIdentityService {
   /// first (owner-bound transaction). If the session changed in between,
   /// nothing of the NEW account is touched and the identity is kept so the
   /// state is never half-deleted — returns false and the user can retry.
-  Future<bool> clear({LocalRecordOwner? expectedOwner}) async {
-    _watchAccount();
-    LocalRecordOwner owner;
-    try {
-      owner = expectedOwner ?? await LocalRecordOwner.capture();
-      owner.requireCurrent();
-    } catch (_) {
-      return false;
-    }
+  Future<bool> clear({LocalRecordOwner? expectedOwner}) =>
+      _serialForOwner(expectedOwner, _clearNow);
+
+  Future<bool> _clearNow(LocalRecordOwner owner) async {
     if (!await WelderQualificationService.instance.clearAll(owner: owner)) {
       return false;
     }
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(prefsKeyFor(owner));
+      owner.requireCurrent();
+      if (!await prefs.remove(prefsKeyFor(owner))) return false;
+      await prefs.reload();
+      if (prefs.containsKey(prefsKeyFor(owner))) return false;
     } catch (_) {
-      // Even if the remove fails, drop the in-memory cache so the user
-      // sees an empty form next time — they can re-save.
+      return false;
     }
     if (owner.isCurrent) {
       _snapshot = _IdentitySnapshot(owner, null);
