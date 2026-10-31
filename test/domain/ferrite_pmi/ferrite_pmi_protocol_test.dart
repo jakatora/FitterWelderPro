@@ -47,6 +47,54 @@ FerritePmiProtocol _protocol() => FerritePmiProtocol(
     );
 
 void main() {
+  test('duplicate measurement identities are retained without aliasing edits',
+      () {
+    final firstSite = {
+      'id': 's',
+      'loc': 'weld',
+      'readings': ['45']
+    };
+    final secondSite = {
+      'id': 's',
+      'loc': 'weld',
+      'label': 'other weld',
+      'readings': ['12']
+    };
+    final firstPmi =
+        const PmiItem(id: 'p', label: 'first', gradeId: '1.4404', readings: {
+      PmiElement.cr: '17',
+      PmiElement.ni: '11',
+      PmiElement.mo: '2.2',
+    }).toJson();
+    final secondPmi = {
+      ...firstPmi,
+      'label': 'second',
+      'r': {'cr': '12'}
+    };
+    final raw = const FerritePmiProtocol(
+            id: 'duplicates',
+            date: '2026-10-31',
+            customMin: '30',
+            customMax: '70')
+        .toJson();
+    raw['sites'] = [firstSite, secondSite];
+    raw['pmi'] = [firstPmi, secondPmi];
+    final restored = FerritePmiProtocol.fromJson(raw)!;
+    expect(restored.sites, hasLength(1));
+    expect(restored.pmi, hasLength(1));
+    expect(restored.unreadableSites, [secondSite]);
+    expect(restored.unreadablePmi, [secondPmi]);
+    expect(restored.droppedOnLoad, 2);
+    expect(restored.ferriteVerdict, FerriteVerdict.none);
+    final edited = restored
+        .copyWith(sites: [restored.sites.single.copyWith(label: 'edited')]);
+    final saved = FerritePmiProtocol.fromJson(edited.toJson())!;
+    expect(saved.unreadableSites, [secondSite]);
+    expect(saved.unreadablePmi, [secondPmi]);
+    expect(saved.droppedOnLoad, 0);
+    expect(saved.ferriteVerdict, FerriteVerdict.none);
+  });
+
   test('opaque-only data is retained, and known failures remain failures', () {
     const opaque = FerritePmiProtocol(
         id: 'r',

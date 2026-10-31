@@ -410,11 +410,14 @@ class FerritePmiProtocol {
     }
 
     final sites = <FerriteSite>[];
+    // The editor keys controllers and updates by id. A second entry with the
+    // same id must retain its original data without sharing editable fields.
+    final siteIds = <String>{};
     final unreadableSites = <Object?>[];
     for (final e in entries(raw['sites'], unreadableSites)) {
       if (retained(e, unreadableSites)) continue;
       final (site, lost) = FerriteSite.fromJson(e);
-      if (site == null) {
+      if (site == null || !siteIds.add(site.id)) {
         unreadableSites.add(e);
         dropped++;
       } else {
@@ -423,11 +426,12 @@ class FerritePmiProtocol {
       }
     }
     final pmi = <PmiItem>[];
+    final pmiIds = <String>{};
     final unreadablePmi = <Object?>[];
     for (final e in entries(raw['pmi'], unreadablePmi)) {
       if (retained(e, unreadablePmi)) continue;
       final (p, lost) = PmiItem.fromJson(e);
-      if (p == null) {
+      if (p == null || !pmiIds.add(p.id)) {
         unreadablePmi.add(e);
         dropped++;
       } else {

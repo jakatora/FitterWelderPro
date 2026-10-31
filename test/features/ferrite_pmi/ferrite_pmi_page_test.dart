@@ -158,6 +158,70 @@ void main() {
 
   for (final language in AppLanguage.values) {
     testWidgets(
+        'editing a restored duplicate cannot overwrite the other measurement: $language',
+        (tester) async {
+      final duplicateSite = {
+        'id': 's',
+        'loc': 'weld',
+        'label': 'second weld',
+        'readings': ['12']
+      };
+      final duplicatePmi = const PmiItem(
+          id: 'p',
+          label: 'second tube',
+          gradeId: '1.4404',
+          readings: {PmiElement.cr: '12'}).toJson();
+      SharedPreferences.setMockInitialValues({
+        FerritePmiStore.key: jsonEncode([
+          {
+            ...const FerritePmiProtocol(
+                    id: 'duplicate',
+                    date: '2026-10-31',
+                    customMin: '30',
+                    customMax: '70')
+                .toJson(),
+            'sites': [
+              {
+                'id': 's',
+                'loc': 'weld',
+                'label': 'first weld',
+                'readings': ['45']
+              },
+              duplicateSite,
+            ],
+            'pmi': [
+              const PmiItem(
+                  id: 'p',
+                  label: 'first tube',
+                  gradeId: '1.4404',
+                  readings: {
+                    PmiElement.cr: '17',
+                    PmiElement.ni: '11',
+                    PmiElement.mo: '2.2'
+                  }).toJson(),
+              duplicatePmi
+            ],
+          }
+        ])
+      });
+      await _pump(tester, language: language);
+      await _tapKey(tester, 'fp-open-0');
+      await _enter(tester, 'fp-site-0-label', 'edited weld');
+      await _tapKey(tester, 'fp-part-pmi');
+      await _enter(tester, 'fp-pmi-0-label', 'edited tube');
+      final saved = (await const FerritePmiStore().load()).single;
+      expect(saved.sites.map((s) => s.label), ['edited weld']);
+      expect(saved.pmi.map((p) => p.label), ['edited tube']);
+      expect(saved.unreadableSites, [duplicateSite]);
+      expect(saved.unreadablePmi, [duplicatePmi]);
+      expect(saved.ferriteVerdict, FerriteVerdict.none);
+      expect(saved.incomplete, isTrue);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final language in AppLanguage.values) {
+    testWidgets(
         'opaque measurements stay visible until explicit removal: $language',
         (tester) async {
       SharedPreferences.setMockInitialValues({
