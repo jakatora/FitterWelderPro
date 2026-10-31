@@ -39,6 +39,22 @@ class BlockedUsers {
 
   final Map<String, String> _byId = <String, String>{};
   bool _hydrated = false;
+  bool _readFailed = false;
+  Future<void>? _loading;
+  Future<void>? _writes;
+
+  Future<T> _serial<T>(Future<T> Function() operation) {
+    final previous = _writes;
+    final result =
+        previous == null ? operation() : previous.then((_) => operation());
+    final settled =
+        result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _writes = settled;
+    unawaited(settled.then((_) {
+      if (identical(_writes, settled)) _writes = null;
+    }));
+    return result;
+  }
 
   final _changes = StreamController<List<BlockedUser>>.broadcast();
   Stream<List<BlockedUser>> get changes => _changes.stream;
@@ -58,51 +74,91 @@ class BlockedUsers {
       .toList()
     ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
-  Future<void> load() async {
-    if (_hydrated) return;
+  Future<void> load() {
+    if (_hydrated) return Future.value();
+    return _loading ??= _loadNow().whenComplete(() => _loading = null);
+  }
+
+  Future<void> _loadNow() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
       final raw = prefs.getString(_kKey);
       if (raw != null && raw.isNotEmpty) {
         final decoded = jsonDecode(raw);
         if (decoded is Map) {
+          _readFailed = decoded.entries
+              .any((e) => e.key is! String || e.value is! String);
           _byId
             ..clear()
-            ..addAll(decoded.map((k, v) => MapEntry('$k', '$v')));
+            ..addEntries(decoded.entries
+                .where((e) => e.key is String && e.value is String)
+                .map((e) => MapEntry(e.key as String, e.value as String)));
+        } else {
+          _readFailed = true;
         }
       }
     } catch (_) {
+      _readFailed = true;
       _byId.clear();
     } finally {
       _hydrated = true;
     }
   }
 
-  Future<void> block(String deviceId, String name) async {
-    if (deviceId.isEmpty) return;
-    _byId[deviceId] = name.trim().isEmpty ? deviceId : name.trim();
-    await _persist();
-  }
+  Future<bool> block(String deviceId, String name) => _serial(() async {
+        if (deviceId.isEmpty) return false;
+        await load();
+        _byId[deviceId] = name.trim().isEmpty ? deviceId : name.trim();
+        return _persist();
+      });
 
-  Future<void> unblock(String deviceId) async {
-    _byId.remove(deviceId);
-    await _persist();
-  }
+  Future<bool> unblock(String deviceId) => _serial(() async {
+        await load();
+        _byId.remove(deviceId);
+        return _persist();
+      });
 
-  Future<void> _persist() async {
+  Future<bool> _persist() async {
     _changes.add(all);
+    if (_readFailed) return false;
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_kKey, jsonEncode(_byId));
+      final encoded = jsonEncode(_byId);
+      if (!await prefs.setString(_kKey, encoded)) return false;
+      await prefs.reload();
+      return prefs.getString(_kKey) == encoded;
     } catch (_) {
       // Blokada działa w tej sesji nawet gdy zapis padnie.
+      return false;
     }
   }
+
+  /// Usuwa całą listę, także jeśli jej zapis jest nieczytelny.
+  Future<bool> clear() => _serial(() async {
+        final loading = _loading;
+        if (loading != null) await loading;
+        _byId.clear();
+        _hydrated = true;
+        _changes.add(all);
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final removed = await prefs.remove(_kKey);
+          await prefs.reload();
+          _readFailed = !removed || prefs.containsKey(_kKey);
+        } catch (_) {
+          _readFailed = true;
+        }
+        return !_readFailed;
+      });
 
   /// Tylko do testów.
   void resetForTest() {
     _byId.clear();
     _hydrated = false;
+    _readFailed = false;
+    _loading = null;
+    _writes = null;
   }
 }
 

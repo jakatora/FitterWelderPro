@@ -175,6 +175,24 @@ void main() {
     await close(tester);
   });
 
+  testWidgets('nietrwała blokada autora pokazuje ostrzeżenie', (tester) async {
+    await (await SharedPreferences.getInstance())
+        .setString('blocked_authors_v1', '{broken');
+    await openRoom(tester);
+    await tester.tap(find.byTooltip('Message actions: Zbigniew Hałas'));
+    await pumpFor(tester, 4);
+    await tester.tap(find.text('Block author'));
+    await pumpFor(tester, 4);
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Block'));
+    await pumpFor(tester, 6);
+    expect(find.text('Kto ma P91?'), findsNothing);
+    expect(
+        find.text(
+            'Blocked for this session. Could not save the block for later.'),
+        findsOneWidget);
+    await close(tester);
+  });
+
   testWidgets('zgłoszenie bez trwałego ukrycia pokazuje ostrzeżenie',
       (tester) async {
     final prefs = await SharedPreferences.getInstance();

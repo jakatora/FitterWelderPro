@@ -81,11 +81,13 @@ Finder _inDialog(String text) => find.descendant(
     );
 
 class _FailedMarkerRemoval extends InMemorySharedPreferencesStore {
-  _FailedMarkerRemoval(this.refuse) : super.empty();
+  _FailedMarkerRemoval(this.refuse, {this.target = ReportedMessages.prefsKey})
+      : super.empty();
+  final String target;
   final bool refuse;
   @override
   Future<bool> remove(String key) async {
-    if (key == 'flutter.${ReportedMessages.prefsKey}') return !refuse;
+    if (key == 'flutter.$target') return !refuse;
     return super.remove(key);
   }
 }
@@ -133,6 +135,42 @@ void main() {
       expect(find.byType(ProfileScreen), findsOneWidget);
     });
   }
+
+  testWidgets('nietrwałe odblokowanie pokazuje ostrzeżenie', (tester) async {
+    await (await SharedPreferences.getInstance())
+        .setString('blocked_authors_v1', '{"old":"Starszy","bad":42}');
+    BlockedUsers.instance.resetForTest();
+    await _openProfile(tester);
+    final button = find.text('Unblock');
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await _pumpFor(tester, 6);
+    expect(
+        find.text(
+            'Unblocked for this session. Could not save the change for later.'),
+        findsOneWidget);
+  });
+
+  testWidgets('profil ostrzega o nieusuniętych blokadach autorów',
+      (tester) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('blocked_authors_v1', '{broken');
+    BlockedUsers.instance.resetForTest();
+    final values = await SharedPreferencesStorePlatform.instance.getAll();
+    final disk = _FailedMarkerRemoval(true, target: 'blocked_authors_v1');
+    for (final entry in values.entries) {
+      await disk.setValue('String', entry.key, entry.value);
+    }
+    SharedPreferencesStorePlatform.instance = disk;
+    backend((_) async =>
+        _json(200, {'ok': true, 'deleted': {}, 'premium_retained': false}));
+    await _openProfile(tester);
+    await _confirmDelete(tester);
+    expect(find.text('Data deletion incomplete'), findsOneWidget);
+    expect(_inDialog('blocked authors'), findsOneWidget);
+    await prefs.reload();
+    expect(prefs.getString('blocked_authors_v1'), '{broken');
+  });
 
   testWidgets('okno potwierdzenia mówi o serwerze i o telefonie',
       (tester) async {

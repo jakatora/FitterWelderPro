@@ -784,15 +784,16 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
     );
     if (ok != true || !mounted) return;
     // Nowy backend: author_id (stabilny pseudonim). Stary: device_id.
-    await BlockedUsers.instance.block(m.blockKey, m.nickname);
+    final persisted = await BlockedUsers.instance.block(m.blockKey, m.nickname);
     if (!mounted) return;
     Haptic.saved();
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(context.tr(
-        pl: 'Zablokowano ${m.nickname}.',
-        en: 'Blocked ${m.nickname}.',
-      )),
+      content: Text(persisted
+          ? context.tr(pl: 'Zablokowano ${m.nickname}.', en: 'Blocked ${m.nickname}.')
+          : context.tr(
+              pl: 'Zablokowano w tej sesji. Nie udało się zapisać blokady na później.',
+              en: 'Blocked for this session. Could not save the block for later.')),
     ));
   }
 

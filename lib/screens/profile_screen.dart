@@ -524,8 +524,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title: context.tr(
             pl: 'Niepełne usunięcie danych', en: 'Data deletion incomplete'),
         body: '${_serverSummary(server)}\n\n${context.tr(
-          pl: 'Nie udało się usunąć z telefonu oznaczeń zgłoszonych wiadomości. Ponów usunięcie danych.',
-          en: 'Could not delete reported message markers from this phone. Retry data deletion.',
+          pl: 'Nie udało się usunąć z telefonu wszystkich oznaczeń zgłoszonych wiadomości lub blokad autorów. Ponów usunięcie danych.',
+          en: 'Could not delete reported message markers or blocked authors from this phone. Retry data deletion.',
         )}',
       );
       return;
@@ -763,11 +763,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // spoiny podpisywały się człowiekiem, który właśnie kazał się usunąć.
     // WelderIdentityService.clear() istniał od P0-08 i nie wołał go NIKT.
     await WelderIdentityService.instance.clear();
-    for (final u in BlockedUsers.instance.all) {
-      await BlockedUsers.instance.unblock(u.deviceId);
-    }
+    final blockedCleared = await BlockedUsers.instance.clear();
     if (resetIdentity) await PremiumService.instance.resetIdentity();
-    return reportedCleared;
+    return reportedCleared && blockedCleared;
   }
 
   // ───────────────────────────── Zgody ─────────────────────────────────────
@@ -894,15 +892,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _unblock(BlockedUser u) async {
-    await BlockedUsers.instance.unblock(u.deviceId);
+    final persisted = await BlockedUsers.instance.unblock(u.deviceId);
     if (!mounted) return;
     Haptic.saved();
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(context.tr(
-        pl: 'Odblokowano ${u.name}.',
-        en: 'Unblocked ${u.name}.',
-      )),
+      content: Text(persisted
+          ? context.tr(pl: 'Odblokowano ${u.name}.', en: 'Unblocked ${u.name}.')
+          : context.tr(
+              pl: 'Odblokowano w tej sesji. Nie udało się zapisać zmiany na później.',
+              en: 'Unblocked for this session. Could not save the change for later.')),
     ));
   }
 
