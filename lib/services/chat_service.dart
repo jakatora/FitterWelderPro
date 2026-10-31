@@ -396,7 +396,12 @@ class ChatService {
       final profile = await UserProfileService.instance.get();
       await LegalConsent.instance.load();
       if (profile == null || !LegalConsent.instance.isAccepted) return null;
-      return await PremiumService.instance.registerDevice();
+      final result = await PremiumService.instance.registerDevice(
+        canRegister: () =>
+            UserProfileService.instance.hasProfile &&
+            LegalConsent.instance.isAccepted,
+      );
+      return result == DeviceRegistration.cancelled ? null : result;
     } catch (e) {
       // registerDevice sam nie rzuca; to łapie awarię odczytu profilu/zgody.
       return null;

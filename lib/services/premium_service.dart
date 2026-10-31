@@ -95,6 +95,9 @@ class PremiumStatus {
 
 /// Wynik `POST /api/fitter/device/register`.
 enum DeviceRegistration {
+  /// Access was withdrawn before the HTTP request; nothing was sent.
+  cancelled,
+
   /// 201 — serwer właśnie powiązał nasz sekret z device_id.
   registered,
 
@@ -306,13 +309,14 @@ class PremiumService {
   /// kolejne wywołanie próbuje ponownie). NIE woła jej nic przed zgodą na
   /// zasady czatu — patrz `ChatService.registerDeviceIfConsented`. Nigdy nie
   /// rzuca: 404 starego backendu i brak sieci kończą się po cichu.
-  Future<DeviceRegistration> registerDevice() {
+  Future<DeviceRegistration> registerDevice({bool Function()? canRegister}) {
     final pending = _registration;
     if (pending != null) return pending;
-    final attempt = _register();
+    final attempt = _register(canRegister: canRegister);
     _registration = attempt;
     attempt.then((result) {
-      if (result == DeviceRegistration.failed &&
+      if ((result == DeviceRegistration.failed ||
+              result == DeviceRegistration.cancelled) &&
           identical(_registration, attempt)) {
         _registration = null;
       }
@@ -320,7 +324,7 @@ class PremiumService {
     return attempt;
   }
 
-  Future<DeviceRegistration> _register() async {
+  Future<DeviceRegistration> _register({bool Function()? canRegister}) async {
     try {
       final headers = await authHeaders();
       bool sameIdentity() =>
@@ -328,6 +332,9 @@ class PremiumService {
           _deviceId == headers[kDeviceIdHeader] &&
           _installSecret == headers[kInstallSecretHeader];
       if (!sameIdentity()) return DeviceRegistration.failed;
+      if (canRegister != null && !canRegister()) {
+        return DeviceRegistration.cancelled;
+      }
       final body = await ApiClient.instance.postJson(
         BackendConfig.deviceRegister,
         body: {'device_id': headers[kDeviceIdHeader]},

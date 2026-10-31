@@ -1,5 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:cut_list_app/services/chat_service.dart';
+import 'package:cut_list_app/services/legal_consent.dart';
+import 'package:cut_list_app/services/user_profile.dart';
+import 'package:cut_list_app/legal/legal_texts.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:cut_list_app/services/api_client.dart';
@@ -78,6 +82,55 @@ class DelayedAuthor extends InMemorySharedPreferencesStore {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   tearDown(() => ApiClient.instance.debugSetClient(null));
+  for (final clearProfile in [false, true]) {
+    test(
+        'wycofanie dostępu podczas tworzenia pary blokuje HTTP: profil=$clearProfile',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final disk = DelayedCreation();
+      await disk.setValue('String', 'flutter.user_profile_v1',
+          jsonEncode({'firstName': 'Jan', 'lastName': 'Nowak'}));
+      await disk.setValue(
+          'String',
+          'flutter.legal_consent_v1',
+          jsonEncode({
+            'version': kLegalVersion,
+            'acceptedAt': '2026-10-31T08:00:00.000'
+          }));
+      SharedPreferencesStorePlatform.instance = disk;
+      PremiumService.instance.resetForTest();
+      UserProfileService.instance.resetForTest();
+      LegalConsent.instance.resetForTest();
+      final requests = <http.Request>[];
+      ApiClient.instance.debugSetClient(MockClient((request) async {
+        requests.add(request);
+        return http.Response(
+            jsonEncode({'registered': true, 'author_id': 'a_test'}), 201,
+            headers: {'content-type': 'application/json'});
+      }));
+      final registering = ChatService.instance.registerDeviceIfConsented();
+      await disk.writeEntered.future;
+      if (clearProfile) {
+        await UserProfileService.instance.clear();
+      } else {
+        await LegalConsent.instance.clear();
+      }
+      disk.writeRelease.complete();
+      final result = await registering;
+      expect(requests, isEmpty);
+      expect(result, isNull);
+      if (clearProfile) {
+        await UserProfileService.instance
+            .save(const UserProfile(firstName: 'Jan', lastName: 'Nowak'));
+      } else {
+        await LegalConsent.instance.accept();
+      }
+      expect(await ChatService.instance.registerDeviceIfConsented(),
+          DeviceRegistration.registered);
+      expect(requests, hasLength(1));
+    });
+  }
+
   test('reset czeka na rozpoczęty zapis autora i usuwa go', () async {
     SharedPreferences.setMockInitialValues({});
     final disk = DelayedAuthor();
