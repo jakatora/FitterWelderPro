@@ -715,6 +715,7 @@ class HotWorkPermit {
   /// — są pomijane i liczone w [droppedOnLoad].
   static HotWorkPermit? fromJson(Object? raw, {DateTime? now}) {
     if (raw is! Map) return null;
+    if (raw.containsKey('v') && raw['v'] != 1) return null;
     final id = _s(raw['id']);
     final date = _s(raw['date']);
     if (id.isEmpty || date.isEmpty) return null;

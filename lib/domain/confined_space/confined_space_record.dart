@@ -633,6 +633,7 @@ class ConfinedSpaceRecord {
   /// [droppedOnLoad]. Pomiary bez identyfikatora dostają go z pozycji.
   static ConfinedSpaceRecord? fromJson(Object? raw, {DateTime? now}) {
     if (raw is! Map) return null;
+    if (raw.containsKey('v') && raw['v'] != 1) return null;
     final id = _s(raw['id']);
     final date = _s(raw['date']);
     if (id.isEmpty || date.isEmpty) return null;

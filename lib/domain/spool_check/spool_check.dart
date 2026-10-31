@@ -781,6 +781,7 @@ class SpoolCheck {
   /// werdyktu); wszystko liczone w [damagedOnLoad].
   static SpoolCheck? fromJson(Object? raw) {
     if (raw is! Map) return null;
+    if (raw.containsKey('v') && raw['v'] != 1) return null;
     final id = _str(raw['id']);
     final date = _str(raw['date']);
     if (id.isEmpty || date.isEmpty) return null;
