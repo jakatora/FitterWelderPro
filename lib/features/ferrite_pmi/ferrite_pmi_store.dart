@@ -30,6 +30,7 @@ class FerritePmiLoad {
   final bool backupFailed;
   final int droppedProtocols;
   final int droppedItems;
+  final int recoveredProtocols;
 
   const FerritePmiLoad(
     this.protocols, {
@@ -38,9 +39,14 @@ class FerritePmiLoad {
     this.backupFailed = false,
     this.droppedProtocols = 0,
     this.droppedItems = 0,
+    this.recoveredProtocols = 0,
   });
 
-  bool get damaged => unreadable || droppedProtocols > 0 || droppedItems > 0;
+  bool get damaged =>
+      unreadable ||
+      droppedProtocols > 0 ||
+      droppedItems > 0 ||
+      recoveredProtocols > 0;
 }
 
 /// Historia pełna — nowego protokołu nie zapisano.
@@ -106,6 +112,7 @@ class FerritePmiStore {
         backupFailed: !backedUp,
         droppedProtocols: parsed.droppedProtocols,
         droppedItems: parsed.droppedItems,
+        recoveredProtocols: parsed.recoveredProtocols,
       );
     } catch (_) {
       final backedUp = await _backup(prefs, raw);

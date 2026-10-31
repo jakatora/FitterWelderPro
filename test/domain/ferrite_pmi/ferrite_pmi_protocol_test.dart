@@ -47,6 +47,32 @@ FerritePmiProtocol _protocol() => FerritePmiProtocol(
     );
 
 void main() {
+  test('protocol recovery is deterministic and avoids all original identities',
+      () {
+    const p = FerritePmiProtocol(id: 'same', date: '2026-10-31', title: 'A');
+    final raw = [
+      p.toJson(),
+      p.copyWith(title: 'B').toJson(),
+      p.copyWith(id: 'same-recovered-1', title: 'C').toJson(),
+      p.copyWith(title: 'D').toJson()
+    ];
+    final parsed = ferritePmiParse(raw);
+    expect(parsed.recoveredProtocols, 2);
+    expect(parsed.damaged, isTrue);
+    expect(parsed.droppedProtocols, 0);
+    expect(parsed.protocols.map((p) => p.id),
+        ['same', 'same-recovered-2', 'same-recovered-1', 'same-recovered-3']);
+    for (var i = 0; i < raw.length; i++) {
+      expect({...parsed.protocols[i].toJson(), 'id': raw[i]['id']}, raw[i],
+          reason: 'Recovery changes only the internal protocol identity');
+    }
+    expect(ferritePmiToJson(ferritePmiParse(raw).protocols),
+        ferritePmiToJson(parsed.protocols));
+    final reloaded = ferritePmiParse(ferritePmiToJson(parsed.protocols));
+    expect(reloaded.damaged, isFalse);
+    expect(reloaded.recoveredProtocols, 0);
+  });
+
   test(
       'unknown chemical readings or uncertainties cannot disappear into conformity',
       () {

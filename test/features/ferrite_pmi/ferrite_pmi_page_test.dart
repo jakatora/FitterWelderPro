@@ -157,6 +157,37 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   for (final language in AppLanguage.values) {
+    testWidgets('duplicate protocols can be edited independently: $language',
+        (tester) async {
+      const p = FerritePmiProtocol(
+          id: 'same', date: '2026-10-31', title: 'First protocol');
+      SharedPreferences.setMockInitialValues({
+        FerritePmiStore.key: jsonEncode([
+          p.toJson(),
+          p.copyWith(title: 'Second protocol').toJson(),
+        ])
+      });
+      await _pump(tester, language: language);
+      expect(find.text('First protocol'), findsOneWidget);
+      expect(find.text('Second protocol'), findsOneWidget);
+      expect(
+          find.textContaining(language == AppLanguage.en
+              ? 'kept separately: 1'
+              : 'zachowane osobno: 1'),
+          findsOneWidget);
+      await tester.tap(find.text('Second protocol'));
+      await tester.pumpAndSettle();
+      await _enter(tester, 'fp-title', 'Second edited');
+      final saved = await const FerritePmiStore().load();
+      expect(saved.map((p) => p.title),
+          containsAll(['First protocol', 'Second edited']));
+      expect(saved.map((p) => p.id).toSet(), hasLength(2));
+      expect((await const FerritePmiStore().loadReport()).damaged, isFalse);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final language in AppLanguage.values) {
     for (final field in ['r', 'u']) {
       testWidgets(
           'unknown PMI element remains visible after editing and sharing: $language/$field',

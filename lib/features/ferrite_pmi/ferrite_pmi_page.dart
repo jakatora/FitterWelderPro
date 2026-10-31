@@ -306,12 +306,14 @@ class _FerritePmiPageState extends State<_FerritePmiBody> {
                                   '${_damage!.droppedProtocols} protokołów i '
                                   '${_damage!.droppedItems} elementów (miejsc, '
                                   'odczytów, pozycji). Kopia surowego zapisu została '
-                                  'w telefonie.',
+                                  'w telefonie. Protokoły z powtórzonym identyfikatorem '
+                                  'zachowane osobno: ${_damage!.recoveredProtocols}.',
                               en: 'Part of the saved data was unreadable: '
                                   '${_damage!.droppedProtocols} record(s) and '
                                   '${_damage!.droppedItems} item(s) (locations, '
                                   'readings, PMI items) skipped. A raw copy is kept '
-                                  'on the phone.'),
+                                  'on the phone. Records with duplicate identifiers '
+                                  'kept separately: ${_damage!.recoveredProtocols}.'),
             ),
           QuoteNotice(
             icon: Icons.gavel_outlined,

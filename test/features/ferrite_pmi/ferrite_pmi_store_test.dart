@@ -43,6 +43,47 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const store = FerritePmiStore();
 
+  test('duplicate identity recovery cannot overwrite data without a raw backup',
+      () async {
+    final raw =
+        jsonEncode([_p(1).toJson(), _p(1).copyWith(title: 'Other').toJson()]);
+    SharedPreferences.setMockInitialValues({
+      FerritePmiStore.key: raw,
+      FerritePmiStore.corruptBackupKey: 'previous damage',
+      FerritePmiStore.corruptLastBackupKey: 'another previous damage',
+    });
+    final report = await store.loadReport();
+    expect(report.recoveredProtocols, 1);
+    expect(report.backupFailed, isTrue);
+    expect(report.protocols, hasLength(2));
+    await expectLater(
+        store.upsert(report.protocols.first.copyWith(notes: 'edit')),
+        throwsStateError);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(FerritePmiStore.key), raw);
+  });
+
+  test('editing or deleting a duplicate protocol cannot erase its sibling',
+      () async {
+    final first = _p(1).copyWith(title: 'First');
+    final second = _p(1).copyWith(title: 'Second');
+    final raw = jsonEncode([first.toJson(), second.toJson()]);
+    SharedPreferences.setMockInitialValues({FerritePmiStore.key: raw});
+    final loaded = await store.load();
+    expect(loaded.map((p) => p.id).toSet(), hasLength(2));
+    final a = loaded.singleWhere((p) => p.title == 'First');
+    final b = loaded.singleWhere((p) => p.title == 'Second');
+    await store.upsert(a.copyWith(title: 'Edited'));
+    expect((await store.load()).map((p) => p.title),
+        containsAll(['Edited', 'Second']));
+    await store.delete(a.id);
+    expect((await store.load()).single.toJson(), b.toJson());
+    await store.restore(a);
+    expect((await store.load()).map((p) => p.id).toSet(), hasLength(2));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(FerritePmiStore.corruptBackupKey), raw);
+  });
+
   test('opaque records survive repeated edits without filling backup slots',
       () async {
     final raw = jsonEncode([

@@ -302,6 +302,7 @@ class FerritePmiProtocol {
   static const Object _keep = Object();
 
   FerritePmiProtocol copyWith({
+    String? id,
     String? date,
     String? title,
     String? inspector,
@@ -322,7 +323,7 @@ class FerritePmiProtocol {
     Object? droppedOnLoad = _keep,
   }) =>
       FerritePmiProtocol(
-        id: id,
+        id: id ?? this.id,
         date: date ?? this.date,
         title: title ?? this.title,
         inspector: inspector ?? this.inspector,
@@ -471,11 +472,14 @@ class FerritePmiParse {
   final List<FerritePmiProtocol> protocols;
   final int droppedProtocols;
   final int droppedItems;
+  final int recoveredProtocols;
 
   const FerritePmiParse(
-      this.protocols, this.droppedProtocols, this.droppedItems);
+      this.protocols, this.droppedProtocols, this.droppedItems,
+      {this.recoveredProtocols = 0});
 
-  bool get damaged => droppedProtocols > 0 || droppedItems > 0;
+  bool get damaged =>
+      droppedProtocols > 0 || droppedItems > 0 || recoveredProtocols > 0;
 }
 
 /// Lista protokołów z JSON. Nie-lista → [FormatException] (zapis
@@ -483,18 +487,36 @@ class FerritePmiParse {
 FerritePmiParse ferritePmiParse(Object? raw) {
   if (raw is! List) throw const FormatException('not a list');
   final out = <FerritePmiProtocol>[];
+  // Reserve every original id, including ids later in the input, so generated
+  // identities never collide with another saved protocol. Only metadata changes.
+  final reservedIds = <String>{
+    for (final e in raw)
+      if (e is Map && e['id'] is String) e['id'] as String,
+  };
+  final seen = <String>{};
+  var recovered = 0;
   var droppedProtocols = 0;
   var droppedItems = 0;
   for (final e in raw) {
-    final p = FerritePmiProtocol.fromJson(e);
+    var p = FerritePmiProtocol.fromJson(e);
     if (p == null) {
       droppedProtocols++;
     } else {
+      if (!seen.add(p.id)) {
+        var suffix = 1;
+        String id;
+        do {
+          id = '${p.id}-recovered-${suffix++}';
+        } while (!reservedIds.add(id));
+        p = p.copyWith(id: id);
+        recovered++;
+      }
       out.add(p);
       droppedItems += p.droppedOnLoad;
     }
   }
-  return FerritePmiParse(out, droppedProtocols, droppedItems);
+  return FerritePmiParse(out, droppedProtocols, droppedItems,
+      recoveredProtocols: recovered);
 }
 
 List<Map<String, Object?>> ferritePmiToJson(List<FerritePmiProtocol> list) =>
