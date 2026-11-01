@@ -1,5 +1,22 @@
 # QA-COCKPIT — FitterWelderPro
 
+## Aktualna weryfikacja — 2026-11-02
+
+Kod aplikacji: `ccd6d594eb7a479ff2a4f2786ba05df379fbf765`.
+
+- Pełne `flutter test --no-pub --reporter json`: **10 241 testów zaliczonych, 657 zestawów, 0 błędów**, zakończenie `success: true`, 277,963 s.
+- Pełne `flutter analyze --no-pub`: **No issues found**, 79,6 s. Log: `full-analyze-ccd6d59.log` w katalogu artefaktów poniżej.
+- Przebieg obejmuje również ostatnie poprawki anulowania oczekującego odczytu głosowego oraz lokalnych obliczeń po błędzie rozmowy AI.
+- Raport maszynowy: `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/full-suite-ccd6d59-summary.json`; surowy zapis: `full-suite-ccd6d59.jsonl` w tym samym katalogu.
+- Testy uruchomiono na Windows, z atrapami wywołań platformowych i sieciowych. Wynik nie dowodzi poprawności dowolnej odpowiedzi AI, aktualności całej wiedzy technicznej ani działania mikrofonu na fizycznym telefonie.
+- Osobny automatyczny test uruchomienia i nawigacji APK **0.5.14** na fizycznym Pixelu 8 zakończył się powodzeniem. Ta starsza binarka nie zawiera jeszcze późniejszych poprawek `aa1b253` i `ccd6d59`.
+- iOS **0.5.14 (1081)**: ostatnia potwierdzona kontrola Apple z 2026-11-01T23:23:59Z wykazała `VALID`, wewnętrznie `IN_BETA_TESTING`, zewnętrznie `WAITING_FOR_BETA_REVIEW`.
+
+Poniższy raport z 2026-06-16 jest archiwalny. Jego liczby, lista brakujących testów i wersje narzędzi opisują ówczesny stan; nie stanowią oceny aktualnego kodu.
+
+---
+
+
 **Data audytu:** 2026-06-16
 **Cel biznesowy:** mniej błędów → lepsze oceny w sklepach i niższy churn → wyższy przychód.
 **Zakres tej tury:** wyłącznie DIAGNOZA (`flutter analyze` + `flutter test`). Kod aplikacji NIE był zmieniany.
