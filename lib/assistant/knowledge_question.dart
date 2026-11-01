@@ -58,7 +58,11 @@ bool isKnowledgeQuestion(Utterance u) =>
     !RegExp(r'co (?:potrafisz|umiesz)|w czym pomozesz|what can you do')
         .hasMatch(u.folded) &&
     (_question.hasMatch(_conversationText(u)) ||
-        _helpUnderstand.hasMatch(_conversationText(u)));
+        _helpUnderstand.hasMatch(_conversationText(u)) ||
+        // Written elliptical questions still belong to the conversation;
+        // explicit action verbs above retain their native workflow.
+        (u.raw.trimRight().endsWith('?') &&
+            RegExp(r'^(?:a|and)\s+\S').hasMatch(u.folded)));
 
 bool isExplanationQuestion(Utterance u) =>
     _helpUnderstand.hasMatch(_conversationText(u)) ||

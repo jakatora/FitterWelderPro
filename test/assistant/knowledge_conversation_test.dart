@@ -209,6 +209,8 @@ void main() {
   });
 
   for (final followUp in [
+    'A 316L?',
+    'And stainless steel?',
     'A dla aluminium?',
     'A jeśli spoina ma pory?',
     'What about aluminium?',

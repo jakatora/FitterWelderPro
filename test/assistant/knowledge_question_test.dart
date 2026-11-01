@@ -51,6 +51,8 @@ void main() {
     'Wyszukaj w internecie informacje o spawaniu hybrydowym',
     'Search the web for hybrid welding information',
     'A dla aluminium?',
+    'A 316L?',
+    'And stainless steel?',
     'A jeśli spoina ma pory?',
     'And for thicker material?',
     'A jak spawać TIG?',
