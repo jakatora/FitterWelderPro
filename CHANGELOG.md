@@ -2,6 +2,13 @@
 
 All notable changes per AGENTS.md directive. Newest first.
 
+## 0.5.15 — 2026-11-02
+
+- Stopping read-aloud while the platform prepares its language prevents the delayed reply from starting. A newer pending reply supersedes an older one.
+- Complete local calculator requests work after a knowledge clarification encounters a connection failure or offline fallback. Obsolete Retry actions cannot restart the previous question after a native command.
+- Includes the prior 0.5.14 conversation fix: nominal-size follow-ups such as “A NPS 1?” continue the knowledge conversation; local calculations remain available after the AI daily limit.
+- Full pre-release source baseline: 10,241 automated Flutter tests across 657 suites passed; full static analysis clean. Hardware microphone and full AI conversation on a physical device remain unverified.
+
 ## 0.5.9 — 2026-11-01
 
 - Changing stock length or joining gap invalidates only saw ticks whose split-piece lengths changed; failed edits roll back tick changes too.
