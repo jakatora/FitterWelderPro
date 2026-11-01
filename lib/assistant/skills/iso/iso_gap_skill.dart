@@ -111,6 +111,10 @@ class IsoGapSkill extends AssistantSkill {
   /// Normalize only a request addressed to the assistant. Questions about
   /// permission, instructions and hypothetical changes remain questions.
   Utterance _requestedAction(Utterance original) {
+    // A conversational connector does not change the requested operation.
+    // Keep the raw remainder so units, signs and numeric checks stay intact.
+    original = original.withRaw(original.raw.trimLeft().replaceFirst(
+        RegExp(r'^(?:a|and)\s+', caseSensitive: false), ''));
     final request = RegExp(
             r'^(?:(?:czy )?mozesz|czy moglbys|czy moglabys|can you|could you|would you) (?:prosze |please )?(ustawic|zmienic|zmniejszyc|zwiekszyc|ustaw|zmien|zmniejsz|zwieksz|set|change|reduce|decrease|increase) (.+)$')
         .firstMatch(original.folded);

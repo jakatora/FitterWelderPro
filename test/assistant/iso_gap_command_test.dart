@@ -90,6 +90,8 @@ void main() {
     final proposed = u('Ustaw szczelinę ISO na 2 mm');
     for (final text in [
       'Czy możesz zmniejszyć szczelinę w ISO o 1 mm',
+      'A zmniejsz szczelinę w ISO o 1 mm',
+      'And decrease the ISO gap by 1 mm',
       'Możesz proszę ustawić szczelinę w szkicu na 2 mm',
       'Czy mógłbyś zmienić szczelinę ISO na 2 mm',
       'Czy mogłabyś zmniejszyć szczelinę w ISO o 1 mm',
@@ -107,6 +109,8 @@ void main() {
     }
     for (final text in [
       'Czy mogę zmniejszyć szczelinę w ISO o 1 mm',
+      'A nie zmniejsz szczeliny w ISO o 1 mm',
+      'And decrease the ISO gap by minus 1 mm',
       'Jak mogę ustawić szczelinę ISO na 2 mm',
       'Czy możesz wyjaśnić jak ustawić szczelinę ISO na 2 mm',
       'Could you explain how to set the gap in ISO to 2 mm',
