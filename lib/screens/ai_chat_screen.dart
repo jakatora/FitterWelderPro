@@ -2451,6 +2451,14 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   DateTime _now() => (widget.now ?? DateTime.now)();
 
+  Future<void> _openCitation(String citation) async {
+    if (!mounted) return;
+    await _showPrivateConversationRoute(DialogRoute<bool>(
+      context: _navigationContext,
+      builder: (context) => _citationDialog(context, citation),
+    ));
+  }
+
   Future<bool?> _showPrivateConversationPage(Widget page) =>
       _showPrivateConversationRoute(
           MaterialPageRoute<bool>(builder: (_) => page));
@@ -3035,6 +3043,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     await _showPrivateConversationPage(_ConversationPage(
       messages: messages,
       onClear: _clearChat,
+      onCitation: _openCitation,
     ));
   }
 
@@ -3494,7 +3503,7 @@ class _AiChatScreenState extends State<AiChatScreen>
                   }
                   return RepaintBoundary(
                     key: ValueKey<int>(i),
-                    child: _MessageBubble(message: _messages[i]),
+                    child: _MessageBubble(message: _messages[i], onCitation: _openCitation),
                   );
                 },
               );
@@ -4029,61 +4038,86 @@ class _DemoChip extends StatelessWidget {
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Message bubble
-/// Opens a small read-only dialog with the citation tag (e.g. "Iteration 27 §C").
-void _showCitation(BuildContext context, String citation) {
+/// Source details use the assistant's private-route owner, including logout.
+Widget _citationDialog(BuildContext context, String citation) {
   final cs = Theme.of(context).colorScheme;
   final lines = citation.split('\n');
   final sourceUrl = lines.length > 1 ? Uri.tryParse(lines.last) : null;
-  final isWeb = sourceUrl != null &&
+  final isWeb =
+      sourceUrl != null &&
       sourceUrl.scheme == 'https' &&
       sourceUrl.host.isNotEmpty &&
       sourceUrl.userInfo.isEmpty;
-  showDialog<void>(
-    context: context,
-    builder: (dctx) => AlertDialog(
+  var opening = false;
+  return StatefulBuilder(
+    builder: (dctx, setDialogState) => AlertDialog(
       backgroundColor: _kCard,
-      title: Row(
+      scrollable: true,
+      title: Text(
+        context.tr(pl: 'Źródło odpowiedzi', en: 'Answer source'),
+        style: TextStyle(
+          color: cs.primary,
+          fontSize: 16,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.menu_book_outlined, size: 20, color: _kAccent),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              citation,
-              style: TextStyle(
-                color: cs.primary,
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
-              ),
+          SelectableText(
+            citation,
+            style: const TextStyle(color: _kTextPrimary, fontSize: 14),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            context.tr(
+              pl: isWeb
+                  ? 'Źródło internetowe wykorzystane przy odpowiedzi. Możesz otworzyć oryginalny materiał.'
+                  : 'Cytat wskazuje sekcję bazy wiedzy albo pomocy, z której pochodzi odpowiedź.',
+              en: isWeb
+                  ? 'An external source used for this answer. You can open the original material.'
+                  : 'The citation points to the knowledge-base or help section the answer came from.',
+            ),
+            style: const TextStyle(
+              fontSize: 12,
+              color: _kTextPrimary,
+              height: 1.5,
             ),
           ),
         ],
       ),
-      content: Text(
-        context.tr(
-          pl: isWeb
-              ? 'Źródło internetowe wykorzystane przy odpowiedzi. Możesz otworzyć oryginalny materiał.'
-              : 'Cytat wskazuje sekcję bazy wiedzy albo pomocy, z której pochodzi '
-                  'odpowiedź.',
-          en: isWeb
-              ? 'An external source used for this answer. You can open the original material.'
-              : 'The citation points to the knowledge-base or help section the '
-                  'answer came from.',
-        ),
-        style: const TextStyle(fontSize: 12, color: _kTextPrimary, height: 1.5),
-      ),
       actions: [
         if (isWeb)
           TextButton(
-            onPressed: () async {
-              final opened = await launchUrl(sourceUrl,
-                  mode: LaunchMode.externalApplication);
-              if (!opened && dctx.mounted) {
-                ScaffoldMessenger.of(dctx).showSnackBar(SnackBar(
-                    content: Text(dctx.tr(
-                        pl: 'Nie udało się otworzyć źródła.',
-                        en: 'Could not open the source.'))));
-              }
-            },
+            onPressed: opening
+                ? null
+                : () async {
+                    setDialogState(() => opening = true);
+                    var opened = false;
+                    try {
+                      opened = await launchUrl(
+                        sourceUrl,
+                        mode: LaunchMode.externalApplication,
+                      );
+                    } catch (_) {
+                      // OS launchers may throw when no handler is available.
+                    }
+                    if (!dctx.mounted) return;
+                    setDialogState(() => opening = false);
+                    if (!opened) {
+                      ScaffoldMessenger.maybeOf(dctx)?.showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            dctx.tr(
+                              pl: 'Nie udało się otworzyć źródła.',
+                              en: 'Could not open the source.',
+                            ),
+                          ),
+                        ),
+                      );
+                    }
+                  },
             child: Text(context.tr(pl: 'Otwórz źródło', en: 'Open source')),
           ),
         TextButton(
@@ -4096,88 +4130,107 @@ void _showCitation(BuildContext context, String citation) {
 }
 
 class _ConversationPage extends StatelessWidget {
-  const _ConversationPage({required this.messages, required this.onClear});
+  const _ConversationPage({
+    required this.messages,
+    required this.onClear,
+    required this.onCitation,
+  });
   final List<ChatMessage> messages;
   final VoidCallback onClear;
+  final ValueChanged<String> onCitation;
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        key: const Key('assistant-conversation-page'),
-        backgroundColor: _kBg,
-        appBar: AppBar(
-          title: Text(
-              context.tr(pl: 'Bieżąca rozmowa', en: 'Current conversation'),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis),
-          actions: [
-            IconButton(
-              key: const Key('assistant-conversation-clear'),
-              tooltip: context.tr(pl: 'Wyczyść rozmowę', en: 'Clear chat'),
-              onPressed: onClear,
-              icon: const Icon(Icons.delete_sweep_outlined),
-            )
-          ],
+    key: const Key('assistant-conversation-page'),
+    backgroundColor: _kBg,
+    appBar: AppBar(
+      title: Text(
+        context.tr(pl: 'Bieżąca rozmowa', en: 'Current conversation'),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      actions: [
+        IconButton(
+          key: const Key('assistant-conversation-clear'),
+          tooltip: context.tr(pl: 'Wyczyść rozmowę', en: 'Clear chat'),
+          onPressed: onClear,
+          icon: const Icon(Icons.delete_sweep_outlined),
         ),
-        body: SafeArea(
-            child: ListView.builder(
-          key: const Key('assistant-conversation-messages'),
-          padding: const EdgeInsets.all(12),
-          reverse: true,
-          itemCount: messages.length,
-          itemBuilder: (context, index) {
-            final message = messages[messages.length - 1 - index];
-            final label = message.role == ChatRole.user
-                ? context.tr(pl: 'Ty', en: 'You')
-                : switch (message.kind) {
-                    AiReplyKind.live =>
-                      context.tr(pl: 'Asystent · AI', en: 'Assistant · AI'),
-                    AiReplyKind.nativeAction ||
-                    AiReplyKind.localDialogue =>
-                      context.tr(
-                          pl: 'Asystent · aplikacja', en: 'Assistant · app'),
-                    AiReplyKind.offlineHelp =>
-                      context.tr(pl: 'Pomoc w aplikacji', en: 'In-app help'),
-                    AiReplyKind.dailyLimit ||
-                    AiReplyKind.premiumRequired ||
-                    AiReplyKind.unavailable =>
-                      context.tr(
-                          pl: 'Komunikat o dostępności AI',
-                          en: 'AI availability notice'),
-                    AiReplyKind.demo =>
-                      context.tr(pl: 'Asystent', en: 'Assistant'),
-                  };
-            return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Text(label,
-                          style: Theme.of(context).textTheme.labelSmall)),
-                  _MessageBubble(message: message, interactiveCitations: false),
-                ]);
-          },
-        )),
-      );
+      ],
+    ),
+    body: SafeArea(
+      child: ListView.builder(
+        key: const Key('assistant-conversation-messages'),
+        padding: const EdgeInsets.all(12),
+        reverse: true,
+        itemCount: messages.length,
+        itemBuilder: (context, index) {
+          final message = messages[messages.length - 1 - index];
+          final label = message.role == ChatRole.user
+              ? context.tr(pl: 'Ty', en: 'You')
+              : switch (message.kind) {
+                  AiReplyKind.live => context.tr(
+                    pl: 'Asystent · AI',
+                    en: 'Assistant · AI',
+                  ),
+                  AiReplyKind.nativeAction ||
+                  AiReplyKind.localDialogue => context.tr(
+                    pl: 'Asystent · aplikacja',
+                    en: 'Assistant · app',
+                  ),
+                  AiReplyKind.offlineHelp => context.tr(
+                    pl: 'Pomoc w aplikacji',
+                    en: 'In-app help',
+                  ),
+                  AiReplyKind.dailyLimit ||
+                  AiReplyKind.premiumRequired ||
+                  AiReplyKind.unavailable => context.tr(
+                    pl: 'Komunikat o dostępności AI',
+                    en: 'AI availability notice',
+                  ),
+                  AiReplyKind.demo => context.tr(
+                    pl: 'Asystent',
+                    en: 'Assistant',
+                  ),
+                };
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  label,
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+              ),
+              _MessageBubble(message: message, onCitation: onCitation),
+            ],
+          );
+        },
+      ),
+    ),
+  );
 }
 
 class _MessageBubble extends StatelessWidget {
   final ChatMessage message;
-  final bool interactiveCitations;
-  const _MessageBubble(
-      {required this.message, this.interactiveCitations = true});
+  final ValueChanged<String> onCitation;
+  const _MessageBubble({required this.message, required this.onCitation});
 
   @override
   Widget build(BuildContext context) {
     final isUser = message.role == ChatRole.user;
-    final isNotice = message.kind == AiReplyKind.dailyLimit ||
+    final isNotice =
+        message.kind == AiReplyKind.dailyLimit ||
         message.kind == AiReplyKind.premiumRequired ||
         message.kind == AiReplyKind.unavailable;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment:
-            isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: isUser
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
         children: [
           if (!isUser)
             Container(
@@ -4188,11 +4241,12 @@ class _MessageBubble extends StatelessWidget {
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                  message.kind == AiReplyKind.offlineHelp
-                      ? Icons.cloud_off_outlined
-                      : Icons.smart_toy_outlined,
-                  color: _kAccent,
-                  size: 18),
+                message.kind == AiReplyKind.offlineHelp
+                    ? Icons.cloud_off_outlined
+                    : Icons.smart_toy_outlined,
+                color: _kAccent,
+                size: 18,
+              ),
             ),
           if (!isUser) const SizedBox(width: 8),
           Flexible(
@@ -4220,14 +4274,21 @@ class _MessageBubble extends StatelessWidget {
                       spacing: 4,
                       runSpacing: 4,
                       children: message.citations
-                          .map((c) => InkWell(
-                                onTap: interactiveCitations
-                                    ? () => _showCitation(context, c)
-                                    : null,
+                          .map(
+                            (c) => Semantics(
+                              button: true,
+                              child: InkWell(
+                                onTap: () => onCitation(c),
                                 borderRadius: BorderRadius.circular(6),
                                 child: Container(
+                                  constraints: const BoxConstraints(
+                                    minHeight: 44,
+                                    minWidth: 44,
+                                  ),
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 3),
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: _kAccentChipFill,
                                     borderRadius: BorderRadius.circular(6),
@@ -4236,9 +4297,16 @@ class _MessageBubble extends StatelessWidget {
                                       width: 0.6,
                                     ),
                                   ),
-                                  child: Text(c, style: _kCitationTextStyle),
+                                  child: Text(
+                                    c,
+                                    style: _kCitationTextStyle,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
-                              ))
+                              ),
+                            ),
+                          )
                           .toList(),
                     ),
                   ],
@@ -4255,8 +4323,11 @@ class _MessageBubble extends StatelessWidget {
                 color: _kBlueSoft,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.person_outline,
-                  color: _kAccentBlue, size: 18),
+              child: const Icon(
+                Icons.person_outline,
+                color: _kAccentBlue,
+                size: 18,
+              ),
             ),
         ],
       ),

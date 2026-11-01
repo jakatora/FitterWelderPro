@@ -10,6 +10,7 @@ import 'package:cut_list_app/screens/ai_chat_screen.dart';
 import 'package:cut_list_app/services/account_service.dart';
 import 'package:cut_list_app/services/ai_chat_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -50,6 +51,134 @@ void main() {
     await account.signIn('fixture@example.test', 'fixture-password');
   });
   tearDown(() => AccountService.instance = previous);
+
+  for (final outcome in ['success', 'false', 'throw']) {
+    testWidgets('research source opens from conversation and handles $outcome',
+        (tester) async {
+      const channel = MethodChannel('plugins.flutter.io/url_launcher');
+      final launches = <String>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+        if (call.method != 'launch') {
+          throw StateError('Unexpected launcher method');
+        }
+        launches.add((call.arguments as Map)['url'] as String);
+        if (outcome == 'throw') throw PlatformException(code: 'unavailable');
+        return outcome == 'success';
+      });
+      addTearDown(() => TestDefaultBinaryMessengerBinding
+          .instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null));
+      const citation = '[1] TWI guidance\nhttps://www.twi-global.com/paper';
+      await mount(tester,
+          speech: FixtureSpeech(),
+          interpret: (_) async => throw StateError('No command expected'),
+          chatSender: (_, __) async => ChatMessage(
+              role: ChatRole.assistant,
+              text: 'Wyjaśnienie [1].',
+              citations: [citation],
+              kind: AiReplyKind.live));
+      await say(tester, 'Wyjaśnij spawanie TIG');
+      await openConversation(tester);
+      await tester.tap(find.text(citation));
+      await settle(tester);
+      expect(find.byType(AlertDialog), findsOneWidget);
+      await tester.tap(find.text('Otwórz źródło'));
+      await settle(tester);
+      expect(launches, ['https://www.twi-global.com/paper']);
+      if (outcome != 'success') {
+        expect(find.text('Nie udało się otworzyć źródła.'), findsOneWidget);
+      }
+      expect(tester.takeException(), isNull);
+      await tester.runAsync(account.forgetSession);
+      await settle(tester);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(page, findsNothing);
+    });
+  }
+
+  testWidgets('pending source launch cannot leak a popup or error after logout',
+      (tester) async {
+    const channel = MethodChannel('plugins.flutter.io/url_launcher');
+    final pending = Completer<bool>();
+    var launches = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (_) {
+      launches++;
+      return pending.future;
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding
+        .instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null));
+    const citation = '[1] Source\nhttps://www.twi-global.com/paper';
+    await mount(tester,
+        speech: FixtureSpeech(),
+        interpret: (_) async => throw StateError('No command expected'),
+        chatSender: (_, __) async => ChatMessage(
+            role: ChatRole.assistant,
+            text: 'Wyjaśnienie [1].',
+            citations: [citation],
+            kind: AiReplyKind.live));
+    await say(tester, 'Wyjaśnij spawanie TIG');
+    await openConversation(tester);
+    await tester.tap(find.text(citation));
+    await settle(tester);
+    await tester.tap(find.text('Otwórz źródło'));
+    await tester.pump();
+    await tester.tap(find.text('Otwórz źródło'));
+    await tester.pump();
+    expect(launches, 1);
+    await tester.runAsync(account.forgetSession);
+    await settle(tester);
+    pending.complete(false);
+    await settle(tester);
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.text('Nie udało się otworzyć źródła.'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final language in AppLanguage.values) {
+    testWidgets('long source stays readable on narrow phone: ${language.name}',
+        (tester) async {
+      final citation =
+          '[1] ${'Technical documentation ' * 10}\nhttps://www.twi-global.com/${'very-long-path/' * 30}paper';
+      await mount(tester,
+          speech: FixtureSpeech(),
+          interpret: (_) async => throw StateError('No command expected'),
+          chatSender: (_, __) async => ChatMessage(
+              role: ChatRole.assistant,
+              text: 'Wyjaśnienie [1].',
+              citations: [citation],
+              kind: AiReplyKind.live));
+      await say(tester, 'Wyjaśnij spawanie TIG');
+      AppLanguageScope.of(tester.element(find.byType(AiChatScreen)))
+          .setLanguage(language);
+      await openConversation(tester);
+      tester.view.physicalSize = const Size(540, 960);
+      tester.view.devicePixelRatio = 1.5;
+      expect(
+          tester.view.physicalSize.width / tester.view.devicePixelRatio, 360);
+      tester.platformDispatcher.textScaleFactorTestValue = 1.3;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await settle(tester);
+      expect(tester.takeException(), isNull,
+          reason: 'narrow conversation layout');
+      final chip = find.ancestor(
+          of: find.text(citation), matching: find.byType(InkWell));
+      expect(tester.getSize(chip).height, greaterThanOrEqualTo(44));
+      await tester.tap(find.text(citation));
+      await settle(tester);
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(message(citation), findsOneWidget);
+      expect(
+          find
+              .text(
+                  language == AppLanguage.pl ? 'Otwórz źródło' : 'Open source')
+              .hitTestable(),
+          findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets(
       'conversation stays disabled throughout a plan after native navigation',
@@ -198,11 +327,13 @@ void main() {
     expect(message('Wyjaśnienie poprzedniego wyniku.'), findsOneWidget);
     expect(find.text('Asystent · AI'), findsOneWidget);
     expect(message('a dlaczego tyle wyszlo'), findsOneWidget);
-    // Citation labels are readable but cannot open a private unowned popup.
+    // Citation details are owned by the same private conversation session.
     await tester.tap(find.text('Norma fixture'));
     await settle(tester);
     expect(page, findsOneWidget);
-    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(AlertDialog), findsOneWidget);
+    await tester.tap(find.text('OK'));
+    await settle(tester);
     expect(interpretations, 0,
         reason: 'A conversational follow-up goes directly to the answer');
     expect(answers, 1);
