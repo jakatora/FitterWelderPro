@@ -342,11 +342,11 @@ Tabela do szybkiego CUT calc dla kolan LR 90°:
 - **NPS, DN i rzeczywiste wymiary**: NPS i DN są oznaczeniami nominalnymi; nie przeliczaj ich na OD ani ID przez mnożenie liczby przez 25 lub 25,4. Dopasowanie NPS–DN oraz OD i ściankę odczytaj z tabeli właściwej normy wymiarowej.
   - Przykład: NPS 1 odpowiada DN 25, ale nominalna średnica zewnętrzna OD wynosi 33,4 mm (1,315 cala), a nie 25,4 mm. Wewnętrzna średnica zależy od ścianki. Rura nominalna NPS 1 nie jest tym samym co tube o rzeczywistym OD 1 cal.
   - Źródła: [ISO 6708:1995 — DN](https://www.iso.org/standard/21274.html); [Penn Stainless — Pipes & Tubes, tabela OD i grubości Sch](https://www.pennstainless.com/wp-content/uploads/2018/11/PSP-026d-Pipes-Tubes.pdf). Tabela dostawcy pokazuje NPS 1: OD 1,315 cala oraz NPS 2: ścianka 0,154 cala zarówno dla 40S, jak i Sch 40.
-- **Wybór schedule wg ciśnienia**:
-  - Sch 40 — większość średnich ciśnień (do PN 25 typowo).
-  - Sch 80 — wyższe ciśnienia (PN 40+).
-  - Sch 160/XXS — bardzo wysokie ciśnienia, służby parowe.
-- **Wzór ciśnienia ASME B31.3** (uproszczony): `P_allowable = (2 × S × t × E) / (D − 2 × t × Y)` gdzie S=allowable stress, t=wall thickness, E=joint efficiency, D=OD, Y=temp coefficient.
+- **Schedule nie jest klasą ciśnienia**: Sch 40, Sch 80 czy Sch 160 określają serię grubości dla danego NPS, a nie uniwersalne PN ani dopuszczalne ciśnienie. Nie dobieraj rury do PN 25 lub PN 40 na podstawie samego numeru Sch.
+  - Najpierw ustal ciśnienie i temperaturę projektową, materiał/gatunek, OD oraz wymaganą minimalną ściankę. Uwzględnij naddatki, ujemną tolerancję wykonania i właściwe warunki projektowe.
+  - Dopiero porównaj wymaganą ściankę z tabelą schedule i sprawdź pozostałe elementy układu. Sama grubsza rura nie potwierdza dopuszczenia całego rurociągu.
+  - Dla rurociągu procesowego objętego ASME B31.3 stosuj pełne reguły właściwego wydania kodeksu i zatwierdzoną specyfikację projektu. Uproszczony wzór bez zakresu stosowania, współczynników i naddatków nie stanowi weryfikacji projektowej.
+  - Źródła: [ASME — B31.3 Process Piping](https://www.asme.org/codes-standards/find-codes-standards/b31-3-process-piping), [ASME — zakres projektowania, warunki projektowe i naddatki](https://www.asme.org/learning-development/find-course/asme-b31-3-process-piping-design). Te strony opisują zakres; szczegóły obliczeń wymagają tekstu kodeksu.
 
 ### V. Materiały rur — ASTM (najczęstsze grupy z perspektywy montera)
 - **Carbon steel (P-1)**:
