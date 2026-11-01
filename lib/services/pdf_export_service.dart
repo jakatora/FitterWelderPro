@@ -214,9 +214,9 @@ class PdfExportService {
         children: [
           _summaryCell(t('Materiał', 'Material'), p.materialGroup),
           _summaryCell(t('Sztanga', 'Stock'),
-              '${p.stockLengthMm.toStringAsFixed(0)} mm'),
+              '${decimalInputText(p.stockLengthMm).replaceFirst(RegExp(r'\.0$'), '')} mm'),
           _summaryCell(
-              t('Rzaz', 'Kerf'), '${p.sawKerfMm.toStringAsFixed(1)} mm'),
+              t('Rzaz', 'Kerf'), '${decimalInputText(p.sawKerfMm)} mm'),
           _summaryCell(t('Segmenty', 'Segments'), '${summary.segmentCount}'),
           _summaryCell(t('Sztangi', 'Bars'), '${summary.totalBars}'),
           _summaryCell(t('Rura netto', 'Net pipe'),

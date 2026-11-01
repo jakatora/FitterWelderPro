@@ -274,8 +274,8 @@ String buildCutListText({
   ProjectIdentity? identity,
 }) {
   final buf = StringBuffer();
-  final stock = stockLengthMm.toStringAsFixed(0);
-  final kerf = sawKerfMm.toStringAsFixed(1);
+  final stock = decimalInputText(stockLengthMm).replaceFirst(RegExp(r'\.0$'), '');
+  final kerf = decimalInputText(sawKerfMm);
   buf.writeln('CUT LIST — $projectName');
   // Line / ISO / revision / client / class under the title, so the list
   // sent to the storeroom or the foreman names the job it belongs to.

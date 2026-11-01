@@ -80,6 +80,21 @@ String _csv(List<Segment> segs,
 }
 
 void main() {
+  test('CSV preserves fractional stock, kerf and pipe dimensions', () {
+    for (final english in [false, true]) {
+      final csv = buildCutListCsv(
+        projectName: 'QA', materialGroup: 'SS',
+        stockLengthMm: 6000.25, sawKerfMm: 1.25,
+        segments: [_seg(1, 1234.5, diameterMm: 60.3, wallMm: 2.77)],
+        english: english,
+      );
+      final cells = csv.trim().split('\n').last.split(';');
+      expect(cells.sublist(2, 6), ['6000.25', '1.25', '60.3', '2.77']);
+      expect(cells[8], '1234.5');
+      expect(cells[9], '4764.5');
+    }
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
   late _OfflineHttpOverrides offline;
   HttpOverrides? previous;
@@ -107,9 +122,9 @@ void main() {
       // Kolumny segment;iso;uwagi dopisane na końcu (stare pozycje kolumn
       // bez zmian): etykieta segmentu, wyrażenie ISO (tu puste), uwagi —
       // i za nimi oznaczenie sztuki (v22; tu puste).
-      '"Linia DN100";CS;6000;3.0;114.3;6.0;1;1;3293;201;S01;;;;;;\n'
-      '"Linia DN100";CS;6000;3.0;114.3;6.0;1;2;2500;201;S02;;;;;;\n'
-      '"Linia DN100";CS;6000;3.0;114.3;6.0;2;1;1200;4797;S03;;;;;;\n',
+      '"Linia DN100";CS;6000;3.0;114.3;6.02;1;1;3293;201;S01;;;;;;\n'
+      '"Linia DN100";CS;6000;3.0;114.3;6.02;1;2;2500;201;S02;;;;;;\n'
+      '"Linia DN100";CS;6000;3.0;114.3;6.02;2;1;1200;4797;S03;;;;;;\n',
     );
     expect(offline.connectionAttempts, 0);
   });
@@ -123,10 +138,10 @@ void main() {
     ]);
     final rows = csv.trimRight().split('\n').skip(2).toList();
     expect(rows, [
-      '"Linia DN100";CS;6000;3.0;114.3;6.0;1;1;3293;201;S01;;;;;;',
-      '"Linia DN100";CS;6000;3.0;114.3;6.0;1;2;2500;201;S03;;;;;;',
-      '"Linia DN100";CS;6000;3.0;114.3;6.0;2;1;1200;4797;S04;;;;;;',
-      '"Linia DN100";CS;6000;3.0;60.3;3.9;1;1;700;5297;S02;;;;;;',
+      '"Linia DN100";CS;6000;3.0;114.3;6.02;1;1;3293;201;S01;;;;;;',
+      '"Linia DN100";CS;6000;3.0;114.3;6.02;1;2;2500;201;S03;;;;;;',
+      '"Linia DN100";CS;6000;3.0;114.3;6.02;2;1;1200;4797;S04;;;;;;',
+      '"Linia DN100";CS;6000;3.0;60.3;3.91;1;1;700;5297;S02;;;;;;',
     ]);
     expect(offline.connectionAttempts, 0);
   });
@@ -134,7 +149,7 @@ void main() {
   test('nazwa z cudzysłowem jest cytowana wg RFC 4180', () {
     final csv = _csv([_seg(1, 1200)], name: 'Hala "B"');
     final rows = csv.trimRight().split('\n');
-    expect(rows.last, '"Hala ""B""";CS;6000;3.0;114.3;6.0;1;1;1200;4797;S01;;;;;;');
+    expect(rows.last, '"Hala ""B""";CS;6000;3.0;114.3;6.02;1;1;1200;4797;S01;;;;;;');
     expect(csvQuote('CS'), 'CS');
     expect(csvQuote('a;b'), '"a;b"');
   });
@@ -185,8 +200,8 @@ void main() {
       ]);
       final rows = csv.trimRight().split('\n').skip(2).toList();
       expect(rows, [
-        '"Linia DN100";CS;6000;3.0;114.3;6.0;1;1;3293;1501;S01;3000+525-80;;;;;',
-        '"Linia DN100";CS;6000;3.0;114.3;6.0;1;2;1200;1501;S02;"4\'-6""";;;;;',
+        '"Linia DN100";CS;6000;3.0;114.3;6.02;1;1;3293;1501;S01;3000+525-80;;;;;',
+        '"Linia DN100";CS;6000;3.0;114.3;6.02;1;2;1200;1501;S02;"4\'-6""";;;;;',
       ]);
     });
 
@@ -194,7 +209,7 @@ void main() {
       final csv = _csv([iso(1, 1200, '-80+3000')], name: '=HYPERLINK("x")');
       final row = csv.trimRight().split('\n').last;
       expect(row,
-          '"\'=HYPERLINK(""x"")";CS;6000;3.0;114.3;6.0;1;1;1200;4797;S01;\'-80+3000;;;;;');
+          '"\'=HYPERLINK(""x"")";CS;6000;3.0;114.3;6.02;1;1;1200;4797;S01;\'-80+3000;;;;;');
     });
 
     test('7000 mm na sztangach 6000: części S01 (1/2), (2/2) z ostrzeżeniem PL',
@@ -207,9 +222,9 @@ void main() {
           '0 mm — nic nie odjęto)."';
       final rows = csv.trimRight().split('\n').skip(2).toList();
       expect(rows, [
-        '"Linia DN100";CS;6000;3.0;114.3;6.0;1;1;6000;0;"S01 (1/2)";;$note;;;;',
-        '"Linia DN100";CS;6000;3.0;114.3;6.0;2;1;4000;994;S02;;;;;;',
-        '"Linia DN100";CS;6000;3.0;114.3;6.0;2;2;1000;994;"S01 (2/2)";;$note;;;;',
+        '"Linia DN100";CS;6000;3.0;114.3;6.02;1;1;6000;0;"S01 (1/2)";;$note;;;;',
+        '"Linia DN100";CS;6000;3.0;114.3;6.02;2;1;4000;994;S02;;;;;;',
+        '"Linia DN100";CS;6000;3.0;114.3;6.02;2;2;1000;994;"S01 (2/2)";;$note;;;;',
       ]);
     });
 
@@ -226,7 +241,7 @@ void main() {
       expect(lines[1], kCutListCsvHeaderEn);
       expect(
         lines[2],
-        '"Line 7";SS;6000;3.0;114.3;6.0;1;1;6000;0;"S01 (1/2)";;"piece 7000 mm '
+        '"Line 7";SS;6000;3.0;114.3;6.02;1;1;6000;0;"S01 (1/2)";;"piece 7000 mm '
         'is longer than the 6000 mm stock bar — split into 2 parts: 6000 + '
         '1000 mm; an extra joining weld (project gap 0 mm — nothing taken '
         'off).";;;;',
@@ -268,10 +283,10 @@ void main() {
       ]);
       final rows = csv.trimRight().split('\n').skip(2).toList();
       expect(rows, [
-        '"Linia DN100";CS;6000;3.0;114.3;6.0;1;1;3293;201;"S01 SP02-03";;;SP02-03;;;',
-        '"Linia DN100";CS;6000;3.0;114.3;6.0;1;2;2500;201;S02;;;;;;',
+        '"Linia DN100";CS;6000;3.0;114.3;6.02;1;1;3293;201;"S01 SP02-03";;;SP02-03;;;',
+        '"Linia DN100";CS;6000;3.0;114.3;6.02;1;2;2500;201;S02;;;;;;',
         // A typed mark is free text: never a formula in Excel.
-        '"Linia DN100";CS;6000;3.0;114.3;6.0;2;1;1200;4797;"S03 =SP02-05";;;\'=SP02-05;;;',
+        '"Linia DN100";CS;6000;3.0;114.3;6.02;2;1;1200;4797;"S03 =SP02-05";;;\'=SP02-05;;;',
       ]);
     });
 

@@ -65,6 +65,23 @@ double _firstCut() {
 }
 
 void main() {
+  test('plan text preserves stock and kerf used in the calculation', () {
+    final summary = summarizeCutList(
+      segments: [_seg(1, 1234.5)],
+      stockLengthMm: 6000.25, sawKerfMm: 1.25,
+    );
+    for (final english in [false, true]) {
+      final text = buildCutListText(
+        projectName: 'QA', materialGroup: 'SS',
+        stockLengthMm: 6000.25, sawKerfMm: 1.25,
+        summary: summary, english: english,
+      );
+      expect(text, contains('6000.25 mm'));
+      expect(text, contains('1.25 mm'));
+      expect(text, contains('4764.5 mm'));
+    }
+  });
+
   test('plan text preserves pipe dimensions in both languages', () {
     final summary = summarizeCutList(
       segments: [_seg(1, 1234.5, diameterMm: 60.3, wallMm: 2.77)],

@@ -22,15 +22,15 @@ import 'package:cut_list_app/models/segment.dart';
 import 'package:cut_list_app/services/heat_traceability.dart';
 import 'package:cut_list_app/services/pdf_export_service.dart';
 
-Project _project(String name) => Project(
+Project _project(String name, {double stock = 6000, double kerf = 3}) => Project(
       id: 'p1',
       name: name,
       materialGroup: 'SS',
       diameterMm: 114.3,
       wallThicknessMm: 6.02,
       currentDiameterMm: 114.3,
-      stockLengthMm: 6000,
-      sawKerfMm: 3,
+      stockLengthMm: stock,
+      sawKerfMm: kerf,
       gapMm: 0,
       createdAt: 0,
       updatedAt: 0,
@@ -133,6 +133,23 @@ double _luminance(double r, double g, double b) =>
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('PDF retains fractional stock, kerf and actual wall thickness', () async {
+    for (final english in [false, true]) {
+      final bytes = await PdfExportService.buildCutListPdf(
+        theme: await _oneFontTheme(),
+        project: _project('QA', stock: 6000.25, kerf: 1.25),
+        segments: [_seg(1, 1234.5)],
+        english: english,
+      );
+      final text = _pdfText(bytes);
+      expect(text, contains('6000.25 mm'));
+      expect(text, contains('1.25 mm'));
+      expect(text, contains('6.02'));
+      expect(text, contains('4764.5 mm'));
+    }
+  });
+
+
   test('nazwa projektu „Łącznik żółć”: PDF powstaje z osadzoną czcionką',
       () async {
     final bytes = await PdfExportService.buildCutListPdf(
@@ -172,7 +189,7 @@ void main() {
     expect(text, contains('201 mm'));
     expect(text, contains('4797 mm'));
     // Tabela segmentów: etykieta, wyrażenie ISO i numer sztangi.
-    expect(text, contains('S01 114×6.0 3000+525-80'));
+    expect(text, contains('S01 114.3×6.02 3000+525-80'));
     expect(text, isNot(contains('UWAGA')));
   });
 
@@ -237,7 +254,7 @@ void main() {
     expect(text, contains('S01 SP02-03: 3293 + S02: 2500'));
     expect(text, contains('S03 SP02-05: 1200'));
     // Segment table: mark next to S01, then the size.
-    expect(text, contains('S01 SP02-03 114×6.0'));
+    expect(text, contains('S01 SP02-03 114.3×6.02'));
   });
 
   test('cięcie dłuższe od sztangi: części (1/2), (2/2) i ostrzeżenie', () async {

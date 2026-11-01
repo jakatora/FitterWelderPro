@@ -201,13 +201,13 @@ void main() {
     expect(csvLines[1], startsWith('projekt;materiał;'));
     // Last column: the piece mark (v22) — none of these segments has one.
     expect(csvLines.skip(2), [
-      '"Łącznik żółć";SS;6000;3.0;114.3;6.0;1;1;6000;0;"S01 (1/2)";7000;'
+      '"Łącznik żółć";SS;6000;3.0;114.3;6.02;1;1;6000;0;"S01 (1/2)";7000;'
           '"odcinek 7000 mm dłuższy niż sztanga 6000 mm — dzielony na 2 części: '
           '6000 + 1000 mm; dodatkowa spoina łącząca (gap projektu 0 mm — nic nie '
           'odjęto).";;;;',
-      '"Łącznik żółć";SS;6000;3.0;114.3;6.0;2;1;4000;794;S02;4000;;;;;',
-      '"Łącznik żółć";SS;6000;3.0;114.3;6.0;2;2;1200;794;S03;1200;;;;;',
-      '"Łącznik żółć";SS;6000;3.0;114.3;6.0;3;1;1000;4997;"S01 (2/2)";7000;'
+      '"Łącznik żółć";SS;6000;3.0;114.3;6.02;2;1;4000;794;S02;4000;;;;;',
+      '"Łącznik żółć";SS;6000;3.0;114.3;6.02;2;2;1200;794;S03;1200;;;;;',
+      '"Łącznik żółć";SS;6000;3.0;114.3;6.02;3;1;1000;4997;"S01 (2/2)";7000;'
           '"odcinek 7000 mm dłuższy niż sztanga 6000 mm — dzielony na 2 części: '
           '6000 + 1000 mm; dodatkowa spoina łącząca (gap projektu 0 mm — nic nie '
           'odjęto).";;;;',

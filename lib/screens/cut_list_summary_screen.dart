@@ -696,8 +696,8 @@ class _ProjectHeader extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   context.tr(
-                    pl: '${project.materialGroup}  ·  Sztanga: ${project.stockLengthMm.toStringAsFixed(0)} mm  ·  Kerf: ${project.sawKerfMm.toStringAsFixed(1)} mm',
-                    en: '${project.materialGroup}  ·  Stock: ${project.stockLengthMm.toStringAsFixed(0)} mm  ·  Kerf: ${project.sawKerfMm.toStringAsFixed(1)} mm',
+                    pl: '${project.materialGroup}  ·  Sztanga: ${decimalInputText(project.stockLengthMm).replaceFirst(RegExp(r'\.0$'), '')} mm  ·  Kerf: ${decimalInputText(project.sawKerfMm)} mm',
+                    en: '${project.materialGroup}  ·  Stock: ${decimalInputText(project.stockLengthMm).replaceFirst(RegExp(r'\.0$'), '')} mm  ·  Kerf: ${decimalInputText(project.sawKerfMm)} mm',
                   ),
                   style: const TextStyle(fontSize: 12, color: _kMuted),
                 ),

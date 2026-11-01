@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../models/project.dart';
+import '../utils/decimal_input_text.dart';
 import '../models/segment.dart';
 import 'bar_nesting.dart' show formatCutMm;
 import 'cut_list_summary.dart';
@@ -126,10 +127,10 @@ String buildCutListCsv({
         buf.writeln([
           _csvText(projectName),
           csvQuote(materialGroup),
-          stockLengthMm.toStringAsFixed(0),
-          sawKerfMm.toStringAsFixed(1),
-          group.diameterMm.toStringAsFixed(1),
-          group.wallMm.toStringAsFixed(1),
+          decimalInputText(stockLengthMm).replaceFirst(RegExp(r'\.0$'), ''),
+          decimalInputText(sawKerfMm),
+          decimalInputText(group.diameterMm),
+          decimalInputText(group.wallMm),
           i + 1,
           j + 1,
           formatCutMm(piece.lengthMm),
