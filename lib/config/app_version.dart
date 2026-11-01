@@ -4,4 +4,4 @@
 // przy starcie. Test test/config/app_version_test.dart pilnuje zgodności z
 // `version:` w pubspec.yaml — podbijasz wersję, podbijasz też tę stałą.
 
-const String kAppVersion = '0.5.12+31';
+const String kAppVersion = '0.5.13+32';
