@@ -1352,9 +1352,8 @@ class _AiChatScreenState extends State<AiChatScreen>
             .hasMatch(text)) {
       text = _lastProject;
     }
-    if (_listening) {
-      await _speech.stop();
-      if (!mounted) return;
+    if (_listening || _startingMic) {
+      _cancelMic();
       setState(() => _listening = false);
     }
     final lang = context.language;

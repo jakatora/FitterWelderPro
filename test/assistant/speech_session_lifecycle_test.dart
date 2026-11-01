@@ -3,9 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:cut_list_app/assistant/assistant_ai_client.dart';
 import 'package:cut_list_app/assistant/speech_io.dart';
+import 'package:cut_list_app/assistant/core/skill.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import '../support/test_database.dart';
-import 'ai_chat_execution_test.dart' show mount;
+import 'ai_chat_execution_test.dart' show mount, FixtureSkill;
 import 'global_pipe_slope_flow_test.dart' show settle;
 
 class HeldSpeech implements SpeechInput {
@@ -13,6 +14,7 @@ class HeldSpeech implements SpeechInput {
   int initializes = 0;
   bool failInitialize = false;
   bool failListen = false;
+  void Function()? duringStop;
   final results = <SpeechResultCallback>[];
   final completions = <void Function(String?)>[];
   @override
@@ -35,13 +37,36 @@ class HeldSpeech implements SpeechInput {
   }
 
   @override
-  Future<void> stop() async => completions.lastOrNull?.call(null);
+  Future<void> stop() async {
+    duringStop?.call();
+    completions.lastOrNull?.call(null);
+  }
   @override
   Future<void> cancel() async => completions.lastOrNull?.call(null);
 }
 
 void main() {
   useTestDatabase();
+  testWidgets('manual send retires speech before stopping recognition', (t) async {
+    final speech = HeldSpeech();
+    var executions = 0;
+    await mount(t, speech: speech,
+      interpret: (_) async => const AiCommandPlan('answer', [], ''),
+      skills: [FixtureSkill('fixture.send', 'fixture send', (_) async {
+        executions++;
+        return const AnswerResult(AssistantAnswer(text: AssistantText.same('Done')));
+      })]);
+    await t.tap(find.byKey(const Key('assistant-mic')));
+    await settle(t);
+    speech.results.single('fixture send', false);
+    await t.pump();
+    speech.duringStop = () => speech.results.single('fixture send', true);
+    await t.tap(find.byKey(const Key('assistant-go')));
+    await settle(t);
+    expect(executions, 1);
+    expect(find.byKey(const Key('assistant-listening')), findsNothing);
+    expect(t.takeException(), isNull);
+  });
   for (final emptyResult in ['', '   ']) {
     testWidgets('empty final speech cannot submit an existing draft: "$emptyResult"', (t) async {
       final speech = HeldSpeech();
