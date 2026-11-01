@@ -8,7 +8,7 @@ publish_to: "none"
 # (zalecenia Play Console). R8 przetestować na ścieżce testowej przed produkcją.
 # iOS CFBundleVersion NIE bierze się stąd — codemagic.yaml wylicza go z licznika
 # builda Codemagic (+1000), więc nie trzeba go tu podbijać.
-version: 0.5.10+29
+version: 0.5.11+30
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
