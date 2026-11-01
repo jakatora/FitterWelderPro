@@ -9,6 +9,7 @@ import '../models/library_component.dart';
 import '../models/project.dart';
 import '../models/segment.dart';
 import '../services/piece_marks.dart';
+import '../utils/decimal_input_text.dart';
 import 'segment_builder_screen.dart';
 import 'material_list_screen.dart';
 import 'cut_list_summary_screen.dart';
@@ -396,7 +397,7 @@ class _FitterScreenState extends State<_FitterBody> {
 
   String _routeLabel(BuildContext context, RoutePosition? route) {
     if (route == null) return '';
-    final d = route.diameterMm.toStringAsFixed(1);
+    final d = decimalInputText(route.diameterMm);
     final w = route.wallThicknessMm;
     if (w == null) {
       return context.tr(
@@ -407,8 +408,8 @@ class _FitterScreenState extends State<_FitterBody> {
       );
     }
     return context.tr(
-      pl: 'Aktualnie w trasie: Ø$d × t ${w.toStringAsFixed(2)}',
-      en: 'Current route: Ø$d × t ${w.toStringAsFixed(2)}',
+      pl: 'Aktualnie w trasie: Ø$d × t ${decimalInputText(w)}',
+      en: 'Current route: Ø$d × t ${decimalInputText(w)}',
     );
   }
 
@@ -496,7 +497,7 @@ class _FitterScreenState extends State<_FitterBody> {
                     Card(
                       margin: const EdgeInsets.all(12),
                       child: ListTile(
-                        title: Text('Ø${p.diameterMm.toStringAsFixed(1)} | t=${p.wallThicknessMm.toStringAsFixed(1)} | gap ${p.gapMm.toStringAsFixed(1)}'),
+                        title: Text('Ø${decimalInputText(p.diameterMm)} | t=${decimalInputText(p.wallThicknessMm)} | gap ${decimalInputText(p.gapMm)}'),
                         subtitle: Text(_routeLabel(context, _route)),
                       ),
                     ),
@@ -556,7 +557,7 @@ class _FitterScreenState extends State<_FitterBody> {
                                           child: Text('${s.seqNo}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFFFF8E1E))),
                                         ),
                                         title: Text(
-                                          '${context.tr(pl: 'Segment', en: 'Seg.')} ${s.seqNo}${s.label == null ? '' : ' · ${s.label}'}  •  Ø${s.diameterMm.toStringAsFixed(1)} × t${s.wallThicknessMm.toStringAsFixed(1)}',
+                                          '${context.tr(pl: 'Segment', en: 'Seg.')} ${s.seqNo}${s.label == null ? '' : ' · ${s.label}'}  •  Ø${decimalInputText(s.diameterMm)} × t${decimalInputText(s.wallThicknessMm)}',
                                           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                                         ),
                                         subtitle: Text(

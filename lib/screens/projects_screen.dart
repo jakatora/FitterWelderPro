@@ -33,6 +33,8 @@ class _ProjectsScreenState extends State<_ProjectsList> {
   ProjectDao get _dao => widget.dao;
   List<Project> _projects = [];
   bool _loading = true;
+  bool _loadFailed = false;
+  int _loadGeneration = 0;
 
   /// Search over name, line, ISO, client and class (see
   /// [projectMatchesQuery]) — a foreman with forty jobs finds one by the
@@ -48,13 +50,26 @@ class _ProjectsScreenState extends State<_ProjectsList> {
 
   Future<void> _load() async {
     if (!mounted) return;
-    setState(() => _loading = true);
-    final list = await _dao.listAll();
-    if (!mounted) return;
+    final generation = ++_loadGeneration;
     setState(() {
-      _projects = list;
-      _loading = false;
+      _loading = true;
+      _loadFailed = false;
     });
+    try {
+      final list = await _dao.listAll();
+      if (!mounted || generation != _loadGeneration) return;
+      setState(() {
+        _projects = list;
+        _loading = false;
+      });
+    } catch (error) {
+      debugPrint('Projects load failed (${error.runtimeType})');
+      if (!mounted || generation != _loadGeneration) return;
+      setState(() {
+        _loading = false;
+        _loadFailed = true;
+      });
+    }
   }
 
   @override
@@ -148,7 +163,19 @@ class _ProjectsScreenState extends State<_ProjectsList> {
                 ),
               ),
             )
-          : _projects.isEmpty
+          : _loadFailed
+              ? EmptyState(
+                  icon: Icons.error_outline,
+                  title: context.tr(
+                      pl: 'Nie udało się wczytać projektów.',
+                      en: 'Could not load projects.'),
+                  subtitle: context.tr(
+                      pl: 'Spróbuj ponownie za chwilę.',
+                      en: 'Please try again in a moment.'),
+                  actionLabel: context.tr(pl: 'Ponów', en: 'Retry'),
+                  onAction: _load,
+                )
+              : _projects.isEmpty
             ? EmptyState(
                 icon: Icons.folder_open_outlined,
                 title: context.tr(
