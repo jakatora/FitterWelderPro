@@ -22,8 +22,17 @@ final _action = RegExp(
     r'narys\w*|dorys\w*|przelicz\w*|skopiuj\w*|wyczysc\w*|nazwij\w*|podsumuj\w*|'
     r'open|show|save|add|set|change|delete|calculate|compute|draw|copy|clear)\b');
 
+// "Help me understand" asks for an explanation, while "help me open"
+// still belongs to the command workflow.
+final _helpUnderstand = RegExp(
+    r'^(?:(?:prosze|please)\s+)*'
+    r'(?:(?:czy (?:mozesz|moglbys)|can you|could you)\s+)?'
+    r'(?:(?:mi|please)\s+)*(?:pomoz|pomoc|help)\s+'
+    r'(?:(?:mi|me)\s+)?(?:zrozumiec|understand)\b');
+
 bool requestsConversationAction(Utterance u) {
   final text = _conversationText(u);
+  if (_helpUnderstand.hasMatch(text)) return false;
   final verb = _politeAction.firstMatch(text)?.group(1);
   final explains = verb != null &&
       RegExp(r'^(?:wyjasn|wytlumacz|opowiedz|powiedz|opis|explain|tell|describe)')
@@ -35,9 +44,11 @@ bool isKnowledgeQuestion(Utterance u) =>
     !requestsConversationAction(u) &&
     !RegExp(r'co (?:potrafisz|umiesz)|w czym pomozesz|what can you do')
         .hasMatch(u.folded) &&
-    _question.hasMatch(_conversationText(u));
+    (_question.hasMatch(_conversationText(u)) ||
+        _helpUnderstand.hasMatch(_conversationText(u)));
 
 bool isExplanationQuestion(Utterance u) =>
+    _helpUnderstand.hasMatch(_conversationText(u)) ||
     RegExp(r'^(?:(?:prosze|please|powiedz mi|tell me)\s+)*'
             r'(?:jak\b|dlaczego\b|czemu\b|czym\b|co to\b|'
             r'wyjasnij\w*|wytlumacz\w*|opisz\w*|explain\b|describe\b|'

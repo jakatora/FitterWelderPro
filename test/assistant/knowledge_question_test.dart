@@ -26,6 +26,12 @@ void main() {
     'A jeśli spoina ma pory?',
     'And for thicker material?',
     'A jak spawać TIG?',
+    'Pomóż mi zrozumieć, dlaczego spoina ma pory',
+    'Czy możesz pomóc mi zrozumieć spawanie TIG?',
+    'Czy możesz mi pomóc zrozumieć wynik kalkulatora?',
+    'Can you help me understand TIG welding?',
+    'Could you please help me understand this result?',
+    'Please help me understand porosity',
   ]) {
     test('explanation is not execution: $text', () {
       expect(
@@ -46,6 +52,8 @@ void main() {
     'A otwórz kalkulator',
     'And set the second pipe to 500 mm',
     'A czy możesz podsumować rysunek?',
+    'Czy możesz pomóc mi otworzyć kalkulator?',
+    'Can you help me open the calculator?',
   ]) {
     test('explicit action retains native workflow: $text', () {
       expect(requestsConversationAction(Utterance(text, lang: AppLanguage.pl)),

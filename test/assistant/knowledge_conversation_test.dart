@@ -19,6 +19,9 @@ void main() {
     'Explain the difference between MIG and MAG',
     'Wyszukaj w internecie informacje o spawaniu hybrydowym',
     'Search the web for hybrid welding information',
+    'Pomóż mi zrozumieć, dlaczego spoina ma pory',
+    'Czy możesz mi pomóc zrozumieć spawanie TIG?',
+    'Can you help me understand TIG welding?',
   ]) {
     testWidgets('answers question instead of asking for a module: $question',
         (t) async {
