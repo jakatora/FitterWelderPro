@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:cut_list_app/assistant/core/tool_bridge.dart';
 import 'package:cut_list_app/services/premium_service.dart';
+import 'package:cut_list_app/services/ai_chat_service.dart';
 import '../support/test_account.dart';
 import '../support/test_database.dart';
 import 'ai_chat_execution_test.dart' show mount;
@@ -172,6 +173,44 @@ void main() {
                       'content-type': 'application/json; charset=utf-8'
                     });
               }));
+    });
+  }
+  for (final failure in [AiReplyKind.unavailable, AiReplyKind.offlineHelp]) {
+    testWidgets(
+        'local calculation remains available after clarification failure: $failure',
+        (tester) async {
+      var chats = 0;
+      await mount(tester,
+          interpret: (_) async =>
+              throw StateError('Local calculation needs no AI'),
+          chatSender: (text, history) async {
+            chats++;
+            return ChatMessage(
+                role: ChatRole.assistant,
+                text:
+                    chats == 1 ? 'Jaka metoda i materiał?' : 'Brak połączenia',
+                kind: chats == 1 ? AiReplyKind.live : failure,
+                needsClarification: chats == 1);
+          });
+      await say(tester, 'Jak dobrać gaz do spawania?');
+      await say(tester, 'TIG, stal nierdzewna 316L');
+      expect(chats, 2);
+      final oldRetry =
+          tester.widget<SnackBarAction>(find.byType(SnackBarAction)).onPressed;
+      await say(tester,
+          'Rolling offset wznios 300 mm odsunięcie 400 mm kąt 45 stopni DN100 LR szczelina 3 mm');
+      expect(chats, 2,
+          reason: 'A failed knowledge reply must not trap local calculations');
+      expect(
+          ToolBridge.instance.inputFields('rolling_offset')!['rise_mm'], 300);
+      expect(
+          ToolBridge.instance.inputFields('rolling_offset')!['spread_mm'], 400);
+      expect(find.text('573.1'), findsOneWidget);
+      oldRetry();
+      await tester.pump();
+      expect(chats, 2,
+          reason: 'The previous retry is obsolete after a native command');
+      expect(tester.takeException(), isNull);
     });
   }
 }

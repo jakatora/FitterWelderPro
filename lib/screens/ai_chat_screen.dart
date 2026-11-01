@@ -2821,7 +2821,11 @@ class _AiChatScreenState extends State<AiChatScreen>
     // calculation. Ordinary clarification replies retain their conversation.
     if (clarification != null &&
         _messages.isNotEmpty &&
-        _messages.last.kind == AiReplyKind.dailyLimit &&
+        const {
+          AiReplyKind.dailyLimit,
+          AiReplyKind.unavailable,
+          AiReplyKind.offlineHelp,
+        }.contains(_messages.last.kind) &&
         !isKnowledgeQuestion(u) &&
         !isEllipticalKnowledgeFollowUp(u) &&
         _brain.recognizesCalculation(u, _brainContext) &&
