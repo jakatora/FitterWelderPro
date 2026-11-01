@@ -78,9 +78,9 @@ void main() {
       expect(t.takeException(), isNull);
     },
         () => MockClient((r) async {
-                  if (r.url.path.endsWith('/ai/chat')) {
+              if (r.url.path.endsWith('/ai/chat')) {
                 chats.add(jsonDecode(r.body) as Map);
-                  }
+              }
               final clarifying = chats.length == 1;
               return http.Response(
                   jsonEncode({
@@ -96,4 +96,52 @@ void main() {
                   headers: {'content-type': 'application/json; charset=utf-8'});
             }));
   });
+
+  for (final followUp in [
+    'A dla aluminium?',
+    'A jeśli spoina ma pory?',
+    'What about aluminium?',
+    'And for thicker material?',
+  ]) {
+    testWidgets('follow-up stays in the conversation: $followUp', (t) async {
+      final chats = <Map>[];
+      var interpretations = 0;
+      await http.runWithClient(() async {
+        await mount(t, interpret: (_) async {
+          interpretations++;
+          throw StateError('A follow-up is not a module request');
+        });
+        PremiumService.instance.resetForTest();
+        await say(t, 'Jak spawać nierdzewkę metodą TIG?');
+        await say(t, followUp);
+        expect(interpretations, 0);
+        expect(chats, hasLength(2));
+        expect(chats.last['message'], followUp);
+        expect(chats.last['history'], [
+          {'role': 'user', 'text': 'Jak spawać nierdzewkę metodą TIG?'},
+          {'role': 'assistant', 'text': 'Odpowiedź do pierwszego pytania.'},
+        ]);
+        expect(find.textContaining('Odpowiedź do kontynuacji.'), findsWidgets);
+        expect(t.takeException(), isNull);
+      },
+          () => MockClient((request) async {
+                if (request.url.path.endsWith('/ai/chat')) {
+                  chats.add(jsonDecode(request.body) as Map);
+                }
+                return http.Response(
+                    jsonEncode({
+                      'text': chats.length == 1
+                          ? 'Odpowiedź do pierwszego pytania.'
+                          : 'Odpowiedź do kontynuacji.',
+                      'citations': [],
+                      'needs_clarification': false,
+                      'calculator_context_used': true,
+                    }),
+                    200,
+                    headers: {
+                      'content-type': 'application/json; charset=utf-8'
+                    });
+              }));
+    });
+  }
 }
