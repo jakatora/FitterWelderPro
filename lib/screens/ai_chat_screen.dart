@@ -2817,6 +2817,18 @@ class _AiChatScreenState extends State<AiChatScreen>
       }
     }
     final clarification = _knowledgeClarification;
+    // An exhausted AI question must not prevent an independent offline
+    // calculation. Ordinary clarification replies retain their conversation.
+    if (clarification != null &&
+        _messages.isNotEmpty &&
+        _messages.last.kind == AiReplyKind.dailyLimit &&
+        !isKnowledgeQuestion(u) &&
+        !isEllipticalKnowledgeFollowUp(u) &&
+        _brain.recognizesCalculation(u, _brainContext) &&
+        _brain.recognizesLocalRequest(u, _brainContext)) {
+      _knowledgeClarification = null;
+      return false;
+    }
     if (clarification == null) {
       final followsKnowledgeAnswer = _messages.isNotEmpty &&
           _messages.last.role == ChatRole.assistant &&
@@ -2828,7 +2840,8 @@ class _AiChatScreenState extends State<AiChatScreen>
         return false;
       }
       // Exact numeric lookups retain the app's deterministic calculations.
-      if (!isExplanationQuestion(u) &&
+      if (!followsKnowledgeAnswer &&
+          !isExplanationQuestion(u) &&
           _brain.recognizesCalculation(u, _brainContext) &&
           _brain.recognizesLocalRequest(u, _brainContext)) {
         return false;
