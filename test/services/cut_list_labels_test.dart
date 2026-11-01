@@ -1,5 +1,6 @@
 // Etykiety segmentów w podsumowaniu CUT LIST (ekran, PDF, tekst do
 // udostępnienia) i ostrzeżenie o cięciu dłuższym od sztangi.
+// Ścianka fixture 6,02 mm ma zachować pełną dokładność także w tekście.
 //
 // Oczekiwane wartości policzone ręcznie (sztanga 6000 mm, rzaz 3 mm):
 //   S01 3293 + S02 2500 → reszta 6000 − 5793 − 6 = 201 mm
@@ -162,7 +163,7 @@ void main() {
         'CUT LIST — Linia DN100\n'
         'Materiał: CS  Sztanga: 6000 mm  Rzaz: 3.0 mm\n'
         '\n'
-        'Ø114.3 × 6.0:\n'
+        'Ø114.3 × 6.02:\n'
         '  Sztanga 1: S01: 3293 + S02: 2500  (zostaje 201 mm)\n'
         '  Sztanga 2: S03: 1200  (zostaje 4797 mm)\n',
       );
@@ -186,7 +187,7 @@ void main() {
         'split into 2 parts: 6000 + 1000 mm; an extra joining weld (project gap '
         '0 mm — nothing taken off).\n'
         '\n'
-        'Ø114.3 × 6.0:\n'
+        'Ø114.3 × 6.02:\n'
         '  Bar 1: S01 (1/2): 6000  (remaining 0 mm)\n'
         '  Bar 2: S02: 4000 + S01 (2/2): 1000  (remaining 994 mm)\n',
       );
@@ -230,7 +231,7 @@ void main() {
         'Linia: DN100-CWS-1234 · ISO: ISO-7 rew. B\n'
         'Materiał: CS  Sztanga: 6000 mm  Rzaz: 3.0 mm\n'
         '\n'
-        'Ø114.3 × 6.0:\n'
+        'Ø114.3 × 6.02:\n'
         '  Sztanga 1: S01 SP02-03: 3293 + S02: 2500  (zostaje 201 mm)\n',
       );
     });
