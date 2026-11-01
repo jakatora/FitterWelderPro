@@ -241,4 +241,39 @@ void main() {
     expect(ToolBridge.instance.calculatorResult('heat_input'), isNull);
     expect(t.takeException(), isNull);
   });
+  testWidgets('switching calculator tabs rejects an answer for hidden inputs',
+      (t) async {
+    final pending = Completer<ChatMessage>();
+    var calls = 0;
+    await mount(t,
+        home: const HeatInputScreen(),
+        interpret: (_) async => throw StateError('Knowledge is not navigation'),
+        chatSender: (_, __) {
+          calls++;
+          return pending.future;
+        });
+    await t.enterText(find.byKey(const Key('assistant-command')),
+        'Dlaczego energia liniowa zależy od prędkości?');
+    await t.tap(find.byKey(const Key('assistant-go')));
+    for (var i = 0; i < 15 && calls == 0; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    expect(calls, 1);
+    AssistantPanelController.instance.setExpanded(false);
+    await t.pump(const Duration(milliseconds: 500));
+    await t.tap(find.text('Preheat / CE'));
+    await t.pump(const Duration(milliseconds: 500));
+    expect(CalculatorQuestionContext.capture(ToolBridge.instance), isNull);
+    pending.complete(ChatMessage(
+        role: ChatRole.assistant,
+        text: 'Outdated heat input answer',
+        kind: AiReplyKind.live));
+    await settle(t);
+    AssistantPanelController.instance.setExpanded(true);
+    await settle(t);
+    expect(find.text('Outdated heat input answer'), findsNothing);
+    expect(
+        find.textContaining('Kalkulator lub dane zmieniły się'), findsWidgets);
+    expect(t.takeException(), isNull);
+  });
 }
