@@ -90,6 +90,27 @@ void main() {
       expect(t.takeException(), isNull);
     });
   }
+  testWidgets('failed speech cannot submit a late final result', (t) async {
+    final speech = HeldSpeech();
+    var calls = 0;
+    await mount(t, speech: speech, interpret: (_) async {
+      calls++;
+      return const AiCommandPlan('answer', [], '');
+    });
+    final input = find.byKey(const Key('assistant-command'));
+    await t.tap(find.byKey(const Key('assistant-mic')));
+    await settle(t);
+    speech.results.single('częściowa wypowiedź', false);
+    await t.pump();
+    speech.completions.single('error_network');
+    await settle(t);
+    expect(find.byKey(const Key('assistant-listening')), findsNothing);
+    speech.results.single('opóźniona końcowa wypowiedź', true);
+    await t.pump();
+    expect(calls, 0);
+    expect(t.widget<TextField>(input).controller!.text, 'częściowa wypowiedź');
+    expect(t.takeException(), isNull);
+  });
   testWidgets('retired speech cannot submit or stop a new microphone session',
       (t) async {
     final speech = HeldSpeech();

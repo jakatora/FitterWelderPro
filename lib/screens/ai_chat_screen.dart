@@ -683,6 +683,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       if (!current()) return;
       setState(() => _listening = false);
       if (error != null) {
+        _cancelMic();
         messenger.showSnackBar(SnackBar(content: Text(interrupted)));
       }
     }
