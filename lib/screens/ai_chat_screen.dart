@@ -2789,6 +2789,26 @@ class _AiChatScreenState extends State<AiChatScreen>
       return false;
     }
     if (_awaitingNativeInput || _aiClarification != null) return false;
+    if (startsNewKnowledgeTopic(u)) {
+      _knowledgeClarification = null;
+      if (isBareKnowledgeTopicChange(u)) {
+        _brainContext.invalidateActionReference();
+        final prompt = _tr('Jasne — o co chcesz zapytać?', 'Sure — what would you like to ask?');
+        setState(() {
+          if (!widget.embedded) _mode = AssistantMode.answer;
+          _cmdCtrl.clear();
+          _inputCtrl.clear();
+          _voiceUsed = false;
+          _messages.add(ChatMessage(role: ChatRole.user, text: text));
+          _appendKnowledgeReply(ChatMessage(role: ChatRole.assistant,
+              text: prompt, kind: AiReplyKind.localDialogue));
+          _busy = false;
+        });
+        _scrollToBottom();
+        await _speak(prompt);
+        return true;
+      }
+    }
     final clarification = _knowledgeClarification;
     if (clarification == null) {
       if (!isKnowledgeQuestion(u)) return false;

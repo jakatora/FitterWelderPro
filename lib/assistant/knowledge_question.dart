@@ -1,7 +1,20 @@
 import 'core/utterance.dart';
 
+final _newTopic = RegExp(
+    r'^(?:(?:a|ale|and|but)\s+)*(?:mam (?:inne|nowe) pytanie|'
+    r'(?:inne|nowe) pytanie|zmienmy temat|(?:new|different) question|'
+    r'i have (?:another|a new|a different) question|change the subject)\b\s*');
+
+/// Only an explicit topic change ends an unanswered knowledge question.
+/// Ordinary short replies and mentions of a "new question" remain context.
+bool startsNewKnowledgeTopic(Utterance u) => _newTopic.hasMatch(u.folded);
+
+bool isBareKnowledgeTopicChange(Utterance u) =>
+    startsNewKnowledgeTopic(u) && _conversationText(u).isEmpty;
+
 String _conversationText(Utterance u) =>
-    u.folded.replaceFirst(RegExp(r'^(?:(?:a|ale|and|but)\s+)+'), '');
+    u.folded.replaceFirst(_newTopic, '')
+        .replaceFirst(RegExp(r'^(?:(?:a|ale|and|but)\s+)+'), '');
 
 // Conversation questions describe a problem; mentioning a tool is not a
 // navigation request. Native commands and literal field replies remain owned

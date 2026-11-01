@@ -4,6 +4,34 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 
 void main() {
+  test('bare topic controls are distinct from questions and ordinary replies', () {
+    for (final text in ['Mam inne pytanie', 'Zmieńmy temat', 'New question']) {
+      expect(isBareKnowledgeTopicChange(Utterance(text, lang: AppLanguage.pl)), isTrue);
+    }
+    for (final text in ['Nowe pytanie: jak spawać TIG?', 'TIG, 316L']) {
+      expect(isBareKnowledgeTopicChange(Utterance(text, lang: AppLanguage.pl)), isFalse);
+    }
+  });
+  for (final text in [
+    'Mam inne pytanie: dlaczego spoina ma pory?',
+    'A nowe pytanie: jak spawać aluminium?',
+    'Zmieńmy temat: co to jest TIG?',
+    'New question: why does porosity occur?',
+    'I have another question: how does TIG work?',
+  ]) {
+    test('explicit topic marker keeps the actual question: $text', () {
+      final u = Utterance(text, lang: AppLanguage.pl);
+      expect(startsNewKnowledgeTopic(u), isTrue);
+      expect(isKnowledgeQuestion(u), isTrue);
+      expect(isExplanationQuestion(u), isTrue);
+      expect(requestsConversationAction(u), isFalse);
+    });
+  }
+  for (final text in ['TIG, 316L', 'A dla aluminium?', 'Jak sformułować nowe pytanie?']) {
+    test('ordinary context does not request a topic reset: $text', () {
+      expect(startsNewKnowledgeTopic(Utterance(text, lang: AppLanguage.pl)), isFalse);
+    });
+  }
   test('how many retains deterministic numeric lookups', () {
     expect(
         isExplanationQuestion(
@@ -54,6 +82,8 @@ void main() {
     'A czy możesz podsumować rysunek?',
     'Czy możesz pomóc mi otworzyć kalkulator?',
     'Can you help me open the calculator?',
+    'Nowe pytanie: otwórz kalkulator',
+    'New question: set the second pipe to 500 mm',
   ]) {
     test('explicit action retains native workflow: $text', () {
       expect(requestsConversationAction(Utterance(text, lang: AppLanguage.pl)),

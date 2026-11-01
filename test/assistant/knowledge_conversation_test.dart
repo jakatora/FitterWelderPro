@@ -13,6 +13,57 @@ import 'global_pipe_slope_flow_test.dart' show say, settle;
 void main() {
   useGuestAccount();
   useTestDatabase();
+  testWidgets('bare topic change asks locally and clears the old clarification', (t) async {
+    final chats = <Map>[];
+    await http.runWithClient(() async {
+      await mount(t, interpret: (_) async => throw StateError('Topic change must stay local'));
+      PremiumService.instance.resetForTest();
+      await say(t, 'Jak dobrać gaz do spawania?');
+      expect(chats, hasLength(1));
+      await say(t, 'Mam inne pytanie');
+      expect(chats, hasLength(1));
+      expect(find.textContaining('Jasne — o co chcesz zapytać?'), findsWidgets);
+      await say(t, 'Jak spawać aluminium?');
+      expect(chats, hasLength(2));
+      expect(chats.last.containsKey('question_clarification'), isFalse);
+      expect(t.takeException(), isNull);
+    }, () => MockClient((r) async {
+      if (r.url.path.endsWith('/ai/chat')) chats.add(jsonDecode(r.body) as Map);
+      return http.Response(jsonEncode({
+        'text': chats.length == 1 ? 'Jaka metoda i materiał?' : 'Nowe wyjaśnienie',
+        'needs_clarification': chats.length == 1,
+        'question_clarification_used': true, 'calculator_context_used': true,
+      }), 200, headers: {'content-type': 'application/json; charset=utf-8'});
+    }));
+  });
+  for (final newQuestion in [
+    'Mam inne pytanie: dlaczego powstają pory?',
+    'New question: why does porosity occur?',
+  ]) {
+    testWidgets('explicit new topic does not carry a previous clarification: $newQuestion', (t) async {
+      final chats = <Map>[];
+      await http.runWithClient(() async {
+        await mount(t, interpret: (_) async => throw StateError('A new knowledge topic is not a command'));
+        PremiumService.instance.resetForTest();
+        await say(t, 'Jak dobrać gaz do spawania?');
+        await say(t, newQuestion);
+        expect(chats, hasLength(2));
+        expect(chats.last['message'], newQuestion);
+        expect(chats.last.containsKey('question_clarification'), isFalse);
+        expect((chats.last['history'] as List).any((m) => m['text'] == 'Jak dobrać gaz do spawania?'), isTrue);
+        expect(find.textContaining('Wyjaśnienie nowego tematu'), findsWidgets);
+        expect(t.takeException(), isNull);
+      }, () => MockClient((r) async {
+        if (r.url.path.endsWith('/ai/chat')) chats.add(jsonDecode(r.body) as Map);
+        return http.Response(jsonEncode({
+          'text': chats.length == 1 ? 'Jaka metoda i materiał?' : 'Wyjaśnienie nowego tematu',
+          'needs_clarification': chats.length == 1,
+          'question_clarification_used': true,
+          'calculator_context_used': true,
+        }), 200, headers: {'content-type': 'application/json; charset=utf-8'});
+      }));
+    });
+  }
   for (final failureKind in [AiReplyKind.unavailable, AiReplyKind.offlineHelp]) {
     testWidgets('temporary initial knowledge failure has one explicit retry: $failureKind', (t) async {
       final questions = <String>[];
