@@ -294,6 +294,11 @@ class _CoolingTimePageState extends State<CoolingTimePage>
         ? coolingTime(
             heatInputKjMm: q!, preheatC: t0!, thicknessMm: d!, shape: _shape)
         : null;
+    if (r == null && problems.isEmpty) {
+      problems.add(context.tr(
+          pl: 'Dane są poza zakresem obliczeń. Sprawdź Q, temperaturę i grubość.',
+          en: 'Values are outside the calculation range. Check Q, temperature and thickness.'));
+    }
 
     return Scaffold(
       appBar: AppBar(

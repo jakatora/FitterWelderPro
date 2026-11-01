@@ -32,6 +32,18 @@ import 'package:cut_list_app/domain/welding/cooling_time.dart';
 import 'package:cut_list_app/domain/welding/heat_input.dart';
 
 void main() {
+  test('numerical underflow cannot produce a zero cooling-time result', () {
+    for (final values in [(1e-200, 20.0), (1.0, 1e200)]) {
+      expect(
+          coolingTime(
+              heatInputKjMm: values.$1,
+              preheatC: 100,
+              thicknessMm: values.$2,
+              shape: WeldShape.beadOnPlate),
+          isNull);
+    }
+  });
+
   group('wzory zał. D', () {
     test('wzór 3D: Q 1 kJ/mm, T0 20 °C → 5,29 s', () {
       expect(t85ThreeD(heatInputKjMm: 1, preheatC: 20),

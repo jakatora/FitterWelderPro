@@ -247,8 +247,9 @@ CoolingTimeResult? coolingTime({
       thicknessMm: thicknessMm,
       f2: shape.f2Max)!;
   // Absurdalnie duże Q (≈1e154) przepełnia Q² do ∞ — wynik „Infinity” na
-  // ekranie byłby gorszy niż brak wyniku.
-  if (![dt, t3, t2min, t2max].every((v) => v.isFinite)) return null;
+  // ekranie byłby gorszy niż brak wyniku. Odrzucamy też underflow,
+  // aby dodatnie obliczenie nie dawało pozornie prawidłowego zera.
+  if (![dt, t3, t2min, t2max].every((v) => v.isFinite && v > 0)) return null;
   final flow = thicknessMm < dt ? HeatFlow.twoD : HeatFlow.threeD;
   return CoolingTimeResult(
     heatInputKjMm: heatInputKjMm,

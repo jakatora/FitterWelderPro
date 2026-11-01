@@ -43,6 +43,15 @@ void main() {
 
   Finder verdict(T85Verdict v) => find.byKey(ValueKey('cool-verdict-${v.name}'));
 
+  testWidgets('uncomputable finite inputs show an explanation instead of an empty error', (tester) async {
+    await pump(tester);
+    await tester.enterText(find.byKey(const ValueKey('cool-t0')), '-274');
+    await tester.pump();
+    expect(find.byKey(const ValueKey('cool-result')), findsNothing);
+    expect(find.text('Dane są poza zakresem obliczeń. Sprawdź Q, temperaturę i grubość.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('zmiana T0, grubości i okna zmienia wynik i werdykt',
       (tester) async {
     await pump(tester);
