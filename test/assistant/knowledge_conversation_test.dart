@@ -259,4 +259,45 @@ void main() {
               }));
     });
   }
+  for (final failures in [1, 2]) {
+    testWidgets('short follow-up keeps failed questions: $failures', (t) async {
+      final chats = <Map>[];
+      await http.runWithClient(() async {
+        await mount(t,
+            interpret: (_) async =>
+                throw StateError('A follow-up is not a module request'));
+        PremiumService.instance.resetForTest();
+        await say(t, 'Jak dobrać gaz do spawania TIG?');
+        if (failures == 2) await say(t, 'A dla 316L');
+        await say(t, 'A dla aluminium');
+        expect(chats, hasLength(failures + 1));
+        expect(chats.last['message'], 'A dla aluminium');
+        expect(chats.last['question_clarification'], {
+          'user_turns': [
+            'Jak dobrać gaz do spawania TIG?',
+            if (failures == 2) 'A dla 316L'
+          ]
+        });
+        expect(find.textContaining('Odpowiedź o gazie dla aluminium'),
+            findsWidgets);
+        expect(t.takeException(), isNull);
+      },
+          () => MockClient((r) async {
+                chats.add(jsonDecode(r.body) as Map);
+                if (chats.length <= failures) {
+                  return http.Response('{"error":{"code":"AI_BUSY"}}', 503);
+                }
+                return http.Response(
+                    jsonEncode({
+                      'text': 'Odpowiedź o gazie dla aluminium',
+                      'question_clarification_used': true,
+                      'calculator_context_used': true,
+                    }),
+                    200,
+                    headers: {
+                      'content-type': 'application/json; charset=utf-8'
+                    });
+              }));
+    });
+  }
 }

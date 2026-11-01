@@ -2791,6 +2791,39 @@ class _AiChatScreenState extends State<AiChatScreen>
       _localResult is ConfirmResult ||
       _isoPort.hasPendingQuestion;
 
+  // Failed replies are excluded from model history. Preserve their user
+  // question explicitly when a short follow-up refers back to that turn.
+  AiClarification? _failedKnowledgeFollowUp(Utterance followUp) {
+    if (!isEllipticalKnowledgeFollowUp(followUp)) return null;
+    final turns = <String>[];
+    for (var i = _messages.length - 1; i >= 1; i -= 2) {
+      final reply = _messages[i];
+      final question = _messages[i - 1];
+      if (reply.role != ChatRole.assistant ||
+          !const {AiReplyKind.unavailable, AiReplyKind.offlineHelp}
+              .contains(reply.kind) ||
+          question.role != ChatRole.user) {
+        break;
+      }
+      final utterance = Utterance(question.text, lang: followUp.lang);
+      if (!isKnowledgeQuestion(utterance) &&
+          !isEllipticalKnowledgeFollowUp(utterance)) {
+        break;
+      }
+      turns.insert(0, question.text);
+      if (!isEllipticalKnowledgeFollowUp(utterance)) {
+        break;
+      }
+    }
+    if (turns.isEmpty) return null;
+    try {
+      return AiClarification(question: '', userTurns: turns);
+    } on FormatException {
+      // Keep the normal bounded request path; never truncate user intent.
+      return null;
+    }
+  }
+
   Future<bool> _tryKnowledgeQuestion(String text, AppLanguage lang) async {
     final u = Utterance(text, lang: lang, byVoice: _voiceUsed);
     _brainContext.lang = lang;
@@ -2821,7 +2854,7 @@ class _AiChatScreenState extends State<AiChatScreen>
         return true;
       }
     }
-    final clarification = _knowledgeClarification;
+    final clarification = _knowledgeClarification ?? _failedKnowledgeFollowUp(u);
     // An exhausted AI question must not prevent an independent offline
     // calculation. Ordinary clarification replies retain their conversation.
     if (clarification != null &&
