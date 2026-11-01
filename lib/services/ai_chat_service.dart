@@ -334,6 +334,24 @@ class AiChatService {
           sources.add('[${sources.length + 1}] ${source['title']}\n$uri');
         }
       }
+      final researchStatus = body['research_status'];
+      if (researchStatus != null &&
+          (researchStatus != 'verified_sources' &&
+                  researchStatus != 'unverified' ||
+              researchStatus == 'verified_sources' && sources.isEmpty ||
+              researchStatus == 'unverified' && sources.isNotEmpty ||
+              needsClarification == true)) {
+        throw const FormatException('Inconsistent research result');
+      }
+      if (researchStatus == 'unverified') {
+        // Keep the server's explanation, but let the user retry explicitly.
+        // Failed searches must not become completed knowledge turns.
+        return ChatMessage(
+          role: ChatRole.assistant,
+          text: text,
+          kind: AiReplyKind.unavailable,
+        );
+      }
       return ChatMessage(
         role: ChatRole.assistant,
         text: sources.isEmpty
