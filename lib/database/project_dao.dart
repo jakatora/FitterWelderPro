@@ -8,6 +8,8 @@ import '../models/project.dart';
 import '../models/segment.dart';
 import '../services/account_service.dart' show AccountException;
 import '../services/prefab_engine.dart';
+import '../services/bar_nesting.dart' show splitCutLengths;
+import 'cut_mark_dao.dart';
 import 'local_record_owner.dart';
 import 'owned_table.dart';
 
@@ -339,6 +341,9 @@ class ProjectDao {
         throw StateError('project $projectId does not exist');
       }
       final oldGap = ((current.first['gap_mm'] as num?) ?? 0).toDouble();
+      final oldStock = (current.first['stock_length_mm'] as num).toDouble();
+      final gapChanged = (gapMm - oldGap).abs() >= 1e-9;
+      final stockChanged = (stockLengthMm - oldStock).abs() >= 1e-9;
       final now = DateTime.now().millisecondsSinceEpoch;
 
       await txn.update(
@@ -355,7 +360,7 @@ class ProjectDao {
         whereArgs: [projectId],
       );
 
-      if ((gapMm - oldGap).abs() < 1e-9) {
+      if (!gapChanged && !stockChanged) {
         return const ProjectSettingsUpdate(recomputed: 0, changedBeyondGap: []);
       }
 
@@ -366,19 +371,44 @@ class ProjectDao {
       final beyond = <int>[];
       for (final row in rows) {
         final seg = Segment.fromRow(row);
-        final cut = PrefabEngine.storedSegmentCutMm(
-          isoMm: seg.isoMm,
-          isoRef: seg.isoRef,
-          startKind: seg.startKind,
-          startValueMm: seg.startValueMm,
-          endKind: seg.endKind,
-          endValueMm: seg.endValueMm,
-          gapMm: gapMm,
-        );
+        final cut = !gapChanged
+            ? seg.cutMm
+            : PrefabEngine.storedSegmentCutMm(
+                isoMm: seg.isoMm,
+                isoRef: seg.isoRef,
+                startKind: seg.startKind,
+                startValueMm: seg.startValueMm,
+                endKind: seg.endKind,
+                endValueMm: seg.endValueMm,
+                gapMm: gapMm,
+              );
         if (!cut.isFinite || cut <= 0) {
           // Throwing rolls the whole transaction back, project row included.
           throw GapMakesCutImpossible(seqNo: seg.seqNo, gapMm: gapMm);
         }
+        // Saw ticks store the whole segment CUT, not its split-piece length.
+        // Stock or joining-gap edits can change a part while the whole CUT
+        // stays identical (e.g. open ends). Invalidate only those parts.
+        final oldParts = splitCutLengths(seg.cutMm,
+            stockLengthMm: oldStock, joinGapMm: oldGap);
+        final newParts = splitCutLengths(cut,
+            stockLengthMm: stockLengthMm, joinGapMm: gapMm);
+        final marks = await txn.query('cut_marks',
+            columns: ['part'],
+            where: 'project_id = ? AND segment_id = ?',
+            whereArgs: [projectId, seg.id]);
+        for (final mark in marks) {
+          final index = (mark['part'] as num).toInt() - 1;
+          if (index < 0 ||
+              index >= oldParts.length ||
+              index >= newParts.length ||
+              !CutMarkDao.stillValid(oldParts[index], newParts[index])) {
+            await txn.delete('cut_marks',
+                where: 'project_id = ? AND segment_id = ? AND part = ?',
+                whereArgs: [projectId, seg.id, index + 1]);
+          }
+        }
+        if (!gapChanged) continue;
         // A row saved consistently moves by exactly (old − new gap) × welds.
         // Anything else means its stored cut did not follow its own columns
         // (e.g. saved under the builder's old start-only weld count): the
@@ -400,7 +430,7 @@ class ProjectDao {
       }
       owner.requireCurrent();
       return ProjectSettingsUpdate(
-        recomputed: rows.length,
+        recomputed: gapChanged ? rows.length : 0,
         changedBeyondGap: beyond,
       );
     });

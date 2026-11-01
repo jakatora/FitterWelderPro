@@ -101,6 +101,39 @@ void main() {
     }
   }
 
+  testWidgets('stock edit resets changed split ticks in the visible progress', (tester) async {
+    const pid = 'changed-split-progress';
+    await tester.runAsync(() async {
+      await ProjectDao().insert(Project(
+        id: pid, name: 'Split progress', materialGroup: 'SS',
+        diameterMm: 114.3, wallThicknessMm: 6.02, currentDiameterMm: 114.3,
+        stockLengthMm: 6000, sawKerfMm: 3, gapMm: 0,
+        createdAt: 0, updatedAt: 0,
+      ));
+      await SegmentDao().insert(_segRow(pid, 1, 7000));
+      await SegmentDao().insert(_segRow(pid, 2, 800));
+      final marks = CutMarkDao();
+      for (final part in [1, 2]) {
+        await marks.mark(projectId: pid, segmentId: '$pid-s1', part: part, cutMm: 7000);
+      }
+      await marks.mark(projectId: pid, segmentId: '$pid-s2', part: 1, cutMm: 800);
+    });
+    Future<void> showPlan(String counter) async {
+      await tester.pumpWidget(AppLanguageScope(
+        controller: AppLanguageController(AppLanguage.pl),
+        child: MaterialApp(home: CutListSummaryScreen(projectId: pid)),
+      ));
+      await settle(tester, () => find.text(counter).evaluate().isNotEmpty);
+      expect(find.text(counter), findsOneWidget);
+    }
+    await showPlan('Ucięte: 3 / 3');
+    await tester.pumpWidget(const SizedBox());
+    await tester.runAsync(() => ProjectDao().updateSettings(pid,
+        name: 'Split progress', stockLengthMm: 4000, sawKerfMm: 3, gapMm: 0));
+    await showPlan('Ucięte: 1 / 3');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('etykiety, ostrzeżenie, udostępnianie CSV/tekstu i kopiowanie',
       (tester) async {
     tester.view.physicalSize = const Size(1200, 2600);
