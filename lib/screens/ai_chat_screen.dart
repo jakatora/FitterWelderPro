@@ -605,18 +605,23 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   ChatMessage _buildWelcomeMessage(BuildContext ctx) {
     final headline = ctx.tr(
-      pl: 'Zapytaj o spawanie, montaż albo moduły aplikacji',
-      en: 'Ask about welding, fit-up or the app modules',
+      pl: 'Zapytaj lub powiedz, co chcesz zrobić',
+      en: 'Ask a question or tell me what you want to do',
     );
     final body = ctx.tr(
-      pl: 'Odpowiada model AI na serwerze (wymaga internetu i zgody na '
-          'zasady). Pytaj o WPS, preheat, NACE, ASME, NDT, kalkulacje.\n\n'
-          'Bez internetu dostaniesz najbliższy wpis z pomocy w aplikacji — '
-          'wyraźnie oznaczony. Wynik to pomoc, nie zamiennik WPS.',
-      en: 'Answers come from an AI model on the server (needs internet and '
-          'accepting the rules). Ask about WPS, preheat, NACE, ASME, NDT, '
-          'calculations.\n\nOffline you get the closest in-app help entry — '
-          'clearly marked. Guidance only, not a substitute for the WPS.',
+      pl: 'Pomogę zrozumieć spawanie i montaż, wykonać obliczenia lub '
+          'otworzyć narzędzie. Gdy potrzebuję szczegółów, dopytam.\n\n'
+          'AI korzysta z wiedzy aplikacji. Gdy jej brakuje, może poszukać '
+          'źródeł w internecie i podać odnośniki. Wymaga to połączenia '
+          'i zgody na zasady. Bez internetu działają lokalne obliczenia '
+          'i oznaczona pomoc z aplikacji. Odpowiedź nie zastępuje WPS.',
+      en: 'I can help explain welding and fit-up, run calculations or '
+          'open a tool. When I need details, I will ask.\n\n'
+          'AI uses the app’s knowledge. When that is insufficient, it can '
+          'look for online sources and provide links. This needs an '
+          'internet connection and acceptance of the rules. Local '
+          'calculations and labelled in-app help work offline. '
+          'An answer does not replace the WPS.',
     );
     return ChatMessage(role: ChatRole.assistant, text: '$headline\n\n$body');
   }
