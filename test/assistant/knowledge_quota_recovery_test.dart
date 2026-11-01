@@ -130,4 +130,48 @@ void main() {
               }));
     });
   }
+  for (final clarifying in [false, true]) {
+    testWidgets(
+        'explicit calculation leaves knowledge conversation clarifying=$clarifying',
+        (tester) async {
+      var chats = 0;
+      await http.runWithClient(() async {
+        await mount(tester,
+            interpret: (_) async => throw StateError(
+                'A complete native calculation requires no AI routing'));
+        PremiumService.instance.resetForTest();
+        await say(tester, 'Co oznacza DN na rurze?');
+        expect(chats, 1);
+        await say(tester,
+            'Oblicz rolling offset wznios 300 mm odsunięcie 400 mm kąt 45 stopni DN100 LR szczelina 3 mm');
+        expect(chats, 1,
+            reason: 'An explicit command must leave knowledge conversation');
+        expect(
+            ToolBridge.instance.inputFields('rolling_offset')!['rise_mm'], 300);
+        expect(ToolBridge.instance.inputFields('rolling_offset')!['spread_mm'],
+            400);
+        expect(find.text('573.1'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+          () => MockClient((request) async {
+                if (!request.url.path.endsWith('/ai/chat')) {
+                  throw StateError('Unexpected request');
+                }
+                chats++;
+                return http.Response(
+                    jsonEncode({
+                      'text': clarifying
+                          ? 'O jakie oznaczenie rury pytasz?'
+                          : 'DN jest oznaczeniem nominalnym.',
+                      'needs_clarification': clarifying,
+                      'question_clarification_used': true,
+                      'calculator_context_used': true,
+                    }),
+                    200,
+                    headers: {
+                      'content-type': 'application/json; charset=utf-8'
+                    });
+              }));
+    });
+  }
 }
