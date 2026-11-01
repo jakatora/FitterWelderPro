@@ -1,16 +1,73 @@
 import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'package:cut_list_app/services/premium_service.dart';
+import 'package:cut_list_app/services/ai_chat_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import '../support/test_account.dart';
 import '../support/test_database.dart';
 import 'ai_chat_execution_test.dart' show mount;
-import 'global_pipe_slope_flow_test.dart' show say;
+import 'global_pipe_slope_flow_test.dart' show say, settle;
 
 void main() {
   useGuestAccount();
   useTestDatabase();
+  for (final failureKind in [AiReplyKind.unavailable, AiReplyKind.offlineHelp]) {
+    testWidgets('temporary initial knowledge failure has one explicit retry: $failureKind', (t) async {
+      final questions = <String>[];
+      await mount(t, interpret: (_) async => throw StateError('No command expected'),
+          chatSender: (text, _) async {
+        questions.add(text);
+        return ChatMessage(role: ChatRole.assistant,
+            text: questions.length == 1 ? 'Chwilowy brak połączenia' : 'Odpowiedź po przywróceniu połączenia',
+            kind: questions.length == 1 ? failureKind : AiReplyKind.live);
+      });
+      await say(t, 'Wyjaśnij spawanie TIG');
+      expect(questions, hasLength(1), reason: 'never retry automatically');
+      final retry = t.widget<SnackBarAction>(find.byType(SnackBarAction)).onPressed;
+      retry();
+      retry();
+      await settle(t);
+      expect(questions, ['Wyjaśnij spawanie TIG', 'Wyjaśnij spawanie TIG']);
+      expect(find.textContaining('Odpowiedź po przywróceniu połączenia'), findsWidgets);
+      expect(t.takeException(), isNull);
+    });
+  }
+  testWidgets('old knowledge retry cannot repeat after a native command', (t) async {
+    var questions = 0;
+    await mount(t, interpret: (_) async => throw StateError('Native calculation must stay local'),
+        chatSender: (_, __) async { questions++; throw StateError('Fixture offline'); });
+    await say(t, 'Wyjaśnij spawanie TIG');
+    final retry = t.widget<SnackBarAction>(find.byType(SnackBarAction)).onPressed;
+    await say(t, 'spadek 1% na 6 metrów');
+    await t.enterText(find.byKey(const Key('assistant-command')), 'Nie usuwaj tego szkicu');
+    retry();
+    await settle(t);
+    expect(questions, 1);
+    expect(t.widget<TextField>(find.byKey(const Key('assistant-command'))).controller!.text,
+        'Nie usuwaj tego szkicu');
+    expect(t.takeException(), isNull);
+  });
+  testWidgets('an old retry cannot mix a failed question with a newer clarification', (t) async {
+    final questions = <String>[];
+    await mount(t, interpret: (_) async => throw StateError('No command expected'),
+        chatSender: (text, _) async {
+      questions.add(text);
+      if (questions.length == 1) throw StateError('Fixture connection lost');
+      return ChatMessage(role: ChatRole.assistant, text: 'Jaki materiał?',
+          kind: AiReplyKind.live, needsClarification: true);
+    });
+    await say(t, 'Wyjaśnij spawanie TIG');
+    final oldRetry = t.widget<SnackBarAction>(find.byType(SnackBarAction)).onPressed;
+    await say(t, 'Jak dobrać gaz do spawania?');
+    expect(questions, hasLength(2));
+    oldRetry();
+    await settle(t);
+    expect(questions, ['Wyjaśnij spawanie TIG', 'Jak dobrać gaz do spawania?']);
+    expect(find.textContaining('Jaki materiał?'), findsWidgets);
+    expect(t.takeException(), isNull);
+  });
   for (final question in [
     'Jak spawać nierdzewkę metodą TIG?',
     'Jaki gaz dobrać do spawania nierdzewki?',

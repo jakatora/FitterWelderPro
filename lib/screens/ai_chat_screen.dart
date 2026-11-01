@@ -187,6 +187,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   bool _aiThinking = false;
   int _aiEpoch = 0;
   int _conversationEpoch = 0;
+  int _knowledgeTurn = 0;
   late final _account = AccountService.instance;
   int _sessionRevision = 0;
   StreamSubscription<UserProfile?>? _profileChanges;
@@ -1304,6 +1305,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     final text = _cmdCtrl.text.trim();
     if (text.isEmpty || _busy || _runningAiPlan) return;
     if (_blockCredentialInput(text)) return;
+    _knowledgeTurn++;
     final epoch = _conversationEpoch, before = _messages.length;
     try {
       await _submitCommandImpl();
@@ -2831,6 +2833,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   void _offerKnowledgeRetry(String text, AiClarification? clarification, int epoch) {
+    final turn = _knowledgeTurn;
     var started = false;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(_tr('Nie otrzymałem odpowiedzi AI.', 'No AI answer was received.')),
@@ -2840,7 +2843,10 @@ class _AiChatScreenState extends State<AiChatScreen>
       action: SnackBarAction(
         label: _tr('Ponów', 'Retry'), textColor: _kAccent,
         onPressed: () {
-          if (started || !mounted || epoch != _conversationEpoch) return;
+          if (started || !mounted || epoch != _conversationEpoch ||
+              turn != _knowledgeTurn || _typing.value || _busy || _runningAiPlan) {
+            return;
+          }
           started = true;
           _inputCtrl.text = text;
           unawaited(_send(questionClarification: clarification));
@@ -2858,6 +2864,9 @@ class _AiChatScreenState extends State<AiChatScreen>
     if (text.length > kChatQuestionMaxChars) {
       return;
     }
+    // A retry belongs to its original user turn, never to a later question
+    // or to the clarification that question may have opened.
+    _knowledgeTurn++;
     _brainContext.invalidateActionReference();
     if (_listening) {
       await _speech.stop();
@@ -2961,8 +2970,7 @@ class _AiChatScreenState extends State<AiChatScreen>
             addMessages: false, kind: AiReplyKind.live);
       }
       _typing.value = false;
-      if (questionClarification != null &&
-          const {AiReplyKind.unavailable, AiReplyKind.offlineHelp}.contains(reply.kind)) {
+      if (const {AiReplyKind.unavailable, AiReplyKind.offlineHelp}.contains(reply.kind)) {
         _offerKnowledgeRetry(text, questionClarification, epoch);
       }
       _scrollToBottom();
