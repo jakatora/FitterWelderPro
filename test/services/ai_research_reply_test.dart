@@ -29,6 +29,17 @@ void main() {
     expect(reply.text,contains('https://www.twi-global.com/'));
     expect(reply.citations.single,contains('TWI guidance'));
   });
+  test('source labels match the inline research references in order', () async {
+    final reply = await receive({'text':'First finding [1]. Second finding [2].', 'web_sources':[
+      {'title':'TWI paper','url':'https://www.twi-global.com/paper'},
+      {'title':'ISO summary','url':'https://www.iso.org/standard/example'},
+    ]});
+    expect(reply.text, contains('First finding [1]. Second finding [2].'));
+    expect(reply.citations, [
+      '[1] TWI paper\nhttps://www.twi-global.com/paper',
+      '[2] ISO summary\nhttps://www.iso.org/standard/example',
+    ]);
+  });
   for(final url in ['javascript:alert(1)','http://example.com','https://user:secret@example.com']) {
     test('invalid web source $url is rejected',() async {
       final reply=await receive({'text':'Answer','web_sources':[{'title':'Source','url':url}]});

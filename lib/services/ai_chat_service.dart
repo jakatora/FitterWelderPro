@@ -331,7 +331,7 @@ class AiChatService {
               uri.userInfo.isNotEmpty) {
             throw const FormatException('Invalid source URL');
           }
-          sources.add('${source['title']}\n$uri');
+          sources.add('[${sources.length + 1}] ${source['title']}\n$uri');
         }
       }
       return ChatMessage(
