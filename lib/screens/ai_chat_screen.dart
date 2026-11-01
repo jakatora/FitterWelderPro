@@ -4082,7 +4082,9 @@ Widget _citationDialog(BuildContext context, String citation) {
       backgroundColor: _kCard,
       scrollable: true,
       title: Text(
-        context.tr(pl: 'Źródło odpowiedzi', en: 'Answer source'),
+        context.tr(
+            pl: isWeb ? 'Źródło internetowe' : 'Kontekst z aplikacji',
+            en: isWeb ? 'External source' : 'App context'),
         style: TextStyle(
           color: cs.primary,
           fontSize: 16,
@@ -4102,10 +4104,10 @@ Widget _citationDialog(BuildContext context, String citation) {
             context.tr(
               pl: isWeb
                   ? 'Źródło internetowe wykorzystane przy odpowiedzi. Możesz otworzyć oryginalny materiał.'
-                  : 'Cytat wskazuje sekcję bazy wiedzy albo pomocy, z której pochodzi odpowiedź.',
+                  : 'Ta sekcja bazy wiedzy lub pomocy była dostępna asystentowi podczas odpowiedzi. Nie oznacza to potwierdzenia każdej tezy przez tę sekcję.',
               en: isWeb
                   ? 'An external source used for this answer. You can open the original material.'
-                  : 'The citation points to the knowledge-base or help section the answer came from.',
+                  : 'This knowledge-base or help section was available to the assistant when answering. It does not confirm every claim in the answer.',
             ),
             style: const TextStyle(
               fontSize: 12,
