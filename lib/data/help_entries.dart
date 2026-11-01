@@ -608,19 +608,36 @@ List<HelpCategory> kHelpCategories = [
           'Jak ustalić temperaturę preheat?',
           'How to determine preheat temperature?',
         ),
+        // TWI: hydrogen-crack prevention, Job Knowledge 046 (material,
+        // thickness, joint, hydrogen and heat input; EN 1011-2 for C/C-Mn).
+        // https://www.twi-global.com/technical-knowledge/job-knowledge/defects-hydrogen-cracks-in-steels-prevention-and-best-practice-046
+        // ESAB GuidelinesForWeldingCrMo-022023.pdf p12: IIW CE is not valid
+        // for these CrMo grades. Böhler Grade 91 EN2021 pp8–9: 200°C guidance,
+        // >=150°C accepted for thin GTAW components; interpass limited350°C.
+        // https://cdnstorevoestalpine.blob.core.windows.net/image-container/812658/original/BW_Grade_91_EN_2021_GL_135_Preview.pdf
         answer: _bi(
-          'Carbon Equivalent (CE) wg IIW: CE = C + Mn/6 + (Cr+Mo+V)/5 + (Ni+Cu)/15. '
-          'CE <0.35 — brak preheat dla cienkiej ścianki, 50°C dla >25 mm. '
-          'CE 0.35-0.45 — preheat 100-150°C. '
-          'CE 0.45-0.55 — 150-200°C + low-H electrody. '
-          'CE >0.55 — 200-300°C + PWHT mandatory. '
-          'P91: 200-300°C (mandatory), interpass ≤350°C. P22: ≥150°C dla ≥10 mm.',
-          'Carbon Equivalent (CE) per IIW: CE = C + Mn/6 + (Cr+Mo+V)/5 + (Ni+Cu)/15. '
-          'CE <0.35 — no preheat for thin wall, 50°C for >25 mm. '
-          'CE 0.35-0.45 — preheat 100-150°C. '
-          'CE 0.45-0.55 — 150-200°C + low-H electrodes. '
-          'CE >0.55 — 200-300°C + PWHT mandatory. '
-          'P91: 200-300°C (mandatory), interpass ≤350°C. P22: ≥150°C for ≥10 mm.',
+          'CE (IIW) = C + Mn/6 + (Cr+Mo+V)/5 + (Ni+Cu)/15; skład w % masowych. '
+          'Dla stali węglowych i C-Mn dobór podgrzewania uwzględnia skład, '
+          'grubość i geometrię złącza, wodór, energię liniową oraz utwierdzenie. '
+          'Zastosuj właściwą metodę EN 1011-2 w jej zakresie i zatwierdzony WPS. '
+          'Sam próg CE nie wyznacza temperatury ani obowiązku PWHT. '
+          'P91 i P22 nie dobieraj z uproszczonej tabeli CE dla C-Mn. '
+          'Przykład dla P91 z poradnika Böhler Grade 91 (2021): ogólnie 200°C; '
+          'dla cienkich elementów GTAW dopuszczono ≥150°C, a maksymalną '
+          'temperaturę międzyściegową ograniczono do 350°C. To wskazówki '
+          'producenta, nie uniwersalny WPS ani zgoda na obniżenie wymaganej '
+          'temperatury. Wiążą właściwy kod, specyfikacja projektu i WPS.',
+          'CE (IIW) = C + Mn/6 + (Cr+Mo+V)/5 + (Ni+Cu)/15; composition in wt. %. '
+          'For carbon and C-Mn steels, preheat selection considers composition, '
+          'joint thickness and geometry, hydrogen, heat input and restraint. '
+          'Use the appropriate EN 1011-2 method within its scope and the approved WPS. '
+          'A CE threshold alone does not determine temperature or require PWHT. '
+          'Do not select P91 or P22 preheat from a simplified C-Mn CE table. '
+          'P91 example from Böhler Grade 91 (2021): generally 200°C; '
+          '≥150°C is accepted for thin GTAW components, and maximum interpass '
+          'temperature is limited to 350°C. These are manufacturer guidelines, '
+          'not a universal WPS or permission to reduce the required temperature. '
+          'The applicable code, project specification and WPS govern.',
         ),
         tags: ['preheat', 'ce', 'carbon-equivalent', 'p91', 'p22', 'iiw'],
       ),
