@@ -689,7 +689,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       await _speech.listen(
         language: lang,
         onResult: (text, isFinal) {
-          if (!current() || submitted) return;
+          if (!current() || submitted || text.trim().isEmpty) return;
           final joined = before.isEmpty ? text : '$before $text';
           setState(() {
             target.value = TextEditingValue(

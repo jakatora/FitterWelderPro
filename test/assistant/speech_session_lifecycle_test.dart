@@ -42,6 +42,28 @@ class HeldSpeech implements SpeechInput {
 
 void main() {
   useTestDatabase();
+  for (final emptyResult in ['', '   ']) {
+    testWidgets('empty final speech cannot submit an existing draft: "$emptyResult"', (t) async {
+      final speech = HeldSpeech();
+      var calls = 0;
+      await mount(t, speech: speech, interpret: (_) async {
+        calls++;
+        return const AiCommandPlan('answer', [], '');
+      });
+      const draft = 'przygotuj zamówiony wariant';
+      final input = find.byKey(const Key('assistant-command'));
+      await t.enterText(input, draft);
+      await t.tap(find.byKey(const Key('assistant-mic')));
+      await settle(t);
+      speech.results.single(emptyResult, true);
+      speech.completions.single(null);
+      await settle(t);
+      expect(calls, 0);
+      expect(t.widget<TextField>(input).controller!.text, draft);
+      expect(find.byKey(const Key('assistant-listening')), findsNothing);
+      expect(t.takeException(), isNull);
+    });
+  }
   testWidgets('retired speech cannot submit or stop a new microphone session',
       (t) async {
     final speech = HeldSpeech();
