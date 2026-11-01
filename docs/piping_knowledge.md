@@ -338,10 +338,10 @@ Tabela do szybkiego CUT calc dla kolan LR 90°:
   - **STD = Sch 40** dla NPS 1/8" do 10" (powyżej 10" się różnią).
   - **XS = Sch 80** dla NPS 1/8" do 8" (powyżej 8" się różnią).
   - **XXS** jest grubsze niż Sch 160 dla NPS 1/8" do 6". Powyżej Sch 160 grubsze niż XXS.
-- **Schedule 10S, 40S, 80S** — wersje dla stali nierdzewnej (ASME B36.19M). Cieńsze niż wersje carbon steel (np. dla DN50: Sch 40 carbon = 3.91 mm, Sch 40S stainless = 3.68 mm).
-- **NPS vs DN konwersja**:
-  - **NPS ≤ 4"**: DN = NPS × 25 ale niedokładnie (NPS 1" = DN 25 = ¬ 25.4 mm).
-  - **NPS ≥ 5"**: DN = NPS × 25 dokładnie (NPS 5" = DN 125, NPS 6" = DN 150).
+- **Schedule 10S, 40S, 80S** — oznaczenia stosowane w ASME B36.19M dla rur nierdzewnych. Nie zakładaj, że przyrostek S zawsze oznacza mniejszą ściankę: dla NPS 2 (DN 50) Sch 40 i Sch 40S mają nominalnie tę samą ściankę 3,91 mm. Dla innych rozmiarów porównaj odpowiednie wiersze tabeli.
+- **NPS, DN i rzeczywiste wymiary**: NPS i DN są oznaczeniami nominalnymi; nie przeliczaj ich na OD ani ID przez mnożenie liczby przez 25 lub 25,4. Dopasowanie NPS–DN oraz OD i ściankę odczytaj z tabeli właściwej normy wymiarowej.
+  - Przykład: NPS 1 odpowiada DN 25, ale nominalna średnica zewnętrzna OD wynosi 33,4 mm (1,315 cala), a nie 25,4 mm. Wewnętrzna średnica zależy od ścianki. Rura nominalna NPS 1 nie jest tym samym co tube o rzeczywistym OD 1 cal.
+  - Źródła: [ISO 6708:1995 — DN](https://www.iso.org/standard/21274.html); [Penn Stainless — Pipes & Tubes, tabela OD i grubości Sch](https://www.pennstainless.com/wp-content/uploads/2018/11/PSP-026d-Pipes-Tubes.pdf). Tabela dostawcy pokazuje NPS 1: OD 1,315 cala oraz NPS 2: ścianka 0,154 cala zarówno dla 40S, jak i Sch 40.
 - **Wybór schedule wg ciśnienia**:
   - Sch 40 — większość średnich ciśnień (do PN 25 typowo).
   - Sch 80 — wyższe ciśnienia (PN 40+).
