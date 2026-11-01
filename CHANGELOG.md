@@ -2,6 +2,13 @@
 
 All notable changes per AGENTS.md directive. Newest first.
 
+## 0.5.8 — 2026-11-01
+
+- Pipe dimensions, fractional weld gaps, stock length and saw kerf retain their actual values in cut-list summaries and exports.
+- Nesting fits a final piece at the existing stock end when separating kerfs consume the remaining length, avoiding an unnecessary extra bar.
+- Assistant requests such as “help me understand” enter the knowledge conversation; explicit commands retain the execution workflow.
+- Verified targeted Flutter regressions, budget/search guard tests and native Windows cut-list creation, editing and export. Physical Android/iOS runtime verification remains outstanding.
+
 ## Unreleased
 
 ### 2026-05-31 (round 9) — Prefab Engine Phase 2: spec sheets + physical-length wired into CUT LIST
