@@ -129,14 +129,15 @@ class BarPlan {
   ///
   /// Examples:
   /// - 1 piece equal to full bar (6000 from 6000): 0 cuts
-  /// - 3 pieces that exactly consume the bar (2000+2000+2000): 2 cuts
+  /// - 3 pieces plus 2 kerfs that exactly consume the bar: 2 cuts
   /// - 3 pieces with leftover scrap: 3 cuts
   BarPlan({
     required List<BarPiece> pieces,
     required this.remainingMm,
     required this.cutsCount,
   })  : pieces = List<BarPiece>.unmodifiable(pieces),
-        piecesMm = List<double>.unmodifiable([for (final p in pieces) p.lengthMm]);
+        piecesMm =
+            List<double>.unmodifiable([for (final p in pieces) p.lengthMm]);
 
   /// Lengths of [pieces], same order.
   final List<double> piecesMm;
@@ -177,8 +178,7 @@ List<BarPlan> nestPiecesToBars({
   if (stockLengthMm <= 0) return [];
 
   // Stable descending sort: equal lengths keep their input order.
-  final order = [for (var i = 0; i < cuts.length; i++) i]
-    ..sort((a, b) {
+  final order = [for (var i = 0; i < cuts.length; i++) i]..sort((a, b) {
       final byLength = cuts[b].lengthMm.compareTo(cuts[a].lengthMm);
       return byLength != 0 ? byLength : a.compareTo(b);
     });
@@ -239,20 +239,22 @@ List<BarPlan> nestPiecesToBars({
     final first = queue.removeAt(0);
     pieces.add(first);
 
-    // Packing heuristic uses a conservative per-piece kerf while selecting.
-    // We recompute the true remaining and cut count at the end of the bar plan.
-    double remaining = stockLengthMm - (first.lengthMm + sawKerfMm);
+    var packedLength = first.lengthMm;
 
     // Best-fit fill
     while (true) {
-      final maxPieceAllowed = remaining - sawKerfMm;
-      if (maxPieceAllowed <= 0) break;
-
       int pickedIndex = -1;
       double pickedValue = 0;
       for (var i = 0; i < queue.length; i++) {
         final v = queue[i].lengthMm;
-        if (v <= maxPieceAllowed && v > pickedValue) {
+        final count = pieces.length + 1;
+        final sum = packedLength + v;
+        // The last piece can end at the stock's existing end: only the
+        // separating cuts consume kerf. Otherwise cut it off from the scrap.
+        final endsAtStockEnd =
+            (stockLengthMm - sum - (count - 1) * sawKerfMm).abs() < 1e-6;
+        final fitsWithScrap = sum + count * sawKerfMm <= stockLengthMm;
+        if ((endsAtStockEnd || fitsWithScrap) && v > pickedValue) {
           pickedValue = v;
           pickedIndex = i;
         }
@@ -260,12 +262,14 @@ List<BarPlan> nestPiecesToBars({
       if (pickedIndex == -1) break;
 
       pieces.add(queue.removeAt(pickedIndex));
-      remaining -= (pickedValue + sawKerfMm);
+      packedLength += pickedValue;
     }
 
     // Recompute using kerf-per-cut rules.
     final sumPieces = pieces.fold<double>(0, (a, b) => a + b.lengthMm);
-    final fullyConsumed = (stockLengthMm - sumPieces).abs() < 1e-6;
+    final fullyConsumed =
+        (stockLengthMm - sumPieces - (pieces.length - 1) * sawKerfMm).abs() <
+            1e-6;
     final cutsCount = fullyConsumed
         ? (pieces.length <= 1 ? 0 : pieces.length - 1)
         : pieces.length;
