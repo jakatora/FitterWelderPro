@@ -140,12 +140,15 @@ class SystemSpeechOutput implements SpeechOutput {
   SystemSpeechOutput._();
   static final _shared = SystemSpeechOutput._();
   FlutterTts? _tts;
+  int _speechEpoch = 0;
 
   @override
   Future<void> speak(String text, AppLanguage language) async {
+    final epoch = ++_speechEpoch;
     try {
       final tts = _tts ??= FlutterTts();
       await tts.setLanguage(language == AppLanguage.en ? 'en-US' : 'pl-PL');
+      if (epoch != _speechEpoch) return;
       await tts.speak(text);
     } catch (e) {
       debugPrint('SystemSpeechOutput.speak: $e');
@@ -154,6 +157,7 @@ class SystemSpeechOutput implements SpeechOutput {
 
   @override
   Future<void> stop() async {
+    _speechEpoch++;
     final tts = _tts;
     if (tts == null) return; // nigdy nie mówiliśmy — nie ruszamy platformy
     try {
