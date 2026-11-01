@@ -4,6 +4,22 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 
 void main() {
+  for (final text in [
+    'A zmniejsz szczelinę o 1 mm?', 'A zwiększ długość rury',
+    'A skróć drugi odcinek', 'A wydłuż rurę', 'A obróć kolano',
+    'A przesuń element', 'A cofnij zmianę', 'A powtórz zmianę',
+    'And decrease the gap?', 'And increase the length',
+    'And shorten the pipe', 'And extend the pipe', 'And rotate the elbow',
+    'And move the element', 'And undo', 'And redo', 'And rename the project',
+    'And reset the calculator',
+  ]) {
+    test('editing verbs cannot become conversational follow-ups: $text', () {
+      final u = Utterance(text, lang: AppLanguage.pl);
+      expect(requestsConversationAction(u), isTrue);
+      expect(isEllipticalKnowledgeFollowUp(u), isFalse);
+      expect(isKnowledgeQuestion(u), isFalse);
+    });
+  }
   test('unpunctuated follow-ups require conversation context and exclude actions', () {
     for (final text in ['A 316L', 'And stainless steel']) {
       final u = Utterance(text, lang: AppLanguage.pl);

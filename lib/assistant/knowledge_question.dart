@@ -33,7 +33,9 @@ final _action = RegExp(
     r'^(?:(?:prosze|please|hej|hey)\s+)*(?:otworz\w*|pokaz\w*|uruchom\w*|'
     r'zapis\w*|dodaj\w*|ustaw\w*|zmien\w*|usun\w*|oblicz\w*|policz\w*|'
     r'narys\w*|dorys\w*|przelicz\w*|skopiuj\w*|wyczysc\w*|nazwij\w*|podsumuj\w*|'
-    r'open|show|save|add|set|change|delete|calculate|compute|draw|copy|clear)\b');
+    r'zmniejsz\w*|zwieksz\w*|wydluz\w*|skroc\w*|obroc\w*|przesun\w*|cofnij\w*|powtorz\w*|'
+    r'open|show|save|add|set|change|delete|calculate|compute|draw|copy|clear|'
+    r'increase|decrease|reduce|extend|shorten|rotate|move|undo|redo|rename|reset)\b');
 
 // "Help me understand" asks for an explanation, while "help me open"
 // still belongs to the command workflow.
