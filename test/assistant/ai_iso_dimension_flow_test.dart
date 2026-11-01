@@ -13,6 +13,9 @@ void main() {
   useTestDatabase();
   setUp(() async => (await AppDatabase.get()).delete('iso_drawings'));
   for (final scenario in [
+    (true, 'A czy możesz zmienić drugi odcinek na 500 mm?', 2, 1),
+    (true, 'And could you please set the second pipe to 500 mm?', 2, 1),
+    (false, 'A czy możesz zmienić drugi odcinek na 500 mm?', 1, 1),
     (true, 'Ten drugi odcinek powinien mieć pół metra', 2, 1),
     (false, 'Ten drugi odcinek powinien mieć pół metra', 1, 1),
     (true, 'Czy możesz zmienić drugi odcinek na 500 mm?', 2, 1),
@@ -52,9 +55,14 @@ void main() {
         await settle(t);
       }
       expect(calls, 0);
+      final afterDiscussion = source.startsWith('A ') || source.startsWith('And ');
+      if (afterDiscussion) {
+        await say(t, 'Wyjaśnij zmianę wymiaru rury w ISO');
+        expect(answers, 1);
+      }
       await say(t, source);
       expect(calls, expectedCalls);
-      expect(answers, source.startsWith('Jak ') || source.startsWith('Czy mogę ') ? 1 : 0);
+      expect(answers, afterDiscussion || source.startsWith('Jak ') || source.startsWith('Czy mogę ') ? 1 : 0);
       await settle(t);
       await flushTestDatabase(t);
       final stored = await t.runAsync(() => IsoDrawingDao().latest());
@@ -62,6 +70,15 @@ void main() {
           .where((e) => e['tool'] == 'pipe');
       expect(pipes.map((e) => e['calc']['iso']),
           correct ? ['1000', '500'] : ['1000', '2000']);
+      if (afterDiscussion && correct) {
+        await say(t, 'cofnij');
+        await flushTestDatabase(t);
+        final undone = await t.runAsync(() => IsoDrawingDao().latest());
+        final originalPipes = ((jsonDecode(undone!.json) as Map)['items'] as List)
+            .where((e) => e['tool'] == 'pipe');
+        expect(originalPipes.map((e) => e['calc']['iso']), ['1000', '2000']);
+        expect(answers, 1);
+      }
       expect(t.takeException(), isNull);
     });
   }

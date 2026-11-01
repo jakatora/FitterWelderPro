@@ -104,7 +104,9 @@ bool _dimensionSourceIsQuestionOrNegation(Utterance source) {
       source.hasStem(const ['wyjasn', 'explain'])) {
     return true;
   }
-  final text = source.folded.replaceFirst(RegExp(r'^(?:prosze|please)\s+'), '');
+  final text = source.folded
+      .replaceFirst(RegExp(r'^(?:a|and)\s+'), '')
+      .replaceFirst(RegExp(r'^(?:prosze|please)\s+'), '');
   final addressedRequest = RegExp(
           r'^(?:(?:czy )?mozesz|czy moglbys|czy moglabys) (?:prosze )?(?:zmienic|zmien|ustawic|ustaw|skrocic|skroc|wydluzyc|wydluz)\b|^(?:can|could|would|will) you (?:please )?(?:set|change|make|shorten|lengthen)\b')
       .hasMatch(text);
