@@ -25,6 +25,9 @@ workflows:
       - name: Flutter pub get
         script: flutter pub get
 
+      - name: Verify app version metadata
+        script: flutter test --no-pub test/config/app_version_test.dart
+
       - name: Create AppStore.xcconfig
         script: |
           cat > ios/Flutter/AppStore.xcconfig << EOF
