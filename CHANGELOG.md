@@ -2,6 +2,14 @@
 
 All notable changes per AGENTS.md directive. Newest first.
 
+## 0.5.9 — 2026-11-01
+
+- Changing stock length or joining gap invalidates only saw ticks whose split-piece lengths changed; failed edits roll back tick changes too.
+- Research source numbers match inline references. Sources open from the full conversation with private dialogs, launcher-error handling and readable long-link layouts.
+- Knowledge retries recover initial failures explicitly and cannot reuse an old question after a new topic or native command.
+- Explicit new-topic phrases end prior knowledge clarification while preserving conversation history; a bare topic change is handled locally.
+- Targeted regression and visual checks cover PL/EN at 360 dp with enlarged text. Physical device runtime testing and full factual review of generated AI answers remain outstanding.
+
 ## 0.5.8 — 2026-11-01
 
 - Pipe dimensions, fractional weld gaps, stock length and saw kerf retain their actual values in cut-list summaries and exports.
