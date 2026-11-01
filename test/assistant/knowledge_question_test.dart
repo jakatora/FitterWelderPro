@@ -4,6 +4,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 
 void main() {
+  test('unpunctuated follow-ups require conversation context and exclude actions', () {
+    for (final text in ['A 316L', 'And stainless steel']) {
+      final u = Utterance(text, lang: AppLanguage.pl);
+      expect(isEllipticalKnowledgeFollowUp(u), isTrue);
+      expect(isKnowledgeQuestion(u), isFalse);
+    }
+    for (final text in ['A dodaj projekt', 'And delete the pipe', '316L', 'A']) {
+      expect(isEllipticalKnowledgeFollowUp(Utterance(text, lang: AppLanguage.pl)), isFalse);
+    }
+  });
   test('bare topic controls are distinct from questions and ordinary replies', () {
     for (final text in ['Mam inne pytanie', 'Zmieńmy temat', 'New question']) {
       expect(isBareKnowledgeTopicChange(Utterance(text, lang: AppLanguage.pl)), isTrue);

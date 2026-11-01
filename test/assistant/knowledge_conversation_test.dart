@@ -210,6 +210,8 @@ void main() {
 
   for (final followUp in [
     'A 316L?',
+    'A 316L',
+    'And stainless steel',
     'And stainless steel?',
     'A dla aluminium?',
     'A jeśli spoina ma pory?',

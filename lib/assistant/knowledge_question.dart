@@ -53,6 +53,11 @@ bool requestsConversationAction(Utterance u) {
   return _action.hasMatch(text) || (verb != null && !explains);
 }
 
+/// Requires a current knowledge conversation when punctuation is absent.
+bool isEllipticalKnowledgeFollowUp(Utterance u) =>
+    !requestsConversationAction(u) &&
+    RegExp(r'^(?:a|and)\s+\S').hasMatch(u.folded);
+
 bool isKnowledgeQuestion(Utterance u) =>
     !requestsConversationAction(u) &&
     !RegExp(r'co (?:potrafisz|umiesz)|w czym pomozesz|what can you do')
@@ -62,7 +67,7 @@ bool isKnowledgeQuestion(Utterance u) =>
         // Written elliptical questions still belong to the conversation;
         // explicit action verbs above retain their native workflow.
         (u.raw.trimRight().endsWith('?') &&
-            RegExp(r'^(?:a|and)\s+\S').hasMatch(u.folded)));
+            isEllipticalKnowledgeFollowUp(u)));
 
 bool isExplanationQuestion(Utterance u) =>
     _helpUnderstand.hasMatch(_conversationText(u)) ||

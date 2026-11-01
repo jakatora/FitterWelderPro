@@ -2811,7 +2811,11 @@ class _AiChatScreenState extends State<AiChatScreen>
     }
     final clarification = _knowledgeClarification;
     if (clarification == null) {
-      if (!isKnowledgeQuestion(u)) return false;
+      final followsKnowledgeAnswer = _messages.isNotEmpty &&
+          _messages.last.role == ChatRole.assistant &&
+          _messages.last.kind == AiReplyKind.live &&
+          isEllipticalKnowledgeFollowUp(u);
+      if (!isKnowledgeQuestion(u) && !followsKnowledgeAnswer) return false;
       if (_brain.recognizesReadback(u, _brainContext)) return false;
       if (parseAssistantCommand(text).intent == kIntentQueryMyParams) {
         return false;
