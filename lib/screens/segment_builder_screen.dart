@@ -9,6 +9,7 @@ import '../models/segment.dart';
 import '../services/iso_parser.dart';
 import '../services/prefab_engine.dart';
 import '../utils/haptic.dart';
+import '../utils/decimal_input_text.dart';
 import '../widgets/component_icon.dart';
 import '../widgets/help_button.dart';
 import '../widgets/iso_expression_keys.dart';
@@ -1365,8 +1366,8 @@ class _IsoVisualization extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               context.tr(
-                pl: '+ gap: ${gapMm.toStringAsFixed(1)} mm × $welds sp.',
-                en: '+ gap: ${gapMm.toStringAsFixed(1)} mm × $welds welds',
+                pl: '+ gap: ${decimalInputText(gapMm)} mm × $welds sp.',
+                en: '+ gap: ${decimalInputText(gapMm)} mm × $welds welds',
               ),
               style: const TextStyle(fontSize: 12, color: Color(0xFF4A9EFF)),
             ),
@@ -1477,9 +1478,9 @@ class _CalcBreakdown extends StatelessWidget {
           if (gapTotal > 0)
             _Row(
               label: context.tr(
-                  pl: '− gap ($welds × ${gapMm.toStringAsFixed(1)} mm)',
-                  en: '− gap ($welds × ${gapMm.toStringAsFixed(1)} mm)'),
-              value: '− ${gapTotal.toStringAsFixed(1)} mm',
+                  pl: '− gap ($welds × ${decimalInputText(gapMm)} mm)',
+                  en: '− gap ($welds × ${decimalInputText(gapMm)} mm)'),
+              value: '− ${decimalInputText(gapTotal)} mm',
               dimmed: true,
             ),
           const Divider(height: 14, color: Color(0xFF2A3140)),

@@ -1,3 +1,4 @@
+import '../utils/decimal_input_text.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -936,7 +937,7 @@ class CutListPipeGroup extends StatelessWidget {
   /// contain a space, comma or quote — keeps the tag stable when copied
   /// into a CSV cell or a foreman's spreadsheet.
   String _lineTag() {
-    final raw = '${group.diameterMm.toStringAsFixed(0)}-$materialGroup-${group.wallMm.toStringAsFixed(1)}';
+    final raw = '${decimalInputText(group.diameterMm)}-$materialGroup-${decimalInputText(group.wallMm)}';
     return csvQuote(raw);
   }
 
@@ -972,8 +973,8 @@ class CutListPipeGroup extends StatelessWidget {
                 children: [
                   Text(
                     context.tr(
-                      pl: 'Rura  Ø${group.diameterMm.toStringAsFixed(1)} × ${group.wallMm.toStringAsFixed(1)} mm',
-                      en: 'Pipe  Ø${group.diameterMm.toStringAsFixed(1)} × ${group.wallMm.toStringAsFixed(1)} mm',
+                      pl: 'Rura  Ø${decimalInputText(group.diameterMm)} × ${decimalInputText(group.wallMm)} mm',
+                      en: 'Pipe  Ø${decimalInputText(group.diameterMm)} × ${decimalInputText(group.wallMm)} mm',
                     ),
                     style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: _kText),
                   ),

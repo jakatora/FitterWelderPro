@@ -65,6 +65,27 @@ double _firstCut() {
 }
 
 void main() {
+  test('plan text preserves pipe dimensions in both languages', () {
+    final summary = summarizeCutList(
+      segments: [_seg(1, 1234.5, diameterMm: 60.3, wallMm: 2.77)],
+      stockLengthMm: 6000,
+      sawKerfMm: 1,
+    );
+    for (final english in [false, true]) {
+      final text = buildCutListText(
+        projectName: 'QA Łódź CUT',
+        materialGroup: 'SS',
+        stockLengthMm: 6000,
+        sawKerfMm: 1,
+        summary: summary,
+        english: english,
+      );
+      expect(text, contains('Ø60.3 × 2.77:'));
+      expect(text, contains('1234.5'));
+      expect(text, contains('4764.5'));
+    }
+  });
+
   late _OfflineHttpOverrides offline;
   HttpOverrides? previous;
 

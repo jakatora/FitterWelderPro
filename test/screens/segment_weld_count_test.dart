@@ -53,8 +53,8 @@ Future<void> _tapPalette(WidgetTester tester, String label) async {
 Future<void> _pumpUntil(WidgetTester tester, bool Function() done) async {
   for (var i = 0; i < 60 && !done(); i++) {
     await flushTestDatabase(tester);
-    await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)));
+    await tester
+        .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
     await tester.pump();
   }
 }
@@ -105,7 +105,8 @@ Segment _segment({
       updatedAt: 1,
     );
 
-Widget _builder(Segment? existing, {required double gapMm, double dia = 114.3}) =>
+Widget _builder(Segment? existing,
+        {required double gapMm, double dia = 114.3}) =>
     SegmentBuilderScreen(
       materialGroup: 'SS',
       currentDiameter: existing?.diameterMm ?? dia,
@@ -234,4 +235,40 @@ void main() {
     expect(find.text('− gap (2 × 3.0 mm)'), findsOneWidget);
     expect(find.text('+ gap: 3.0 mm × 2 welds'), findsOneWidget);
   });
+
+  for (final lang in AppLanguage.values) {
+    testWidgets('quarter millimetre gap stays exact in the breakdown: $lang',
+        (tester) async {
+      _useTallPhone(tester);
+      final pl = lang == AppLanguage.pl;
+      final diameter = pl ? 114.34 : 114.35;
+      final id = 'elbow-quarter-${lang.name}';
+      await tester
+          .runAsync(() => ComponentLibraryDao().insert(_elbow(id, diameter)));
+      final seg = _segment(
+        startKind: 'axial',
+        startLibraryId: id,
+        startValueMm: 152,
+        endKind: 'axial',
+        endLibraryId: id,
+        endValueMm: 152,
+        isoRef: 'AXIS|AXIS',
+        diameterMm: diameter,
+      );
+      await tester.pumpWidget(AppLanguageScope(
+        controller: AppLanguageController(lang),
+        child: MaterialApp(home: _builder(seg, gapMm: 0.25)),
+      ));
+      // Hand calculation: 1000 - 152 - 152 - 2 * 0.25 = 695.5 mm.
+      await _pumpUntil(
+          tester, () => find.text('CUT = 695.5 mm').evaluate().isNotEmpty);
+      expect(find.text('CUT = 695.5 mm'), findsOneWidget);
+      expect(find.text('− gap (2 × 0.25 mm)'), findsOneWidget);
+      expect(find.text('− 0.5 mm'), findsOneWidget);
+      expect(
+          find.text(pl ? '+ gap: 0.25 mm × 2 sp.' : '+ gap: 0.25 mm × 2 welds'),
+          findsOneWidget);
+      expect(find.textContaining('2 × 0.3 mm'), findsNothing);
+    });
+  }
 }

@@ -1,3 +1,4 @@
+import '../utils/decimal_input_text.dart';
 import '../models/project.dart';
 import '../models/segment.dart';
 import 'bar_nesting.dart';
@@ -302,8 +303,8 @@ String buildCutListText({
   for (var g = 0; g < summary.groups.length; g++) {
     final group = summary.groups[g];
     if (g > 0) buf.writeln();
-    buf.writeln('Ø${group.diameterMm.toStringAsFixed(1)} × '
-        '${group.wallMm.toStringAsFixed(1)}:');
+    buf.writeln('Ø${decimalInputText(group.diameterMm)} × '
+        '${decimalInputText(group.wallMm)}:');
     for (var i = 0; i < group.plans.length; i++) {
       final plan = group.plans[i];
       final rest = formatCutMm(plan.remainingMm);

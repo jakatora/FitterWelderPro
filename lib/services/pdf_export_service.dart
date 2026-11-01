@@ -1,3 +1,4 @@
+import '../utils/decimal_input_text.dart';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' show Rect;
@@ -279,8 +280,8 @@ class PdfExportService {
     final wasteMm = g.plans.fold<double>(0, (s, b) => s + b.remainingMm);
     final pieceCount = g.cutsMm.length;
     final barCount = g.plans.length;
-    final title = 'Ø${g.diameterMm.toStringAsFixed(1)} × '
-        '${g.wallMm.toStringAsFixed(1)} mm  ·  '
+    final title = 'Ø${decimalInputText(g.diameterMm)} × '
+        '${decimalInputText(g.wallMm)} mm  ·  '
         '${t.pieces(pieceCount)}  ·  ${t.bars(barCount)}';
 
     return pw.Column(
@@ -490,8 +491,8 @@ class PdfExportService {
               return pw.TableRow(
                 children: [
                   _cell(label, bold: true),
-                  _cell('${s.diameterMm.toStringAsFixed(0)}×'
-                      '${s.wallThicknessMm.toStringAsFixed(1)}'),
+                  _cell('${decimalInputText(s.diameterMm)}×'
+                      '${decimalInputText(s.wallThicknessMm)}'),
                   _cell(s.isoExpr),
                   _cell(formatCutMm(s.isoMm)),
                   _cell(formatCutMm(s.cutMm), size: 10, bold: true),
