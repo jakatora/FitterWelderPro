@@ -2889,8 +2889,9 @@ Tabela do szybkiego CUT calc dla kolan LR 90°:
   - **Pop tent / wind screen** mandatory outdoor pipe welding.
   - **Increase CFH 50%** w wind warunkach (kompensacja).
 - **Gas purity** — KRYTYCZNE dla TIG:
-  - **Standard welding argon**: **99.997%** (4N). OK dla CS, low-alloy.
-  - **Stainless / Ti**: **99.999%** (5N) — premium grade, < 5 ppm O₂.
+  - **Czystość argonu do TIG**: gatunek i dopuszczalne zanieczyszczenia dobierz według WPS, materiału, wymagań jakościowych i karty dostawcy. Sama nazwa „nierdzewka” nie ustanawia obowiązkowego minimum 99,999%.
+  - **Nierdzewne austenityczne**: Linde wskazuje argon 4.6 jako odpowiedni wybór zapewniający dobre wyniki TIG dla nierdzewki; 5.0 (99,999%) jest wariantem o wyższej czystości, a nie jest uniwersalnym minimum dla każdej spoiny 316L. Nie odrzucaj innego gatunku bez sprawdzenia wymagań procedury. Tytan i szczególnie wrażliwe zastosowania oceniaj osobno.
+  - Źródła: [Linde Benelux — Argon](https://www.linde-gas.nl/shop/en/nl-ig/argon); [Linde — improving TIG welding results](https://www.lindedirect.com/frequently-asked-questions/welding/how-can-you-improve-tig-welding-results). Rekomendacja używania wyższej czystości „gdy to możliwe” nie jest wymaganiem normowym dla wszystkich zastosowań.
   - **Hot Mix (Ar + 2-5% H₂)** — dla nierdzewki, **głębsza penetracja** (H₂ dissoc/recomb na łuku = więcej heat). NIE dla CS (HIC). NIE dla Ti (hydride formation).
   - **Helium added (Ar + 25% He)** — wyższa temp łuku, lepsza penetracja na aluminium + duża grubość.
 - **Mass flow vs volumetric flow** — flowmetry:
