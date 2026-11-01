@@ -203,7 +203,8 @@ void main() {
     await settle(tester);
     expect(page, findsOneWidget);
     expect(find.byType(AlertDialog), findsNothing);
-    expect(interpretations, 1);
+    expect(interpretations, 0,
+        reason: 'A conversational follow-up goes directly to the answer');
     expect(answers, 1);
     await tester.drag(find.byKey(const Key('assistant-conversation-messages')),
         const Offset(0, 200));
