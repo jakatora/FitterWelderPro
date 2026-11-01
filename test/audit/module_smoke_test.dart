@@ -544,8 +544,9 @@ void main() {
     final source = File('lib/screens/projects_screen.dart').readAsStringSync();
     final loadStart = source.indexOf('Future<void> _load() async {');
     final firstGuard = source.indexOf('if (!mounted) return;', loadStart);
-    final firstSetState =
-        source.indexOf('setState(() => _loading = true)', loadStart);
+    final firstSetState = source.indexOf('setState(', loadStart);
+    expect(firstSetState, greaterThan(loadStart),
+        reason: 'the loading method must contain the state update being checked');
     expect(firstGuard, inInclusiveRange(loadStart, firstSetState));
     expect(source, contains('if (mounted) _load();'));
   });
