@@ -673,6 +673,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       return;
     }
     final before = target.text.trim();
+    var lastTranscription = target.text;
     setState(() {
       _listening = true;
       _voiceUsed = true;
@@ -690,6 +691,11 @@ class _AiChatScreenState extends State<AiChatScreen>
         language: lang,
         onResult: (text, isFinal) {
           if (!current() || submitted || text.trim().isEmpty) return;
+          if (target.text != lastTranscription) {
+            _cancelMic();
+            setState(() => _listening = false);
+            return;
+          }
           final joined = before.isEmpty ? text : '$before $text';
           setState(() {
             target.value = TextEditingValue(
@@ -697,6 +703,7 @@ class _AiChatScreenState extends State<AiChatScreen>
               selection: TextSelection.collapsed(offset: joined.length),
             );
           });
+          lastTranscription = joined;
           if (widget.embedded && isFinal && joined.trim().isNotEmpty) {
             submitted = true;
             scheduleMicrotask(() {

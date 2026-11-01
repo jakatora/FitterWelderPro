@@ -64,6 +64,32 @@ void main() {
       expect(t.takeException(), isNull);
     });
   }
+  for (final afterPartial in [false, true]) {
+    testWidgets('manual draft edit wins over late speech: partial=$afterPartial', (t) async {
+      final speech = HeldSpeech();
+      var calls = 0;
+      await mount(t, speech: speech, interpret: (_) async {
+        calls++;
+        return const AiCommandPlan('answer', [], '');
+      });
+      final input = find.byKey(const Key('assistant-command'));
+      await t.tap(find.byKey(const Key('assistant-mic')));
+      await settle(t);
+      if (afterPartial) {
+        speech.results.single('wstępnie rozpoznana wypowiedź', false);
+        await t.pump();
+      }
+      const manual = 'ręcznie poprawione polecenie';
+      await t.enterText(input, manual);
+      speech.results.single('opóźniona końcowa wypowiedź', true);
+      speech.completions.single(null);
+      await settle(t);
+      expect(calls, 0);
+      expect(t.widget<TextField>(input).controller!.text, manual);
+      expect(find.byKey(const Key('assistant-listening')), findsNothing);
+      expect(t.takeException(), isNull);
+    });
+  }
   testWidgets('retired speech cannot submit or stop a new microphone session',
       (t) async {
     final speech = HeldSpeech();
