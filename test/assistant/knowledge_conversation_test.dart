@@ -13,6 +13,48 @@ import 'global_pipe_slope_flow_test.dart' show say, settle;
 void main() {
   useGuestAccount();
   useTestDatabase();
+  testWidgets('explanation with a follow-up retains the whole question across turns', (t) async {
+    const first = 'Jaką grubość ścianki rury mam zastosować?';
+    const second = 'Stal 316L, DN50, 10 bar';
+    const third = 'Temperatura projektowa 80 stopni i naddatek 1 mm';
+    final chats = <Map>[];
+    await http.runWithClient(() async {
+      await mount(t, interpret: (_) async => throw StateError('Knowledge is not a module command'));
+      PremiumService.instance.resetForTest();
+      await say(t, first);
+      await say(t, second);
+      expect(chats, hasLength(2));
+      expect(chats[1]['question_clarification'], {'user_turns': [first]});
+      expect(find.textContaining('Dane jeszcze nie wystarczają'), findsWidgets);
+      await t.tap(find.byKey(const Key('assistant-conversation')));
+      await settle(t);
+      expect(find.text('Pipe Schedules'), findsOneWidget);
+      await t.tap(find.text('Pipe Schedules'));
+      await settle(t);
+      expect(find.text('Kontekst z aplikacji'), findsOneWidget);
+      await t.tap(find.text('OK'));
+      await settle(t);
+      await t.binding.handlePopRoute();
+      await settle(t);
+      await say(t, third);
+      expect(chats, hasLength(3));
+      expect(chats[2]['message'], third);
+      expect(chats[2]['question_clarification'], {'user_turns': [first, second]});
+      expect(find.textContaining('Należy sprawdzić pełną specyfikację'), findsWidgets);
+      expect(t.takeException(), isNull);
+    }, () => MockClient((r) async {
+      if (r.url.path.endsWith('/ai/chat')) chats.add(jsonDecode(r.body) as Map);
+      final reply = switch (chats.length) {
+        1 => {'text': 'Jakie są materiał i warunki?', 'needs_clarification': true, 'citations': <String>[]},
+        2 => {'text': 'Dane jeszcze nie wystarczają. Czy masz temperaturę projektową i naddatek?\n\nWPS i specyfikacja projektu.',
+          'needs_clarification': true, 'citations': ['Pipe Schedules'], 'question_clarification_used': true},
+        _ => {'text': 'Należy sprawdzić pełną specyfikację.', 'needs_clarification': false,
+          'citations': ['Pipe Schedules'], 'question_clarification_used': true},
+      };
+      reply['calculator_context_used'] = true;
+      return http.Response(jsonEncode(reply), 200, headers: {'content-type':'application/json; charset=utf-8'});
+    }));
+  });
   testWidgets('DN inference sends prior exchange to chat without asking for a module', (t) async {
     final chats = <Map>[];
     await http.runWithClient(() async {
