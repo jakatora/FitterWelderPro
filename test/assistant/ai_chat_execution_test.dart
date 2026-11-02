@@ -236,7 +236,7 @@ void main() {
         chats++;
         return ChatMessage(role: ChatRole.assistant, text: 'Nieoczekiwane zapytanie');
       });
-      await say(t, 'pomóż mi dobrać wariant do mojego zadania');
+      await say(t, 'wykonaj niestandardową operację dla mojego zadania');
       expect(requests, hasLength(1));
       await say(t, 'ten drugi wariant');
       expect(requests, hasLength(2));

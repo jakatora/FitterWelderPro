@@ -8,6 +8,7 @@ void main() {
     'Pomóż mi dobrać gaz osłonowy do nierdzewki',
     'Pomóż mi dobrać gaz i ustawienia do TIG',
     'Pomóż mi wybrać metodę spawania',
+    'Pomóż mi dobrać wariant do mojego zadania',
     'Czy możesz mi pomóc dobrać parametry TIG dla 3 mm?',
     'Potrzebuję porady dotyczącej spawania aluminium',
     'Help me choose a shielding gas',
