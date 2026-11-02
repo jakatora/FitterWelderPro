@@ -52,6 +52,41 @@ void main() {
   });
   tearDown(() => AccountService.instance = previous);
 
+  testWidgets('copy includes each external source once and keeps app context',
+      (tester) async {
+    final copied = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        copied.add((call.arguments as Map)['text'] as String);
+      }
+      return null;
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding
+        .instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+    const external = '[1] TWI guidance\nhttps://www.twi-global.com/paper';
+    const app = 'Tabele materiałów w aplikacji';
+    const answer = 'Odpowiedź [1].\n\nŹródła internetowe:\n$external';
+    await mount(tester,
+        speech: FixtureSpeech(),
+        interpret: (_) async => throw StateError('No command expected'),
+        chatSender: (_, __) async => ChatMessage(
+            role: ChatRole.assistant,
+            text: answer,
+            citations: [app, external],
+            kind: AiReplyKind.live));
+    await say(tester, 'Wyjaśnij spawanie TIG');
+    await openConversation(tester);
+    final copy = find.byKey(const Key('assistant-copy-answer')).first;
+    await tester.ensureVisible(copy);
+    await tester.tap(copy);
+    await settle(tester);
+    expect(copied, hasLength(1));
+    expect(external.allMatches(copied.single), hasLength(1));
+    expect(copied.single, contains(app));
+  });
+
   for (final kind in [AiReplyKind.live, AiReplyKind.offlineHelp]) {
     testWidgets('copy answer preserves text and sources for $kind', (tester) async {
       final copied = <String>[];
@@ -90,7 +125,9 @@ void main() {
   testWidgets('copy failure keeps answer selectable and gives recovery', (tester) async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, (call) async {
-      if (call.method == 'Clipboard.setData') throw PlatformException(code: 'unavailable');
+      if (call.method == 'Clipboard.setData') {
+        throw PlatformException(code: 'unavailable');
+      }
       return null;
     });
     addTearDown(() => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

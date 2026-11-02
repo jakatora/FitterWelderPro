@@ -4389,7 +4389,14 @@ class _CopyAnswerButtonState extends State<_CopyAnswerButton> {
     final offline = message.kind == AiReplyKind.offlineHelp
         ? '${context.tr(pl: 'Pomoc offline z aplikacji', en: 'Offline in-app help')}\n\n'
         : '';
-    final citations = message.citations.where((s) => s.trim().isNotEmpty).toSet();
+    final citations = message.citations.where((s) {
+      if (s.trim().isEmpty) return false;
+      final lines = s.split('\n');
+      final url = lines.length > 1 ? Uri.tryParse(lines.last) : null;
+      final alreadyIncludedWebSource = url != null && url.scheme == 'https' &&
+          url.host.isNotEmpty && url.userInfo.isEmpty && message.text.contains(s);
+      return !alreadyIncludedWebSource;
+    }).toSet();
     final text = '$offline${message.text}${citations.isEmpty ? '' : '\n\n$label:\n${citations.join('\n\n')}'}';
     setState(() => _copying = true);
     var success = false;
