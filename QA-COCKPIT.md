@@ -1,5 +1,14 @@
 # QA-COCKPIT — FitterWelderPro
 
+## Trafniejsze materiały kontekstu AI — aktualizacja serwera 2026-11-02
+
+- Backend `3c98b354222a12f1b75be45d721403798bf37095` nie dołącza już automatycznie wszystkich pobranych fragmentów bazy do odpowiedzi rozmowy. Model wskazuje użyte sekcje po numerowanych identyfikatorach; serwer mapuje je wyłącznie na pobrane tytuły. Brak wskazania oznacza pustą listę, nigdy całą listę pobrań.
+- Identyfikatory ujemne, ułamkowe, nieistniejące, tekstowe, powtórzone i nadmiarowe są odrzucane bez ponowienia modelu. Dopytania i żądania wyszukiwania nie mogą przypisywać sobie sekcji aplikacji. Klient otrzymuje ten sam publiczny format citations:string[], bez technicznych identyfikatorów. Starsza ścieżka bez conversation_mode zachowuje swój dotychczasowy kontrakt.
+- **555 testów backendu PASS**,0błędów/pominięć,4,548s. Nowe testy wymuszają wybiórcze/puste wskazanie zamiast wszystkich4pobrań i odrzucanie wadliwych danych. Istniejące testy retrievalu nadal jawnie wskazują wszystkie pobrane sekcje, zachowując kontrolę ciągłości tematu i wyłączenia treści społecznościowych. Bramka budżetu, naliczenie rzeczywistego wejścia i maxRetries0 pozostają aktywne; nie dodano kolejnego wywołania modelu.
+- Railway `620b4597-c1be-4f56-80ee-6a6d8d799dee` SUCCESS2026-11-02T04:55:51.814Z. Dwa ograniczone rzeczywiste zapytania HTTP/modelu po wdrożeniu: wyjaśnienie masy5,541kg/m/5,541kg/szt./11,08kg zachowało prawidłowe wartości i zwróciło pustą listę materiałów zamiast przypadkowych tematów; pytanie „Co oznacza DN na rurze?” zwróciło jedynie „DN — rozmiar nominalny rury / nominal pipe size”. Oba HTTP200/needs_clarification:false, bez ponowień.
+- Obie własne instalacje DELETE200/ok, prywatne pliki usunięte. Raport `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/knowledge-attribution-verification.json`, odpowiedzi `knowledge-attribution-live-native.json` / `knowledge-attribution-live-knowledge.json`, testy `knowledge-attribution-backend-tests-final.log`.
+- Działa z obecnymi klientami rozmowy0.5.20 bez nowego APK/IPA. Zakres: realny serwer/model i testy kontraktu; nie wykonywano nowego testu interfejsu telefonu. Wskazanie sekcji pochodzi od modelu i nie jest niezależną weryfikacją wszystkich tez; zewnętrzne wyszukiwanie nadal ma osobny mechanizm dowodów. Dokładny koszt dostawcy nie jest udostępniony.
+
 ## iOS 0.5.20 (1085) — wewnętrzny TestFlight gotowy, 2026-11-02
 
 - **Apple VALID / IN_BETA_TESTING**, potwierdzone2026-11-02T04:48:30.312211Z. Train0.5.20/build1085,ID `3f457a48-a8a2-407d-990b-77f006f5d0ae`,niewygasł. ExternalREADY_FOR_BETA_SUBMISSION,reviewnull; bez zgłoszenia zewnętrznej recenzji.

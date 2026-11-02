@@ -4,6 +4,7 @@ All notable changes per AGENTS.md directive. Newest first.
 
 ## 0.5.20 — 2026-11-02
 
+- Server update: conversation answers list only model-attributed app knowledge sections, rather than every retrieved fragment. Native-result explanations can omit unrelated app materials; the public citation format is unchanged.
 - Pipe-weight questions can use the visible calculator inputs and displayed native mass per metre, per piece and total. Missing optional values and invalid results remain missing; the AI explains the readback with user-facing labels.
 - Manual pipe-weight entry and assistant field application share domain validation. A piece count without a length prompts for correction, and out-of-range mass calculations no longer render Infinity.
 - The complete local-command → calculator → consent → real AI answer flow passed on virtual Android in a separate diagnostic build. Release checks passed 345 selected Flutter tests in 30 suites, full analysis and package verification. Physical microphone and release AOT interaction remain separate checks.
