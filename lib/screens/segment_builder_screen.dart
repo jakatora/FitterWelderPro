@@ -354,6 +354,11 @@ class _Picked {
 }
 
 // ─── SegmentBuilderScreen ──────────────────────────────────────────────────
+/// The segment being edited was removed before its changes could be saved.
+class SegmentNoLongerExists implements Exception {
+  const SegmentNoLongerExists();
+}
+
 class SegmentBuilderScreen extends StatefulWidget {
   final String materialGroup;
   final double currentDiameter;
@@ -936,8 +941,11 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
       if (!mounted) return;
       setState(() {
         _saving = false;
-        _error = _tr('Nie udało się zapisać odcinka. Twoje pomiary pozostają tutaj. Spróbuj ponownie.',
-            'Could not save the segment. Your measurements are still here. Try again.');
+        _error = error is SegmentNoLongerExists
+            ? _tr('Ten odcinek już nie istnieje. Twoje pomiary pozostają tutaj; zanotuj je przed wyjściem.',
+                'This segment no longer exists. Your measurements are still here; note them before leaving.')
+            : _tr('Nie udało się zapisać odcinka. Twoje pomiary pozostają tutaj. Spróbuj ponownie.',
+                'Could not save the segment. Your measurements are still here. Try again.');
       });
       return;
     }

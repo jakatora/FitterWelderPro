@@ -364,7 +364,7 @@ class _FitterScreenState extends State<_FitterBody> {
               'id': s.id, 'diameter_mm': s.diameterMm, 'wall_thickness_mm': s.wallThicknessMm,
               ..._measuredColumns(result), 'updated_at': DateTime.now().millisecondsSinceEpoch,
             }, touchProject: true);
-            if (changed == 0) throw StateError('Segment no longer exists');
+            if (changed == 0) throw const SegmentNoLongerExists();
           },
         ),
       ),

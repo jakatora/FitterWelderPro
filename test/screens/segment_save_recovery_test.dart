@@ -20,6 +20,61 @@ Future<void> waitFor(WidgetTester t, bool Function() ready) async {
 
 void main() {
   useTestDatabase();
+  testWidgets('deleted segment explains why retry cannot save', (t) async {
+    t.view.physicalSize = const Size(1200, 2400);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    await t.runAsync(() async {
+      await ProjectDao().insert(Project(
+        id: 'deleted-edit',
+        name: 'Deleted edit',
+        materialGroup: 'SS',
+        diameterMm: 60.3,
+        wallThicknessMm: 2.77,
+        currentDiameterMm: 60.3,
+        stockLengthMm: 6000,
+        sawKerfMm: 1,
+        gapMm: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      ));
+      await SegmentDao().insert({
+        'id': 'deleted-segment',
+        'project_id': 'deleted-edit',
+        'seq_no': 1,
+        'diameter_mm': 60.3,
+        'wall_thickness_mm': 2.77,
+        'start_kind': 'logical',
+        'start_value_mm': 0,
+        'end_kind': 'logical',
+        'end_value_mm': 0,
+        'iso_ref': 'OPEN|OPEN',
+        'iso_expr': '1000',
+        'iso_mm': 1000,
+        'cut_mm': 1000,
+        'created_at': 1,
+        'updated_at': 1,
+      });
+    });
+    await t.pumpWidget(AppLanguageScope(
+      controller: AppLanguageController(AppLanguage.en),
+      child: const MaterialApp(home: FitterScreen(projectId: 'deleted-edit')),
+    ));
+    await waitFor(t, () => find.textContaining('Seg. 1').evaluate().isNotEmpty);
+    await t.tap(find.textContaining('Seg. 1'));
+    await t.pumpAndSettle();
+    await t.enterText(find.byType(TextField), '1250');
+    await t.pump();
+    await t.runAsync(() => SegmentDao().deleteById('deleted-segment'));
+    await t.ensureVisible(find.text('Save changes'));
+    await t.tap(find.text('Save changes'));
+    const message =
+        'This segment no longer exists. Your measurements are still here; note them before leaving.';
+    await waitFor(t, () => find.text(message).evaluate().isNotEmpty);
+    expect(find.text(message), findsOneWidget);
+    expect(
+        t.widget<TextField>(find.byType(TextField)).controller!.text, '1250');
+  });
   testWidgets('rapidly opening a segment editor opens only one route',
       (t) async {
     t.view.physicalSize = const Size(1200, 2400);
