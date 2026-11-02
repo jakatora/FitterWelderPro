@@ -259,7 +259,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   onSubmitted: (v) {
                     final hits = searchTools(v, lang);
                     if (hits.isNotEmpty) {
-                      openTool(context, hits.first.tool);
+                      openTool(context, hits.first.tool, fields: hits.first.fields);
                       return;
                     }
                     final nav = searchNavEntries(v, lang);
@@ -307,7 +307,7 @@ class _HomeScreenState extends State<HomeScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 for (final hit in hits)
-                  ToolRow(tool: hit.tool, showSection: true),
+                  ToolRow(tool: hit.tool, showSection: true, fields: hit.fields),
               ],
             ),
           ),

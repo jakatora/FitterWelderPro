@@ -72,7 +72,9 @@ class ToolRow extends StatelessWidget {
   /// wyszukiwania mieszają monter i spawacz).
   final bool showSection;
 
-  const ToolRow({super.key, required this.tool, this.showSection = false});
+  final Map<String, Object?> fields;
+  const ToolRow({super.key, required this.tool, this.showSection = false,
+    this.fields = const {}});
 
   @override
   Widget build(BuildContext context) {
@@ -93,7 +95,7 @@ class ToolRow extends StatelessWidget {
               onLongPressHint: _pinHint(context, pinned),
               child: InkWell(
                 key: ValueKey('tool-row-${tool.id}'),
-                onTap: () => openTool(context, tool),
+                onTap: () => openTool(context, tool, fields: fields),
                 onLongPress: () => toggleToolPin(context, tool),
                 splashColor: tool.color.withValues(alpha: 0.10),
                 highlightColor: tool.color.withValues(alpha: 0.05),

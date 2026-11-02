@@ -149,6 +149,26 @@ void main() {
   });
 
   group('szybki dostęp', () {
+    for (final submit in [false, true]) {
+      testWidgets('sized DN query opens the requested row: submit=$submit', (tester) async {
+        seedOnboardedUser();
+        await boot(tester);
+        final dn = submit ? 100 : 50;
+        await tester.enterText(key('home-tool-search'), submit ? 'DN 100' : 'DN50');
+        await settle(tester);
+        expect(key('tool-row-dn_mm'), findsOneWidget);
+        if (submit) {
+          await tester.testTextInput.receiveAction(TextInputAction.search);
+        } else {
+          await tester.tap(key('tool-row-dn_mm'));
+        }
+        await settle(tester);
+        expect(tester.widget<DnMmScreen>(find.byType(DnMmScreen)).initialDn, dn);
+        expect(find.byWidgetPredicate((w) => w is TextField && w.controller?.text == '$dn'), findsWidgets);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
     testWidgets('DN and OD search omit incidental words and open pipe sizing', (tester) async {
       seedOnboardedUser();
       await boot(tester);

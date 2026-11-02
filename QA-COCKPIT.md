@@ -1,5 +1,14 @@
 # QA-COCKPIT — FitterWelderPro
 
+## Wyszukiwanie DN50 otwiera właściwy rozmiar — 2026-11-02
+
+- Pełne oznaczenie rozmiaru, np.DN50/dn50/DN 50, daje teraz bezpośrednio wynik tabeliDN i przekazuje wybrany rozmiar do ekranu. To samo działa po kliknięciu wiersza i po zatwierdzeniu wyszukiwania klawiaturą; nie trzeba ponownie wpisywać rozmiaru w module.
+- Rozpoznawane są wyłącznie pełne oznaczeniaDN z1–4cyframi, istniejące w bieżącym katalogu `kNpsTable`. Nieznany DN, znak minus, ułamek lub dodatkowe słowa nie otrzymują zgadywanego rozmiaru. Zwykłe wyszukiwanie zachowuje swoją ścieżkę. Nie zmieniano wartości tabel ani interpretacji średnicyOD/NPS.
+- `ToolSearchHit` przenosi niezmienne pola startowe wyniku; ekran główny przekazuje je zarówno przyEnter, jak i przezToolRow. Zwykłe wiersze bez pól zachowują dotychczasowe otwieranie. Działanie lokalne, bez wywołaniaAI lub zapisu danych użytkownika.
+- Przed poprawką oba nowe testy rzeczywistegoHome FAILED (brak wynikuDN50/DN100). Końcowo **1632testy/5zestawów PASS**,0błędów/pominięć:62testy wyszukiwania/rejestru/Home21,494s i1570korpusu/wydajności routingu21,852s. RegresjePL/EN obejmują prawidłowe i nieprawidłowe oznaczenia oraz niezmienność pól. Home sprawdza zarówno otwarty ekran zinitialDn, jak i tekst pola50/100.
+- Analiza5zmienionych plików:Noissuesfound9,3s. Dowody `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/sized-dn-summary.json`, `sized-dn-before.jsonl`, `sized-dn-final.jsonl`, `sized-dn-router.jsonl`, `sized-dn-analyze.log`.
+- Zakres dowodu: widgetyFlutter i logika naWindows, nie fizyczny telefon. Zmiana w źródłach po0.5.20; obecny APK/iOS1085 jeszcze jej nie zawierają. Brak nowego buildu, wdrożenia serwera lub wywołań płatnegoAI.
+
 ## Ponawianie odpowiedzi bez utraty szkicu — 2026-11-02
 
 - Odtworzono rzeczywistą utratę nowego szkicu na pełnym ekranie rozmowy: po nieudanej odpowiedzi „Ponów” nadpisywało pole poprzednim pytaniem i czyściło je przy wysłaniu. Przed poprawką trzy przypadki tego ekranu FAILED; trzy kontrolne dla panelu na ekranie głównym już PASS. Rodzaje błędu:unavailable,offlineHelp,wyjątek transportu.

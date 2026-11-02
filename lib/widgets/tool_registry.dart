@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../config/feature_flags.dart';
+import '../data/nps_dn_od_r.dart';
 import '../app_navigator.dart';
 import '../assistant/core/assistant_panel_controller.dart';
 import '../features/bolt_kit/bolt_kit_page.dart';
@@ -2845,7 +2846,8 @@ Future<void> openTool(BuildContext context, ToolSpec tool,
 class ToolSearchHit {
   final ToolSpec tool;
   final int score;
-  const ToolSearchHit(this.tool, this.score);
+  final Map<String, Object?> fields;
+  const ToolSearchHit(this.tool, this.score, {this.fields = const {}});
 }
 
 /// Warianty rdzenia dla odmiany polskiej: „kolano" → „kolan" łapie „kolana",
@@ -2863,11 +2865,24 @@ final _atomicToolTerms = {
     term: RegExp('(?:^| )$term(?:[0-9][a-z0-9]*)?(?= |\$)'),
 };
 
+final _sizedDnQuery = RegExp(r'^dn\s*([0-9]{1,4})$', caseSensitive: false);
+
 /// Szuka narzędzi po tytule, słowach kluczowych i podtytule — w obu językach
 /// naraz, bo monter w polskiej wersji też wpisuje „takeout" czy „rolling".
 /// Wielkość liter i polskie znaki nie mają znaczenia. Każde wpisane słowo musi
 /// gdzieś pasować. Pusty wynik dla pustego zapytania.
 List<ToolSearchHit> searchTools(String rawQuery, AppLanguage lang) {
+  // A complete catalogued DN designation is a size lookup, not free text.
+  // Carry the entered size to the screen; never substitute another size.
+  final size = _sizedDnQuery.firstMatch(rawQuery.trim());
+  final dn = size == null ? null : int.tryParse(size.group(1)!);
+  if (dn != null && kNpsTable.any((row) => row.dn == dn)) {
+    for (final tool in availableTools) {
+      if (tool.id == 'dn_mm') {
+        return [ToolSearchHit(tool, 100, fields: Map.unmodifiable({'dn': dn}))];
+      }
+    }
+  }
   final query = normalizeForSearch(rawQuery);
   if (query.isEmpty) return const [];
   final terms = query.split(' ').where((t) => t.isNotEmpty).toList();
