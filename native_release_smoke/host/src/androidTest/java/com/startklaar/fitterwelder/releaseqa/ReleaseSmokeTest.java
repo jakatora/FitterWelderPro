@@ -17,7 +17,6 @@ import android.util.Log;
 import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.KeyEvent;
-import android.view.KeyCharacterMap;
 import android.view.accessibility.AccessibilityWindowInfo;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.accessibilityservice.AccessibilityServiceInfo;
@@ -82,13 +81,17 @@ public class ReleaseSmokeTest {
   down.setSource(InputDevice.SOURCE_TOUCHSCREEN);up.setSource(InputDevice.SOURCE_TOUCHSCREEN);
   ui.injectInputEvent(down,true);ui.injectInputEvent(up,true);down.recycle();up.recycle();
  }
- void set(AccessibilityNodeInfo node,String value) {
+ void set(AccessibilityNodeInfo node,String value) throws Exception {
   click(node);SystemClock.sleep(300);
-  long time=SystemClock.uptimeMillis();
-  instrumentation.sendKeySync(new KeyEvent(time,time,KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_A,0,KeyEvent.META_CTRL_ON,KeyCharacterMap.VIRTUAL_KEYBOARD,0,0,InputDevice.SOURCE_KEYBOARD));
-  instrumentation.sendKeySync(new KeyEvent(time,time+40,KeyEvent.ACTION_UP,KeyEvent.KEYCODE_A,0,KeyEvent.META_CTRL_ON,KeyCharacterMap.VIRTUAL_KEYBOARD,0,0,InputDevice.SOURCE_KEYBOARD));
-  instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DEL);
+  instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MOVE_END);
+  for(int i=0;i<32;i++)instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DEL);
   instrumentation.sendStringSync(value);SystemClock.sleep(500);
+  boolean entered=false;
+  for(AccessibilityNodeInfo field:edits()) {
+   if(field.isFocused() && value.equals(String.valueOf(field.getText())))entered=true;
+  }
+  if(!entered)dump();
+  assertTrue("Focused native field must contain exactly requested value",entered);
   for(AccessibilityWindowInfo window:ui.getWindows()) {
    if(window.getType()==AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
     instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);SystemClock.sleep(300);break;
