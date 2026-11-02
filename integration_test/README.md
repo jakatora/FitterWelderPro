@@ -1,6 +1,6 @@
 # Physical Android assistant QA
 
-This branch contains a diagnostic integration-test build based on release source 0.5.16. It now includes the production conversational-routing fix from `8841175` on top of release 0.5.16. It is not a replacement release APK. Keep the integration SDK and instrumentation setup isolated from production packaging until separately reviewed.
+This branch contains diagnostic integration-test builds. Its current production lib matches `0f32fd2`, including the 0.5.17 conversation fix and the compact AI-consent/header changes. Earlier results below identify their own source versions. It is not a replacement release APK. Keep the integration SDK and instrumentation setup isolated from production packaging until separately reviewed.
 
 `live_assistant_test.dart` boots the actual app, opens the assistant, enters a DN question, accepts the consent screen, uses the real HTTP transport and verifies the returned answer on screen. There are no mocked provider, platform or backend responses. It allows one explicit AI request and no retry. The microphone is not tested.
 
@@ -37,3 +37,9 @@ This proves the concrete two-turn typed interaction in a diagnostic debug build.
 ## Fresh AI action scenario
 
 `live_action_test.dart` exercises the actual compact Enable AI button and consent screen before a single allowed `/api/fitter/ai/assistant` transport. It requires real model navigation into Heat input, then tests native calculator input changes and local clarification of a bare open command. No chat/model/platform responses are mocked. The production lib matches 0f32fd21741fd5094530cf236c3acc19bf794983. Fresh disposable identity, explicit opt-in, bounded requests and owned installation cleanup are required as in the conversation scenario. Device result pending.
+
+## Physical first-use/action PASS — 2026-11-02
+
+`matrix-ag9rm95dxv12a` FINISHED/SUCCESS on physical Pixel8 / API35 / pl_PL, one native testcase / zero failures/skips, 12 seconds. QA source `697b4d1`, production lib `0f32fd2`. The real compact Enable AI button opened the real consent screen. No AI transport before acceptance; exactly one real `/api/fitter/ai/assistant` HTTP200 returned a tool.open plan. The actual HeatInputScreen and native bridge became active. The next native command set GTAW/EN/24V/230A/150mm-min/efficiency0.6 and the real calculator result was 1.3248kJ-mm. A bare open request asked which tool locally, without an extra AI request or module change. Cleanup HTTP200/ok; private recovery file removed after confirmation.
+
+Viewed frames9/14/15 show Enable AI, actual calculator inputs and the clarification. Runtime log has zero FATAL EXCEPTION, E/flutter or app ANR. This proves one model navigation and native calculator/clarification workflow in diagnostic debug, not arbitrary actions, model-based clarification, microphone or release AOT/R8 behavior. Backend budget/rate guards were unchanged; exact charge not exposed. Artifacts `action-qa-*` in the 2026-11-02 artifact directory. Test Lab: https://console.firebase.google.com/project/fitter-welder-pro/testlab/histories/bh.b011b172b6d018b9/matrices/4943715655835610889
