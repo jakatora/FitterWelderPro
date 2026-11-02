@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'database_location_problem.dart';
+
 /// Resolves the Windows database directory without copying or replacing data.
 ///
 /// Existing databases stay in place, so old and new releases continue to use
@@ -28,23 +30,57 @@ class WindowsDatabaseLocation {
     }
   }
 
+  /// Records an explicit user choice without modifying either database.
+  /// Any later, previously unseen database will trigger a new choice.
+  Future<void> selectExisting(
+      String directory, List<String> acknowledged) async {
+    await supportDirectory.create(recursive: true);
+    final lockFile =
+        File(p.join(supportDirectory.path, 'database-location.lock'));
+    final lock = await lockFile.open(mode: FileMode.append);
+    try {
+      await lock.lock();
+      final chosen = p.normalize(p.absolute(directory));
+      final known =
+          acknowledged.map((value) => p.normalize(p.absolute(value))).toList();
+      if (!known.any((value) => p.equals(value, chosen)) ||
+          !await File(p.join(chosen, _databaseName)).exists()) {
+        throw StateError(
+            'The selected database is no longer available: $chosen');
+      }
+      await File(p.join(supportDirectory.path, _markerName)).writeAsString(
+        jsonEncode({'version': 2, 'directory': chosen, 'acknowledged': known}),
+        flush: true,
+      );
+    } finally {
+      await lock.close();
+    }
+  }
+
   Future<String> _resolveLocked(Iterable<String> legacyDirectories) async {
     final marker = File(p.join(supportDirectory.path, _markerName));
     final stable =
         p.normalize(p.absolute(p.join(supportDirectory.path, 'databases')));
     String? selectedPreviously;
+    List<String> acknowledged = const [];
     if (await marker.exists()) {
       final Object? json = jsonDecode(await marker.readAsString());
       if (json is! Map ||
-          json['version'] != 1 ||
+          ![1, 2].contains(json['version']) ||
           json['directory'] is! String) {
         throw const FormatException('Invalid database location marker');
       }
       selectedPreviously = json['directory'] as String;
-      if (!p.isAbsolute(selectedPreviously) ||
-          !await File(p.join(selectedPreviously, _databaseName)).exists()) {
-        throw StateError(
-            'The previously selected database is unavailable: $selectedPreviously');
+      if (!p.isAbsolute(selectedPreviously)) {
+        throw const FormatException('Invalid database location marker');
+      }
+      if (json['version'] == 2) {
+        final known = json['acknowledged'];
+        if (known is! List ||
+            known.any((value) => value is! String || !p.isAbsolute(value))) {
+          throw const FormatException('Invalid database location marker');
+        }
+        acknowledged = known.cast<String>();
       }
     }
 
@@ -52,6 +88,7 @@ class WindowsDatabaseLocation {
     for (final directory in [
       stable,
       if (selectedPreviously != null) selectedPreviously,
+      ...acknowledged,
       ...legacyDirectories,
     ]) {
       final absolute = p.normalize(p.absolute(directory));
@@ -62,9 +99,17 @@ class WindowsDatabaseLocation {
         candidates.add(absolute);
       }
     }
-    if (candidates.length > 1) {
-      throw StateError(
-          'Multiple existing databases found: ${candidates.join(' | ')}');
+    if (selectedPreviously != null &&
+        !candidates
+            .any((candidate) => p.equals(candidate, selectedPreviously!))) {
+      throw DatabaseLocationProblem(
+          candidates: candidates, missing: selectedPreviously);
+    }
+    if (candidates.length > 1 &&
+        (selectedPreviously == null ||
+            candidates.any((candidate) =>
+                !acknowledged.any((known) => p.equals(known, candidate))))) {
+      throw DatabaseLocationProblem(candidates: candidates);
     }
     if (selectedPreviously != null) return selectedPreviously;
     if (candidates.isEmpty || p.equals(candidates.single, stable)) {

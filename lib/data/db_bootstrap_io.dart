@@ -30,3 +30,12 @@ Future<void> initDatabaseFactory() async {
     }
   }
 }
+
+Future<void> selectExistingDatabase(
+    String directory, List<String> candidates) async {
+  if (defaultTargetPlatform != TargetPlatform.windows) {
+    throw UnsupportedError('Database selection is only available on Windows');
+  }
+  await WindowsDatabaseLocation(await getApplicationSupportDirectory())
+      .selectExisting(directory, candidates);
+}

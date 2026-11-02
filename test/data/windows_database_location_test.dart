@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:cut_list_app/data/windows_database_location.dart';
+import 'package:cut_list_app/data/database_location_problem.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -52,7 +53,7 @@ void main() {
     await File(p.join(other.path, 'cutlist.db')).writeAsString('second');
     await expectLater(
       resolver.resolve(legacyDirectories: [legacy.path, other.path]),
-      throwsStateError,
+      throwsA(isA<DatabaseLocationProblem>()),
     );
     expect(
         await File(p.join(legacy.path, 'cutlist.db')).readAsString(), 'first');
@@ -66,8 +67,8 @@ void main() {
     await old.writeAsString('existing');
     await resolver.resolve(legacyDirectories: [legacy.path]);
     await old.delete();
-    await expectLater(
-        resolver.resolve(legacyDirectories: []), throwsStateError);
+    await expectLater(resolver.resolve(legacyDirectories: []),
+        throwsA(isA<DatabaseLocationProblem>()));
     expect(await File(p.join(support.path, 'databases', 'cutlist.db')).exists(),
         isFalse);
   });
@@ -89,7 +90,7 @@ void main() {
     await File(p.join(other.path, 'cutlist.db')).writeAsString('second');
     await expectLater(
       resolver.resolve(legacyDirectories: [other.path]),
-      throwsStateError,
+      throwsA(isA<DatabaseLocationProblem>()),
     );
   });
 
@@ -123,6 +124,50 @@ void main() {
           'Projekt użytkownika');
     } finally {
       await reopened.close();
+    }
+  });
+  test('explicit choice is remembered and all databases stay intact', () async {
+    final other = await Directory(p.join(temp.path, 'other')).create();
+    final first = File(p.join(legacy.path, 'cutlist.db'));
+    final second = File(p.join(other.path, 'cutlist.db'));
+    await first.writeAsString('first');
+    await second.writeAsString('second');
+    await resolver.selectExisting(other.path, [legacy.path, other.path]);
+    expect(await resolver.resolve(legacyDirectories: [legacy.path, other.path]),
+        other.path);
+    expect(await first.readAsString(), 'first');
+    expect(await second.readAsString(), 'second');
+    final third = await Directory(p.join(temp.path, 'third')).create();
+    await File(p.join(third.path, 'cutlist.db')).writeAsString('third');
+    await expectLater(
+        resolver
+            .resolve(legacyDirectories: [legacy.path, other.path, third.path]),
+        throwsA(isA<DatabaseLocationProblem>()));
+  });
+
+  test('a missing database cannot be silently selected', () async {
+    await expectLater(
+        resolver.selectExisting(legacy.path, [legacy.path]), throwsStateError);
+    expect(await File(p.join(support.path, 'database-location.json')).exists(),
+        isFalse);
+  });
+
+  test('missing choice offers previously acknowledged remaining database',
+      () async {
+    final other = await Directory(p.join(temp.path, 'other')).create();
+    final first = File(p.join(legacy.path, 'cutlist.db'));
+    await first.writeAsString('first');
+    await File(p.join(other.path, 'cutlist.db')).writeAsString('second');
+    await resolver.selectExisting(legacy.path, [legacy.path, other.path]);
+    await first.delete();
+    try {
+      await resolver.resolve(legacyDirectories: []);
+      fail('Missing selected database should require an explicit choice');
+    } on DatabaseLocationProblem catch (problem) {
+      expect(problem.missing, legacy.path);
+      expect(problem.candidates, [other.path]);
+      await resolver.selectExisting(other.path, problem.candidates);
+      expect(await resolver.resolve(legacyDirectories: []), other.path);
     }
   });
 }

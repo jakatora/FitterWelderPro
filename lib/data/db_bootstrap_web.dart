@@ -17,3 +17,7 @@ import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 Future<void> initDatabaseFactory() async {
   databaseFactory = databaseFactoryFfiWebNoWebWorker;
 }
+
+Future<void> selectExistingDatabase(
+        String directory, List<String> candidates) =>
+    Future.error(UnsupportedError('Database selection is unavailable on web'));

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import 'app.dart';
 import 'data/db_bootstrap.dart';
+import 'data/database_location_problem.dart';
 import 'domain/qualification/certificate_status.dart';
 import 'i18n/app_language.dart';
 import 'services/account_service.dart';
@@ -14,6 +15,7 @@ import 'services/premium_service.dart';
 import 'services/user_profile.dart';
 import 'services/welder_identity.dart';
 import 'services/welder_qualification_service.dart';
+import 'screens/database_recovery_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,6 +32,18 @@ Future<void> main() async {
     // Never start with an empty database when the previous one cannot be
     // identified. The error is selectable to support recovery without moving
     // or deleting any of the user's files.
+    if (error is DatabaseLocationProblem) {
+      runApp(MaterialApp(
+        home: DatabaseRecoveryScreen(
+          problem: error,
+          onSelect: (directory, candidates) async {
+            await selectExistingDatabase(directory, candidates);
+            await main();
+          },
+        ),
+      ));
+      return;
+    }
     runApp(MaterialApp(
       home: Scaffold(
         appBar: AppBar(title: const Text('FitterWelder Pro')),
