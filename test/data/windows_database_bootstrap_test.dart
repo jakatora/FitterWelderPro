@@ -48,7 +48,10 @@ void main() {
     final dbFile = p.join(oldDir.path, 'cutlist.db');
     final factory = createDatabaseFactoryFfi(noIsolate: true);
     final original = await factory.openDatabase(dbFile);
-    await original.execute('CREATE TABLE projects (name TEXT)');
+    await original.execute(
+        'CREATE TABLE projects (id TEXT, name TEXT, diameter_mm REAL, wall_thickness_mm REAL)');
+    await original.execute(
+        'CREATE TABLE segments (id TEXT, project_id TEXT, seq_no INTEGER, iso_mm REAL, cut_mm REAL)');
     await original.insert('projects', {'name': 'Zapisany projekt'});
     await original.close();
 

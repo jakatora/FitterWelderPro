@@ -106,6 +106,10 @@ class _DatabaseRecoveryScreenState extends State<DatabaseRecoveryScreen> {
             Text('Wybierz bazę projektów / Select your project database',
                 style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 12),
+            if (widget.problem.reason != null) ...[
+              SelectableText(widget.problem.reason!),
+              const SizedBox(height: 12),
+            ],
             const Text('Wybierz lokalizację danych, której chcesz używać. '
                 'Nie usuwamy pozostałych baz.\n\nChoose the data location to use. '
                 'The other databases will be kept.'),

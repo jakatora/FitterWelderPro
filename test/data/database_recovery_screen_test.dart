@@ -40,12 +40,15 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       theme: ThemeData(splashFactory: NoSplash.splashFactory),
       home: DatabaseRecoveryScreen(
-        problem:
-            const DatabaseLocationProblem(candidates: [], missing: r'C:\Old'),
+        problem: const DatabaseLocationProblem(
+            candidates: [],
+            missing: r'C:\Old',
+            reason: 'Baza nie została rozpoznana'),
         pickFile: () async => file,
         onSelect: (path, candidates) async => selected = path,
       ),
     ));
+    expect(find.text('Baza nie została rozpoznana'), findsOneWidget);
     await tester.tap(find.text('Znajdź plik bazy / Find database file'));
     await tester.pumpAndSettle();
     expect(find.text('Wybierz plik cutlist.db. / Select the cutlist.db file.'),

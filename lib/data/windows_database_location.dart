@@ -6,6 +6,15 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'database_location_problem.dart';
 
+class _UnrecognizedDatabase implements Exception {
+  const _UnrecognizedDatabase();
+
+  @override
+  String toString() =>
+      'Nie rozpoznano struktury bazy FitterWelder Pro. Zachowaj plik i sprawdź kopię danych. '
+      '/ The FitterWelder Pro database structure was not recognized. Keep the file and check your backup.';
+}
+
 /// Resolves the Windows database directory without copying or replacing data.
 ///
 /// Existing databases stay in place, so old and new releases continue to use
@@ -95,7 +104,20 @@ class WindowsDatabaseLocation {
       input = null;
       db = await databaseFactoryFfi.openDatabase(file.path,
           options: OpenDatabaseOptions(readOnly: true, singleInstance: false));
-      await db.rawQuery('SELECT name FROM sqlite_master LIMIT 1');
+      final projects = await db.rawQuery('PRAGMA table_info(projects)');
+      final segments = await db.rawQuery('PRAGMA table_info(segments)');
+      final projectColumns = projects.map((row) => row['name']).toSet();
+      final segmentColumns = segments.map((row) => row['name']).toSet();
+      if (!projectColumns.containsAll(
+            const ['id', 'diameter_mm', 'wall_thickness_mm'],
+          ) ||
+          !segmentColumns.containsAll(
+            const ['id', 'project_id', 'seq_no', 'iso_mm', 'cut_mm'],
+          )) {
+        throw const _UnrecognizedDatabase();
+      }
+    } on _UnrecognizedDatabase {
+      rethrow;
     } catch (_) {
       throw const FormatException(
         'Nie można odczytać wybranej bazy SQLite. Sprawdź plik i spróbuj ponownie. '
@@ -104,6 +126,16 @@ class WindowsDatabaseLocation {
     } finally {
       await input?.close();
       await db?.close();
+    }
+  }
+
+  Future<void> _validateOrRecover(
+      String directory, List<String> candidates) async {
+    try {
+      await _validateDatabase(File(p.join(directory, _databaseName)));
+    } catch (error) {
+      throw DatabaseLocationProblem(
+          candidates: candidates, reason: error.toString());
     }
   }
 
@@ -161,8 +193,15 @@ class WindowsDatabaseLocation {
                 !acknowledged.any((known) => p.equals(known, candidate))))) {
       throw DatabaseLocationProblem(candidates: candidates);
     }
-    if (selectedPreviously != null) return selectedPreviously;
-    if (candidates.isEmpty || p.equals(candidates.single, stable)) {
+    if (selectedPreviously != null) {
+      await _validateOrRecover(selectedPreviously, candidates);
+      return selectedPreviously;
+    }
+    if (candidates.isEmpty) {
+      return stable;
+    }
+    if (p.equals(candidates.single, stable)) {
+      await _validateOrRecover(stable, candidates);
       return stable;
     }
 
@@ -172,6 +211,7 @@ class WindowsDatabaseLocation {
     if (!await File(p.join(selected, _databaseName)).exists()) {
       throw StateError('The existing database is unavailable: $selected');
     }
+    await _validateOrRecover(selected, candidates);
     await marker.writeAsString(
       jsonEncode({'version': 1, 'directory': selected}),
       flush: true,
