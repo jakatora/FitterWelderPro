@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:cut_list_app/services/ai_chat_service.dart';
 import 'package:cut_list_app/services/premium_service.dart';
+import 'package:cut_list_app/services/account_service.dart';
 import '../support/test_account.dart';
 import '../support/test_database.dart';
 import 'ai_chat_execution_test.dart' show mount;
@@ -19,6 +20,113 @@ import 'global_pipe_slope_flow_test.dart' show settle;
 void main() {
   useGuestAccount();
   useTestDatabase();
+  for (final event in ['new question', 'logout']) {
+    testWidgets('persistent retry expires after $event', (t) async {
+      seedFreshInstall();
+      await LegalConsent.instance.accept();
+      t.view.physicalSize = const Size(1080, 2400);
+      t.view.devicePixelRatio = 2.5;
+      addTearDown(t.view.reset);
+      var calls = 0;
+      await t.pumpWidget(AppLanguageScope(
+        controller: AppLanguageController(AppLanguage.pl),
+        child: MaterialApp(
+            home: AiChatScreen(
+          initialMode: AssistantMode.answer,
+          chatSender: (_, __) async {
+            calls++;
+            return ChatMessage(
+                role: ChatRole.assistant,
+                text: calls == 1 ? 'Unavailable' : 'New answer',
+                kind: calls == 1 ? AiReplyKind.unavailable : AiReplyKind.live);
+          },
+        )),
+      ));
+      await settle(t);
+      final input = find.byKey(const Key('assistant-question-input'));
+      await t.enterText(input, 'Explain TIG welding');
+      await t.tap(find.byKey(const Key('assistant-send')));
+      await settle(t);
+      final retry = t
+          .widget<OutlinedButton>(
+              find.byKey(const Key('assistant-persistent-retry')))
+          .onPressed!;
+      if (event == 'new question') {
+        await t.enterText(input, 'What is DN50?');
+        await t.tap(find.byKey(const Key('assistant-send')));
+        await settle(t);
+      } else {
+        await t.runAsync(AccountService.instance.invalidateSession);
+        await settle(t);
+      }
+      expect(find.byKey(const Key('assistant-persistent-retry')), findsNothing);
+      retry();
+      await settle(t);
+      expect(calls, event == 'new question' ? 2 : 1);
+      expect(t.takeException(), isNull);
+    });
+  }
+  for (final embedded in [true, false]) {
+    testWidgets(
+        'retry stays available after the notification closes embedded=$embedded',
+        (t) async {
+      var calls = 0;
+      final pending = Completer<ChatMessage>();
+      Future<ChatMessage> sender(String _, List<ChatMessage> __) async {
+        calls++;
+        if (calls == 1) {
+          return ChatMessage(
+              role: ChatRole.assistant,
+              text: 'Fixture unavailable',
+              kind: AiReplyKind.unavailable);
+        }
+        return pending.future;
+      }
+
+      if (embedded) {
+        await mount(t,
+            interpret: (_) async => throw StateError('Unexpected'),
+            chatSender: sender);
+      } else {
+        seedFreshInstall();
+        await LegalConsent.instance.accept();
+        t.view.physicalSize = const Size(1080, 2400);
+        t.view.devicePixelRatio = 2.5;
+        addTearDown(t.view.reset);
+        await t.pumpWidget(AppLanguageScope(
+          controller: AppLanguageController(AppLanguage.pl),
+          child: MaterialApp(
+              home: AiChatScreen(
+                  initialMode: AssistantMode.answer, chatSender: sender)),
+        ));
+        await settle(t);
+      }
+      final input = find.byKey(
+          Key(embedded ? 'assistant-command' : 'assistant-question-input'));
+      await t.enterText(input, 'Explain TIG welding');
+      await t
+          .tap(find.byKey(Key(embedded ? 'assistant-go' : 'assistant-send')));
+      await settle(t);
+      await t.pump(const Duration(seconds: 7));
+      await settle(t);
+      final button = find.byKey(const Key('assistant-persistent-retry'));
+      expect(button, findsOneWidget);
+      await t.enterText(input, 'My next draft');
+      final retry = t.widget<OutlinedButton>(button).onPressed!;
+      retry();
+      retry();
+      await t.pump();
+      await t.pump(const Duration(milliseconds: 100));
+      expect(calls, 2);
+      expect(t.widget<TextField>(input).controller!.text, 'My next draft');
+      pending.complete(ChatMessage(
+          role: ChatRole.assistant, text: 'Recovered', kind: AiReplyKind.live));
+      await settle(t);
+      expect(find.byKey(const Key('assistant-persistent-retry')), findsNothing);
+      expect(t.widget<TextField>(input).controller!.text, 'My next draft');
+      expect(t.takeException(), isNull);
+    });
+  }
   for (final language in [AppLanguage.pl, AppLanguage.en]) {
     testWidgets('unverified research offers an honest retry in $language',
         (t) async {

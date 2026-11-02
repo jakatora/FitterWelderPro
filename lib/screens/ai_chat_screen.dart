@@ -417,6 +417,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   SkillResult? _localResult;
   String? _pendingKnowledgeAnswer;
   List<String> _visibleKnowledgeSources = const [];
+  VoidCallback? _knowledgeRetry;
   UndoAction? _localUndo;
   bool _localCommitting = false;
   final _feedback = AssistantFeedbackRecorder();
@@ -797,6 +798,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     _knowledgeClarification = null;
     _pendingKnowledgeAnswer = null;
     _visibleKnowledgeSources = const [];
+    _knowledgeRetry = null;
     _pendingIntent = null;
     _pendingField = null;
     _carried = const {};
@@ -1407,6 +1409,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       _busy = true;
       _pendingKnowledgeAnswer = null;
       _visibleKnowledgeSources = const [];
+      _knowledgeRetry = null;
       _notice = null;
       _aiUnavailable = null;
       _offerServer = false;
@@ -2990,6 +2993,17 @@ class _AiChatScreenState extends State<AiChatScreen>
   void _offerKnowledgeRetry(String text, AiClarification? clarification, int epoch) {
     final turn = _knowledgeTurn;
     var started = false;
+    void retry() {
+      if (started || !mounted || epoch != _conversationEpoch ||
+          turn != _knowledgeTurn || _typing.value || _busy || _runningAiPlan ||
+          _preparingKnowledgeSend) {
+        return;
+      }
+      started = true;
+      setState(() => _knowledgeRetry = null);
+      unawaited(_send(questionClarification: clarification, retryText: text));
+    }
+    setState(() => _knowledgeRetry = retry);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(_tr('Możesz ponowić pytanie.', 'You can retry your question.')),
       duration: const Duration(seconds: 6),
@@ -2997,14 +3011,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       backgroundColor: _kCard,
       action: SnackBarAction(
         label: _tr('Ponów', 'Retry'), textColor: _kAccent,
-        onPressed: () {
-          if (started || !mounted || epoch != _conversationEpoch ||
-              turn != _knowledgeTurn || _typing.value || _busy || _runningAiPlan) {
-            return;
-          }
-          started = true;
-          unawaited(_send(questionClarification: clarification, retryText: text));
-        },
+        onPressed: retry,
       ),
     ));
   }
@@ -3018,6 +3025,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     if (text.length > kChatQuestionMaxChars) {
       return;
     }
+    if (_knowledgeRetry != null) setState(() => _knowledgeRetry = null);
     _preparingKnowledgeSend = true;
     late final bool consented;
     late final List<ChatMessage> history;
@@ -3346,6 +3354,14 @@ class _AiChatScreenState extends State<AiChatScreen>
         ],
       );
 
+  Widget _persistentRetryButton() => OutlinedButton.icon(
+        key: const Key('assistant-persistent-retry'),
+        onPressed: _knowledgeRetry,
+        icon: const Icon(Icons.refresh),
+        label: Text(_tr('Ponów pytanie', 'Retry question')),
+        style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
+      );
+
   Widget _buildEmbedded() => Column(children: [
         Expanded(
             child: ListView(
@@ -3357,6 +3373,7 @@ class _AiChatScreenState extends State<AiChatScreen>
               ],
               if (_localResult case final result?) _localAnswerCard(result),
               if (_pendingKnowledgeAnswer == null) _visibleSourceButtons(),
+              if (_knowledgeRetry != null) _persistentRetryButton(),
               if (_question != null) Text(_question!),
               if (_notice != null) ...[
                 Text(_notice!),
@@ -3701,6 +3718,7 @@ class _AiChatScreenState extends State<AiChatScreen>
             },
           ),
         ),
+        if (_knowledgeRetry != null) _persistentRetryButton(),
         if (_messages.length <= 1)
           _SuggestionStrip(onPick: (s) {
             _inputCtrl.text = s;
