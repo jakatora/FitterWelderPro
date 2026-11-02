@@ -12,7 +12,9 @@ import 'package:cut_list_app/services/premium_service.dart';
 
 // Real network pass-through: no response, provider or platform mocking.
 class ObservedClient extends http.BaseClient {
-  ObservedClient(this.delegate, this.report, {this.maxRequests = 1});
+  ObservedClient(this.delegate, this.report,
+      {this.maxRequests = 1, this.allowedPaths = const {BackendConfig.aiChat}});
+  final Set<String> allowedPaths;
   final int maxRequests;
   final requests = <Map<String, dynamic>>[];
   final answers = <Map<String, dynamic>>[];
@@ -30,7 +32,7 @@ class ObservedClient extends http.BaseClient {
     if (ai) {
       aiAttempts++;
       if (aiAttempts > maxRequests ||
-          request.url.path != BackendConfig.aiChat) {
+          !allowedPaths.contains(request.url.path)) {
         blockedPaths.add(request.url.path);
         throw StateError(
             'Explicit knowledge request budget exceeded; no retries');
@@ -41,7 +43,16 @@ class ObservedClient extends http.BaseClient {
       }
       final body = jsonDecode(request.body) as Map;
       // Keep conversation evidence only; never identity or request headers.
-      requests.add({'message': body['message'], 'history': body['history']});
+      if (request.url.path == BackendConfig.aiChat) {
+        requests.add({'message': body['message'], 'history': body['history']});
+      } else {
+        requests.add({
+          'text': body['text'],
+          'capabilityIds': [
+            for (final c in body['capabilities'] as List) (c as Map)['id']
+          ],
+        });
+      }
       report['conversationRequests'] = requests;
     }
     if (ai) aiRequestsSent++;

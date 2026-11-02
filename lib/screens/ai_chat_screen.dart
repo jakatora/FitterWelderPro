@@ -467,6 +467,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   String? _notice;
   bool _noticeIsError = false;
   bool _offerServer = false;
+  bool _requestingServerConsent = false;
   bool _offerAsk = false;
 
   // ── „Odpowiedz" ─────────────────────────────────────────────────────────
@@ -2766,10 +2767,35 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   Future<void> _useServer() async {
-    final ok = await ensureServerConsent(_navigationContext);
-    if (!ok || !mounted) return;
-    await _submitCommand();
+    if (_requestingServerConsent || _busy || _runningAiPlan) return;
+    final command = _cmdCtrl.text.trim();
+    if (command.isEmpty) return;
+    final epoch = _conversationEpoch;
+    setState(() => _requestingServerConsent = true);
+    try {
+      final ok = await ensureServerConsent(_navigationContext);
+      // Consent applies to the command the user chose to send. An edited or
+      // replaced conversation must be submitted explicitly again.
+      if (!ok || !mounted || epoch != _conversationEpoch ||
+          command != _cmdCtrl.text.trim()) {
+        return;
+      }
+      await _submitCommand();
+    } finally {
+      if (mounted) setState(() => _requestingServerConsent = false);
+    }
   }
+
+  Widget _enableAiButton() => OutlinedButton.icon(
+        key: const Key('assistant-enable-ai'),
+        onPressed: _requestingServerConsent || _busy || _runningAiPlan
+            ? null
+            : _useServer,
+        style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(48)),
+        icon: const Icon(Icons.cloud_outlined),
+        label: Text(_tr('Włącz AI', 'Enable AI')),
+      );
 
   void _askAsQuestion() {
     final text = _cmdCtrl.text.trim();
@@ -3260,7 +3286,13 @@ class _AiChatScreenState extends State<AiChatScreen>
                 Text(_pendingKnowledgeAnswer!, key: const Key('assistant-side-answer')),
               if (_localResult case final result?) _localAnswerCard(result),
               if (_question != null) Text(_question!),
-              if (_notice != null) Text(_notice!),
+              if (_notice != null) ...[
+                Text(_notice!),
+                if (_offerServer) ...[
+                  const SizedBox(height: 8),
+                  _enableAiButton(),
+                ],
+              ],
               if (_queryResults != null) ...[
                 Text(_tr('Moje parametry: $_queryTitle',
                     'My parameters: $_queryTitle')),
@@ -3554,15 +3586,7 @@ class _AiChatScreenState extends State<AiChatScreen>
                   style: const TextStyle(
                       color: _kTextPrimary, fontSize: 14.5, height: 1.4)),
               if (_offerServer || _offerAsk) const SizedBox(height: 8),
-              if (_offerServer)
-                OutlinedButton.icon(
-                  onPressed: _useServer,
-                  style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48)),
-                  icon: const Icon(Icons.cloud_outlined),
-                  label: Text(_tr('Rozpoznaj na serwerze (wymaga zgody)',
-                      'Recognise on the server (needs consent)')),
-                ),
+              if (_offerServer) _enableAiButton(),
               if (_offerAsk) ...[
                 const SizedBox(height: 6),
                 OutlinedButton.icon(
