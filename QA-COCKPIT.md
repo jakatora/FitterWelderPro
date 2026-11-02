@@ -1,5 +1,13 @@
 # QA-COCKPIT — FitterWelderPro
 
+## Zapis odcinka nie zamyka projektu po drugim kliknięciu — 2026-11-02
+
+- Odtworzono błąd w rzeczywistymSegmentBuilderScreen: dwa szybkie wywołania„Zapisz” wykonywały dwaNavigator.pop i usuwały także ekran projektu pod kreatorem. _saving było ustawiane, ale callback nie sprawdzał go przed kolejnym zamknięciem.
+- Callback blokuje teraz ponowne wywołanie przed sygnałem haptycznym i nawigacją; gotowość przycisku również uwzględnia_saving. Ta sama ścieżka służy do nowych i edytowanych odcinków. Wynik pomiaru i sposób zapisu przez ekran projektu nie zostały zmienione.
+- Przed poprawką nowa regresjaFAILED:ekran projektu znikał. Końcowo **37testów/5plików PASS**,0błędów/pominięć,9,803s: edycja,budowanie,edycja po skanie,trasa projektu,ergonomia/cofanie. Nowy test ma rzeczywisty kreator nad trasą projektu i trasą główną; sprawdza zachowanie projektu,jeden zwrócony wynikCUT3450 i brak błędówFluttera po dwóch callbackach przed nową klatką.
+- Analiza dwóch zmienionych plikówNoissuesfound. Dowody `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/segment-save-once-summary.json`, `segment-save-once-before.jsonl`, `segment-save-once-after.jsonl`, `segment-save-once-analyze.log`.
+- Zakres testu regresji:widgety/nawigacja naWindows; ekran projektu w tym teście jest trasą kontrolną, nie nowym dowodem podwójnego zapisu doSQLite. Pozostałe testy trasy obejmują zwykłe przebiegi projektu. Poprawka źródłowa po0.5.22; wydany APK/iOS1087 jeszcze jej nie zawierają. Bez nowego buildu lub testu fizycznego telefonu.
+
 ## Nowy projekt rury: poprawna relacja średnicy i ścianki — 2026-11-02
 
 - Odtworzono zapis niemożliwych wymiarów w aktywnymNewProjectScreen:OD60.3mm/ścianka30.15mm lub40mm przechodziły dodatnią walidację i trafiały doSQLite. Nowy projekt wymaga terazścianki mniejszej niż połowa średnicy, zgodnie z istniejącym warunkiem geometrii w kalkulatorze masy rury.

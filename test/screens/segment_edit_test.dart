@@ -131,6 +131,52 @@ void main() {
   });
 
   group('editing a saved segment', () {
+    testWidgets('rapid repeated save returns to the project exactly once',
+        (tester) async {
+      _useTallPhone(tester);
+      final results = <Map<String, dynamic>?>[];
+      await tester.pumpWidget(_wrap(Builder(
+          builder: (rootContext) => Scaffold(
+                body: TextButton(
+                    child: const Text('Open project'),
+                    onPressed: () {
+                      Navigator.of(rootContext).push(MaterialPageRoute<void>(
+                          builder: (projectContext) => Scaffold(
+                                body: Column(children: [
+                                  const Text('Project page'),
+                                  TextButton(
+                                      child: const Text('Edit segment'),
+                                      onPressed: () async {
+                                        final result = await Navigator.of(
+                                                projectContext)
+                                            .push<Map<String, dynamic>>(
+                                                MaterialPageRoute(
+                                                    builder: (_) => _editScreen(
+                                                        _savedSegment())));
+                                        results.add(result);
+                                      })
+                                ]),
+                              )));
+                    }),
+              ))));
+      await tester.tap(find.text('Open project'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Edit segment'));
+      await tester.pumpAndSettle();
+      final button = find.ancestor(
+          of: find.text('Save changes'),
+          matching: find.byWidgetPredicate((w) => w is ElevatedButton));
+      final save = tester.widget<ElevatedButton>(button).onPressed!;
+      save();
+      save();
+      await tester.pumpAndSettle();
+      expect(find.text('Project page'), findsOneWidget);
+      expect(find.byType(SegmentBuilderScreen), findsNothing);
+      expect(results, hasLength(1));
+      expect(results.single!['cutMm'], 3450);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('opens with the sequence and the ISO dimension restored',
         (tester) async {
       _useTallPhone(tester);

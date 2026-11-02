@@ -916,7 +916,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
   // ── BUILD ──────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final canSave = (_cutMm != null && _cutMm! > 0);
+    final canSave = !_saving && (_cutMm != null && _cutMm! > 0);
 
     return PopScope(
       canPop: !_isDirty,
@@ -1168,8 +1168,9 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
             ElevatedButton.icon(
               onPressed: canSave
                   ? () {
-                      Haptic.saved();
+                      if (_saving) return;
                       _saving = true;
+                      Haptic.saved();
                       Navigator.pop(context, {
                         'startKind':     _startPicked!.kindCode,
                         'endKind':       _endPicked!.kindCode,
