@@ -180,6 +180,59 @@ void main() {
       expect(t.takeException(), isNull);
     });
   }
+  for (final edit in [false, true]) {
+    testWidgets('retry uses the original calculator context edit=$edit',
+        (t) async {
+      var calls = 0;
+      await mount(t,
+          interpret: (_) async => const AiCommandPlan('answer', [], ''),
+          chatSender: (_, __) async {
+            calls++;
+            return ChatMessage(
+                role: ChatRole.assistant,
+                text: calls == 1 ? 'Fixture unavailable' : 'Fixture answer',
+                kind: calls == 1 ? AiReplyKind.unavailable : AiReplyKind.live);
+          });
+      final fields = {
+        'rise_mm': 300,
+        'spread_mm': 400,
+        'angle_deg': 45,
+        'dn': 50,
+        'gap_mm': 2
+      };
+      expect(await ToolBridge.instance.current!.apply(fields), isEmpty);
+      await settle(t);
+      await say(t, 'Wyjaśnij mi proszę te parametry');
+      expect(calls, 1);
+      if (edit) {
+        expect(
+            await ToolBridge.instance.current!
+                .apply({...fields, 'rise_mm': 500}),
+            isEmpty);
+        await settle(t);
+        await t.enterText(
+            find.byKey(const Key('assistant-command')), 'Nowy szkic');
+      }
+      final retry = find.byKey(const Key('assistant-persistent-retry'));
+      await t.ensureVisible(retry);
+      await t.tap(retry);
+      await settle(t);
+      expect(calls, edit ? 1 : 2);
+      if (edit) {
+        expect(find.textContaining('Dane kalkulatora lub rysunku zmieniły się'),
+            findsWidgets);
+        expect(
+            t
+                .widget<TextField>(find.byKey(const Key('assistant-command')))
+                .controller!
+                .text,
+            'Nowy szkic');
+      } else {
+        expect(find.text('Fixture answer'), findsOneWidget);
+      }
+      expect(t.takeException(), isNull);
+    });
+  }
   testWidgets(
       'real widget question sends actual visible rolling inputs through the chat service',
       (t) async {

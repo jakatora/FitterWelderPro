@@ -2990,7 +2990,8 @@ class _AiChatScreenState extends State<AiChatScreen>
     }
   }
 
-  void _offerKnowledgeRetry(String text, AiClarification? clarification, int epoch) {
+  void _offerKnowledgeRetry(String text, AiClarification? clarification, int epoch,
+      {bool Function()? contextStillMatches}) {
     final turn = _knowledgeTurn;
     var started = false;
     void retry() {
@@ -3000,6 +3001,21 @@ class _AiChatScreenState extends State<AiChatScreen>
         return;
       }
       started = true;
+      if (contextStillMatches != null && !contextStillMatches()) {
+        setState(() {
+          _knowledgeRetry = null;
+          _appendKnowledgeReply(ChatMessage(
+            role: ChatRole.assistant,
+            text: _tr(
+                'Dane kalkulatora lub rysunku zmieniły się. Zadaj pytanie ponownie o aktualny stan.',
+                'The calculator or drawing has changed. Ask again about its current state.'),
+            kind: AiReplyKind.localDialogue,
+          ));
+        });
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        _scrollToBottom();
+        return;
+      }
       setState(() => _knowledgeRetry = null);
       unawaited(_send(questionClarification: clarification, retryText: text));
     }
@@ -3073,6 +3089,7 @@ class _AiChatScreenState extends State<AiChatScreen>
 
     _scrollToBottom();
 
+    bool Function()? retryContextStillMatches;
     try {
       final iso = _isoPort.isForeground ? IsoNotebookController.active : null;
       final summary = iso?.summary;
@@ -3080,6 +3097,19 @@ class _AiChatScreenState extends State<AiChatScreen>
       final calculatorHandle = ToolBridge.instance.current;
       final calculatorContext =
           CalculatorQuestionContext.capture(_brainContext.modules);
+      retryContextStillMatches = () {
+        final current = CalculatorQuestionContext.capture(_brainContext.modules);
+        if ((calculatorContext != null || current != null) &&
+            (!identical(calculatorHandle, ToolBridge.instance.current) ||
+                calculatorContext?.toolId != current?.toolId ||
+                !mapEquals(calculatorContext?.inputs, current?.inputs) ||
+                !mapEquals(calculatorContext?.results, current?.results))) {
+          return false;
+        }
+        final currentIso = _isoPort.isForeground ? IsoNotebookController.active : null;
+        return identical(iso, currentIso) &&
+            (iso == null || iso.revision == revision);
+      };
       final reply = widget.contextChatSender != null
           ? await widget.contextChatSender!(text, history, summary)
           : widget.chatSender != null
@@ -3145,7 +3175,8 @@ class _AiChatScreenState extends State<AiChatScreen>
       }
       _typing.value = false;
       if (const {AiReplyKind.unavailable, AiReplyKind.offlineHelp}.contains(reply.kind)) {
-        _offerKnowledgeRetry(text, questionClarification, epoch);
+        _offerKnowledgeRetry(text, questionClarification, epoch,
+            contextStillMatches: retryContextStillMatches);
       }
       _scrollToBottom();
       await _speak(reply.text);
@@ -3163,7 +3194,8 @@ class _AiChatScreenState extends State<AiChatScreen>
       });
       _typing.value = false;
       _scrollToBottom();
-      _offerKnowledgeRetry(text, questionClarification, epoch);
+      _offerKnowledgeRetry(text, questionClarification, epoch,
+          contextStillMatches: retryContextStillMatches);
     }
   }
 
