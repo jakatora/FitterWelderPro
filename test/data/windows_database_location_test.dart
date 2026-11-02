@@ -105,14 +105,73 @@ void main() {
     );
   });
 
-  test('an invalid location marker fails closed', () async {
+  test('a damaged marker offers recovery and is preserved before a new choice',
+      () async {
     await support.create(recursive: true);
-    await File(p.join(support.path, 'database-location.json'))
-        .writeAsString('{"version":1}');
-    await expectLater(
-      resolver.resolve(legacyDirectories: [legacy.path]),
-      throwsFormatException,
-    );
+    final old = await createDatabase(legacy, 'zachowany projekt');
+    final oldBytes = await old.readAsBytes();
+    final marker = File(p.join(support.path, 'database-location.json'));
+    const damaged = '{"version":1,"directory":"C:\\interrupted';
+    await marker.writeAsString(damaged);
+    try {
+      await resolver.resolve(legacyDirectories: [legacy.path]);
+      fail('A damaged marker must require recovery');
+    } on DatabaseLocationProblem catch (problem) {
+      expect(problem.reason, contains('lokalizac'));
+      expect(problem.candidates, [legacy.path]);
+      expect(await marker.readAsString(), damaged);
+      await resolver.selectExisting(legacy.path, problem.candidates);
+    }
+    final backups = await support
+        .list()
+        .where((item) =>
+            item is Directory &&
+            p.basename(item.path).startsWith('database-location-backup-'))
+        .toList();
+    expect(backups, hasLength(1));
+    expect(
+        await File(p.join(backups.single.path, 'database-location.json'))
+            .readAsString(),
+        damaged);
+    expect(await old.readAsBytes(), oldBytes);
+    expect(await resolver.resolve(legacyDirectories: []), legacy.path);
+  });
+
+  test(
+      'a damaged marker without discovered databases still offers file recovery',
+      () async {
+    await support.create(recursive: true);
+    final marker = File(p.join(support.path, 'database-location.json'));
+    await marker.writeAsString('{broken');
+    try {
+      await resolver.resolve(legacyDirectories: []);
+      fail('A damaged marker must require recovery');
+    } on DatabaseLocationProblem catch (problem) {
+      expect(problem.candidates, isEmpty);
+      expect(problem.reason, contains('lokalizac'));
+      expect(await marker.readAsString(), '{broken');
+    }
+  });
+
+  test('a newer marker is never overwritten or treated as damaged', () async {
+    await support.create(recursive: true);
+    await createDatabase(legacy, 'projekt');
+    final marker = File(p.join(support.path, 'database-location.json'));
+    const newer = '{"version":3,"directory":"future"}';
+    await marker.writeAsString(newer);
+    await expectLater(resolver.resolve(legacyDirectories: [legacy.path]),
+        throwsUnsupportedError);
+    await expectLater(resolver.selectExisting(legacy.path, [legacy.path]),
+        throwsUnsupportedError);
+    expect(await marker.readAsString(), newer);
+    expect(
+        await support
+            .list()
+            .where((item) =>
+                item is Directory &&
+                p.basename(item.path).startsWith('database-location-backup-'))
+            .toList(),
+        isEmpty);
   });
 
   test('remembered location reopens actual SQLite project data', () async {

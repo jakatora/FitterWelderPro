@@ -50,6 +50,8 @@ class WindowsDatabaseLocation {
     final lock = await lockFile.open(mode: FileMode.append);
     try {
       await lock.lock();
+      final marker = File(p.join(supportDirectory.path, _markerName));
+      await _rejectNewerMarker(marker);
       final chosen = p.normalize(p.absolute(directory));
       final known =
           acknowledged.map((value) => p.normalize(p.absolute(value))).toList();
@@ -59,12 +61,33 @@ class WindowsDatabaseLocation {
             'The selected database is no longer available: $chosen');
       }
       await _validateDatabase(File(p.join(chosen, _databaseName)));
-      await File(p.join(supportDirectory.path, _markerName)).writeAsString(
+      if (await marker.exists()) {
+        // Preserve even malformed data before the explicit user choice. If
+        // copying fails, leave the original marker untouched.
+        final backup =
+            await supportDirectory.createTemp('database-location-backup-');
+        await marker.copy(p.join(backup.path, _markerName));
+      }
+      await marker.writeAsString(
         jsonEncode({'version': 2, 'directory': chosen, 'acknowledged': known}),
         flush: true,
       );
     } finally {
       await lock.close();
+    }
+  }
+
+  Future<void> _rejectNewerMarker(File marker) async {
+    if (!await marker.exists()) return;
+    Object? json;
+    try {
+      json = jsonDecode(await marker.readAsString());
+    } on FormatException {
+      return; // A damaged record is preserved before an explicit replacement.
+    }
+    if (json is Map && json['version'] is num && (json['version'] as num) > 2) {
+      throw UnsupportedError(
+          'Zapis lokalizacji utworzono nowszą wersją aplikacji. / The location was saved by a newer app version.');
     }
   }
 
@@ -139,6 +162,19 @@ class WindowsDatabaseLocation {
     }
   }
 
+  Future<List<String>> _existingDirectories(
+      Iterable<String> directories) async {
+    final result = <String>[];
+    for (final directory in directories) {
+      final absolute = p.normalize(p.absolute(directory));
+      if (result.any((candidate) => p.equals(candidate, absolute))) continue;
+      if (await File(p.join(absolute, _databaseName)).exists()) {
+        result.add(absolute);
+      }
+    }
+    return result;
+  }
+
   Future<String> _resolveLocked(Iterable<String> legacyDirectories) async {
     final marker = File(p.join(supportDirectory.path, _markerName));
     final stable =
@@ -146,41 +182,49 @@ class WindowsDatabaseLocation {
     String? selectedPreviously;
     List<String> acknowledged = const [];
     if (await marker.exists()) {
-      final Object? json = jsonDecode(await marker.readAsString());
-      if (json is! Map ||
-          ![1, 2].contains(json['version']) ||
-          json['directory'] is! String) {
-        throw const FormatException('Invalid database location marker');
-      }
-      selectedPreviously = json['directory'] as String;
-      if (!p.isAbsolute(selectedPreviously)) {
-        throw const FormatException('Invalid database location marker');
-      }
-      if (json['version'] == 2) {
-        final known = json['acknowledged'];
-        if (known is! List ||
-            known.any((value) => value is! String || !p.isAbsolute(value))) {
+      try {
+        final Object? json = jsonDecode(await marker.readAsString());
+        if (json is Map &&
+            json['version'] is num &&
+            (json['version'] as num) > 2) {
+          throw UnsupportedError(
+              'Zapis lokalizacji utworzono nowszą wersją aplikacji. / The location was saved by a newer app version.');
+        }
+        if (json is! Map ||
+            ![1, 2].contains(json['version']) ||
+            json['directory'] is! String) {
           throw const FormatException('Invalid database location marker');
         }
-        acknowledged = known.cast<String>();
+        selectedPreviously = json['directory'] as String;
+        if (!p.isAbsolute(selectedPreviously)) {
+          throw const FormatException('Invalid database location marker');
+        }
+        if (json['version'] == 2) {
+          final known = json['acknowledged'];
+          if (known is! List ||
+              known.any((value) => value is! String || !p.isAbsolute(value))) {
+            throw const FormatException('Invalid database location marker');
+          }
+          acknowledged = known.cast<String>();
+        }
+      } on FormatException {
+        final candidates =
+            await _existingDirectories([stable, ...legacyDirectories]);
+        throw DatabaseLocationProblem(
+          candidates: candidates,
+          reason:
+              'Nie można odczytać zapisu lokalizacji bazy. Wybierz właściwy plik; poprzedni zapis zostanie zachowany. '
+              '/ The saved database location cannot be read. Select the correct file; the previous record will be preserved.',
+        );
       }
     }
 
-    final candidates = <String>[];
-    for (final directory in [
+    final candidates = await _existingDirectories([
       stable,
       if (selectedPreviously != null) selectedPreviously,
       ...acknowledged,
       ...legacyDirectories,
-    ]) {
-      final absolute = p.normalize(p.absolute(directory));
-      if (candidates.any((candidate) => p.equals(candidate, absolute))) {
-        continue;
-      }
-      if (await File(p.join(absolute, _databaseName)).exists()) {
-        candidates.add(absolute);
-      }
-    }
+    ]);
     if (selectedPreviously != null &&
         !candidates
             .any((candidate) => p.equals(candidate, selectedPreviously!))) {
