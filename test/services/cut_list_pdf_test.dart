@@ -15,6 +15,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:pdf/widgets.dart' as pw;
 
 import 'package:cut_list_app/models/project.dart';
@@ -132,6 +133,32 @@ double _luminance(double r, double g, double b) =>
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('PDF attachment with a long project name is writable and keeps its full title', () async {
+    final directory = await Directory.systemTemp.createTemp('fwp-pdf-long-name-');
+    const provider = MethodChannel('plugins.flutter.io/path_provider');
+    const share = MethodChannel('dev.fluttercommunity.plus/share');
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    String? sharedPath;
+    messenger.setMockMethodCallHandler(provider, (_) async => directory.path);
+    messenger.setMockMethodCallHandler(share, (call) async {
+      sharedPath = ((call.arguments as Map)['paths'] as List).single as String;
+      return 'dev.fluttercommunity.plus/share/success';
+    });
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(provider, null);
+      messenger.setMockMethodCallHandler(share, null);
+      await directory.delete(recursive: true);
+    });
+    final title = '${List.filled(20, 'Long project name ').join()}END-MARK';
+    await PdfExportService.exportCutList(project: _project(title), segments: [_seg(1, 1200)], english: true);
+    expect(sharedPath, isNotNull);
+    final bytes = await File(sharedPath!).readAsBytes();
+    expect(bytes.length, greaterThan(100));
+    expect(_pdfText(bytes), contains(title.trim()));
+    expect(File(sharedPath!).uri.pathSegments.last.length, lessThanOrEqualTo(200));
+  });
+
 
   test('PDF retains fractional stock, kerf and actual wall thickness', () async {
     for (final english in [false, true]) {

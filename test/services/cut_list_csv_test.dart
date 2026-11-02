@@ -328,6 +328,19 @@ void main() {
   });
 
   group('plik CSV do udostępnienia', () {
+    test('long project names produce a writable attachment without losing CSV content', () async {
+      final directory = await Directory.systemTemp.createTemp('fwp-csv-long-name-');
+      addTearDown(() => directory.delete(recursive: true));
+      final project = List.filled(40, 'Long pipe project ').join();
+      final csv = _csv([_seg(1, 1200)], name: project);
+      final name = cutListCsvFileName(project, DateTime(2026, 11, 2, 12, 30));
+      final file = await writeCutListCsvFile(directory: directory, fileName: name, csv: csv);
+      expect(utf8.decode((await file.readAsBytes()).skip(3).toList()), csv);
+      expect(csv, contains(project));
+      expect(name.length, lessThanOrEqualTo(200));
+      expect(cutListFileStem('Short project'), 'Short_project');
+    });
+
     test('nazwa pliku: bez polskich znaków i separatorów ścieżki', () {
       expect(
         cutListCsvFileName('Łącznik żółć / hala 3', DateTime(2026, 9, 24, 13, 5)),

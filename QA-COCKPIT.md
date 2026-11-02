@@ -1,5 +1,13 @@
 # QA-COCKPIT — FitterWelderPro
 
+## Eksport z długą nazwą projektu — 2026-11-02
+
+- Odtworzono błąd rzeczywistym zapisemCSV naWindows: długa nazwa projektu tworzyła za długi składnik ścieżki, a system odrzucał zapis(errno123). Projekt mógł istnieć poprawnie w aplikacji, ale załącznik nie powstawał. Wspólna funkcja nazwy pliku jest używana przezCSV iPDF.
+- `cutListFileStem` ogranicza teraz transliterowaną część nazwy załącznika do120znakówASCII i usuwa końcowy podkreślnik po skróceniu. Zostaje miejsce na prefiks, datę i rozszerzenie. Pełna nazwa projektu w treściCSV/PDF nie jest skracana; krótkie nazwy zachowują swój format.
+- Przed zmianą nowy testFAILED na faktycznej operacji otwarcia pliku. Po zmianie **27testówCSV/PDF PASS**,0błędów/pominięć,5,162s. Nowe regresje zapisująCSV i gotowyPDF do prawdziwego katalogu tymczasowego, odczytują bajty/tekst i sprawdzają pełny tytuł. Pozostałe przypadki obejmują wartości, lokalizację, śledzenie wytopów, etykiety i załączniki. Systemowy panel udostępniania jest zastąpiony w testach; nie wysyłano plików do innych osób.
+- Analiza3zmienionych plikówNoissuesfound. Pierwsza analiza wskazała zbędny importUint8List po dodaniu usługplatformy; zawężono nowyimportdoMethodChannel i analiza końcowaPASS. Bez zmian układu lub treści generatoraPDF.
+- Dowody `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/export-filename-summary.json`, `export-filename-before.jsonl`, `export-filename-after.jsonl`, `export-filename-analyze-final.log`. ZakresWindows/realnyfilesystem, nie panel udostępniania telefonu. Poprawka źródłowa po0.5.21; APK0.5.21/iOS1086 jeszcze jej nie zawierają.
+
 ## Tworzenie projektu odporne na szybkie podwójne kliknięcie — 2026-11-02
 
 - Odtworzono błąd rzeczywistym zapisemSQLite: dwa wywołania przycisku przed następną klatką interfejsu tworzyły dwa projekty. Wyłączanie przycisku dopiero przy przebudowaniu widoku nie blokowało drugiego wywołania funkcji.

@@ -162,7 +162,11 @@ String cutListFileStem(String projectName) {
   final stem = ascii
       .replaceAll(RegExp(r'[^A-Za-z0-9]+'), '_')
       .replaceAll(RegExp(r'^_+|_+$'), '');
-  return stem.isEmpty ? 'projekt' : stem;
+  // Leave space for export prefixes, timestamps and extensions on filesystems
+  // with a per-component name limit. The full project name stays in content.
+  final bounded = stem.length > 120 ? stem.substring(0, 120) : stem;
+  final clean = bounded.replaceFirst(RegExp(r'_+$'), '');
+  return clean.isEmpty ? 'projekt' : clean;
 }
 
 /// `CutList_<projekt>_<yyyyMMdd-HHmm>.csv`
