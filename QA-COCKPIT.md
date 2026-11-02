@@ -1,5 +1,13 @@
 # QA-COCKPIT — FitterWelderPro
 
+## Obsługa błędów głosu — 2026-11-02
+
+- Asystent rozróżnia teraz ciszę/brak rozpoznanej wypowiedzi, problem połączenia, brak uprawnień, niedostępny język i zajętą usługę. Zamiast jednego ogólnego komunikatu podaje właściwy następny krok po polsku i angielsku. Kody potwierdzono w zainstalowanym speech_to_text7.5.0 (Android/iOS).
+- Tekst w polu pozostaje edytowalny; komunikat o jego zachowaniu pojawia się tylko dla niepustego pola. Błąd nie wysyła polecenia; mikrofon można uruchomić ponownie. Regresje obejmują również ochronę przed spóźnionymi wynikami i pracą w tle.
+- **47 testów /3 zestawy PASS**, 0 błędów/pominięć, 21,111s; `speech-recovery-test-summary.json` i `speech-recovery-tests.jsonl` w katalogu artefaktów2026-11-02. To testy Flutter z wstrzykniętymi zdarzeniami rozpoznawania, nie test fizycznego mikrofonu. `adb devices -l` nie wykazało podłączonego telefonu.
+- Pełna analiza `flutter analyze --no-pub`: **No issues found**, 58,4s; log `speech-recovery-analyze.log`.
+- Zmiana jest w kodzie źródłowym; wcześniejsze APK0.5.18/iOS1083 nie zawierają tych nowych komunikatów. Nie uruchamiano dla samej zmiany komunikatów kolejnego buildu lub deployu backendu.
+
 ## Doprecyzowanie przez AI z zachowaniem pytania — 2026-11-02
 
 - Rzeczywisty test rozmowy **PASS**: „Jaki gaz dobrać do spawania?” → AI pyta o proces i materiał → „TIG, stal nierdzewna 316L, chodzi o gaz osłonowy.” → końcowa odpowiedź dotycząca pierwotnego doboru gazu. Pierwsza odpowiedź ma `needs_clarification:true`, druga `false`; żadnego pytania o wybór modułu.

@@ -47,6 +47,70 @@ class HeldSpeech implements SpeechInput {
 
 void main() {
   useTestDatabase();
+  testWidgets('empty speech failure uses English recovery without claiming saved text', (t) async {
+    final speech = HeldSpeech();
+    var calls = 0;
+    await mount(t, speech: speech, interpret: (_) async {
+      calls++;
+      return const AiCommandPlan('answer', [], '');
+    });
+    t.widget<AppLanguageScope>(find.byType(AppLanguageScope)).notifier!.value = AppLanguage.en;
+    await settle(t);
+    await t.tap(find.byKey(const Key('assistant-mic')));
+    await settle(t);
+    speech.completions.single('error_no_match');
+    await settle(t);
+    expect(find.textContaining('No speech was recognised'), findsOneWidget);
+    expect(find.textContaining('The text in the field has been kept'), findsNothing);
+    expect(calls, 0);
+    expect(find.byKey(const Key('assistant-listening')), findsNothing);
+    expect(t.takeException(), isNull);
+  });
+  for (final failure in {
+    'error_no_match': 'Nie rozpoznano wypowiedzi',
+    'error_speech_timeout': 'Nie rozpoznano wypowiedzi',
+    'error_network': 'Sprawdź internet',
+    'error_network_timeout': 'Sprawdź internet',
+    'error_permission': 'Sprawdź uprawnienia',
+    'error_speech_recognizer_request_not_authorized': 'Sprawdź uprawnienia',
+    'error_speech_recognizer_disabled': 'Sprawdź uprawnienia',
+    'error_language_unavailable': 'Sprawdź języki mowy',
+    'error_assets_not_installed': 'Sprawdź języki mowy',
+    'error_busy': 'Odczekaj chwilę',
+    'error_speech_recognizer_already_active': 'Odczekaj chwilę',
+    'unknown_platform_error': 'Rozpoznawanie przerwane',
+  }.entries) {
+    testWidgets('speech recovery explains ${failure.key} without sending text',
+        (t) async {
+      final speech = HeldSpeech();
+      var calls = 0;
+      await mount(t, speech: speech, interpret: (_) async {
+        calls++;
+        return const AiCommandPlan('answer', [], '');
+      });
+      final input = find.byKey(const Key('assistant-command'));
+      const draft = 'zachowaj moje pytanie';
+      await t.enterText(input, draft);
+      final mic = find.byKey(const Key('assistant-mic'));
+      await t.tap(mic);
+      await settle(t);
+      speech.completions.single(failure.key);
+      await settle(t);
+      expect(find.textContaining(failure.value), findsOneWidget);
+      expect(
+          find.textContaining('Tekst w polu został zachowany'), findsOneWidget);
+      expect(t.widget<TextField>(input).controller!.text, draft);
+      expect(calls, 0);
+      expect(find.byKey(const Key('assistant-listening')), findsNothing);
+      await t.tap(mic);
+      await settle(t);
+      expect(speech.results, hasLength(2));
+      expect(find.byKey(const Key('assistant-listening')), findsOneWidget);
+      await t.tap(mic);
+      await settle(t);
+      expect(t.takeException(), isNull);
+    });
+  }
   testWidgets('manual send retires speech before stopping recognition', (t) async {
     final speech = HeldSpeech();
     var executions = 0;

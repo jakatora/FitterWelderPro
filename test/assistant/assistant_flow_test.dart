@@ -398,7 +398,8 @@ void main() {
     speech.fail('error_network');
     await _settle(tester);
     expect(find.text('Zapisz stal czarna MAG'), findsOneWidget);
-    expect(find.textContaining('Rozpoznawanie przerwane'), findsOneWidget);
+    expect(find.textContaining('Sprawdź internet lub wpisz polecenie'), findsOneWidget);
+    expect(find.textContaining('Tekst w polu został zachowany'), findsOneWidget);
   });
 
   testWidgets('brak zgody na mikrofon → komunikat, bez nasłuchu',
