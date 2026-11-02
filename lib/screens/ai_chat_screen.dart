@@ -660,10 +660,6 @@ class _AiChatScreenState extends State<AiChatScreen>
       'No access to the microphone or speech recognition. Type the command '
           'or allow the microphone in the phone settings.',
     );
-    final interrupted = _tr(
-      'Rozpoznawanie przerwane — tekst zostaje, możesz go poprawić.',
-      'Recognition stopped — the text stays, you can edit it.',
-    );
     bool ok;
     try {
       await _voice.stop(); // nie mówimy do własnego mikrofonu
@@ -690,7 +686,10 @@ class _AiChatScreenState extends State<AiChatScreen>
       setState(() => _listening = false);
       if (error != null) {
         _cancelMic();
-        messenger.showSnackBar(SnackBar(content: Text(interrupted)));
+        messenger.showSnackBar(SnackBar(
+          content: Text(
+              _speechFailureMessage(error, target.text.trim().isNotEmpty)),
+        ));
       }
     }
     try {
@@ -723,6 +722,44 @@ class _AiChatScreenState extends State<AiChatScreen>
     } catch (_) {
       done('recognition_failed');
     }
+  }
+
+  String _speechFailureMessage(String error, bool hasText) {
+    final (pl, en) = switch (error) {
+      'error_no_match' || 'error_speech_timeout' => (
+          'Nie rozpoznano wypowiedzi. Stuknij mikrofon i spróbuj ponownie.',
+          'No speech was recognised. Tap the microphone and try again.'
+        ),
+      'error_network' || 'error_network_timeout' => (
+          'Rozpoznawanie mowy nie mogło połączyć się z usługą. Sprawdź internet lub wpisz polecenie.',
+          'Speech recognition could not connect to the service. Check your connection or type the command.'
+        ),
+      'error_permission' ||
+      'error_speech_recognizer_request_not_authorized' ||
+      'error_speech_recognizer_disabled' =>
+        (
+          'Brak dostępu do mikrofonu lub rozpoznawania mowy. Sprawdź uprawnienia aplikacji w ustawieniach telefonu lub wpisz polecenie.',
+          'Microphone or speech recognition access is unavailable. Check app permissions in phone settings or type the command.'
+        ),
+      'error_language_not_supported' ||
+      'error_language_unavailable' ||
+      'error_assets_not_installed' =>
+        (
+          'Język rozpoznawania mowy jest niedostępny. Sprawdź języki mowy w ustawieniach telefonu lub wpisz polecenie.',
+          'The speech recognition language is unavailable. Check speech languages in phone settings or type the command.'
+        ),
+      'error_busy' || 'error_speech_recognizer_already_active' => (
+          'Rozpoznawanie mowy jest zajęte. Odczekaj chwilę i stuknij mikrofon ponownie lub wpisz polecenie.',
+          'Speech recognition is busy. Wait a moment and tap the microphone again or type the command.'
+        ),
+      _ => (
+          'Rozpoznawanie przerwane. Stuknij mikrofon, aby spróbować ponownie, lub wpisz polecenie.',
+          'Recognition stopped. Tap the microphone to try again or type the command.'
+        ),
+    };
+    final reason = _tr(pl, en);
+    if (!hasText) return reason;
+    return '$reason ${_tr('Tekst w polu został zachowany — możesz go poprawić i wysłać.', 'The text in the field has been kept — you can edit and send it.')}';
   }
 
   Future<void> _speak(String text) async {
@@ -4332,6 +4369,59 @@ class _ConversationPage extends StatelessWidget {
   );
 }
 
+class _CopyAnswerButton extends StatefulWidget {
+  const _CopyAnswerButton({super.key, required this.message});
+  final ChatMessage message;
+
+  @override
+  State<_CopyAnswerButton> createState() => _CopyAnswerButtonState();
+}
+
+class _CopyAnswerButtonState extends State<_CopyAnswerButton> {
+  bool _copying = false;
+
+  Future<void> _copy() async {
+    if (_copying) return;
+    final message = widget.message;
+    final label = context.tr(pl: 'Kontekst i źródła', en: 'Context and sources');
+    final offline = message.kind == AiReplyKind.offlineHelp
+        ? '${context.tr(pl: 'Pomoc offline z aplikacji', en: 'Offline in-app help')}\n\n'
+        : '';
+    final citations = message.citations.where((s) => s.trim().isNotEmpty).toSet();
+    final text = '$offline${message.text}${citations.isEmpty ? '' : '\n\n$label:\n${citations.join('\n\n')}'}';
+    setState(() => _copying = true);
+    var success = false;
+    try {
+      await Clipboard.setData(ClipboardData(text: text));
+      success = true;
+    } catch (_) {
+      // Clipboard may be unavailable; keep the selectable answer on screen.
+    }
+    if (!mounted || !identical(widget.message, message)) return;
+    setState(() => _copying = false);
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(success
+          ? context.tr(pl: 'Skopiowano odpowiedź.', en: 'Answer copied.')
+          : context.tr(
+              pl: 'Nie udało się skopiować. Możesz zaznaczyć tekst odpowiedzi.',
+              en: 'Could not copy. You can select the answer text.')),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) => TextButton.icon(
+    key: const Key('assistant-copy-answer'),
+    onPressed: _copying ? null : _copy,
+    style: TextButton.styleFrom(
+      foregroundColor: _kTextSec,
+      minimumSize: const Size(48, 48),
+    ),
+    icon: const Icon(Icons.copy_outlined, size: 18),
+    label: Text(context.tr(pl: 'Kopiuj odpowiedź', en: 'Copy answer')),
+  );
+}
+
 class _MessageBubble extends StatelessWidget {
   final ChatMessage message;
   final ValueChanged<String> onCitation;
@@ -4430,6 +4520,8 @@ class _MessageBubble extends StatelessWidget {
                           .toList(),
                     ),
                   ],
+                  if (!isUser && !isNotice && message.text.trim().isNotEmpty)
+                    _CopyAnswerButton(key: ObjectKey(message), message: message),
                 ],
               ),
             ),

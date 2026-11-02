@@ -82,3 +82,15 @@ final class PipeSlopeResultReadback extends CalculatorResultReadback {
         'mm_per_m': mmPerM,
       };
 }
+
+final class PipeWeightResultReadback extends CalculatorResultReadback {
+  const PipeWeightResultReadback({this.kgPerM, this.kgPerPiece, this.kgTotal});
+  final double? kgPerM, kgPerPiece, kgTotal;
+  @override
+  Map<String, Object?> toJson() => {
+        'precision': 'displayed',
+        'kg_per_m': kgPerM,
+        'kg_per_piece': kgPerPiece,
+        'kg_total': kgTotal,
+      };
+}

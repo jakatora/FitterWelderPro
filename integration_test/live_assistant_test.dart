@@ -47,6 +47,8 @@ class ObservedClient extends http.BaseClient {
         requests.add({
           'message': body['message'],
           'history': body['history'],
+          if (body.containsKey('calculator_context'))
+            'calculatorContext': body['calculator_context'],
           if (body.containsKey('question_clarification'))
             'questionClarification': body['question_clarification'],
         });

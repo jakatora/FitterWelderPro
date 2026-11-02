@@ -65,3 +65,7 @@ Artifacts `research-qa-v2-virtual-*` and `research-link-rendering-*` in the 2026
 ## Real-model clarification result — 2026-11-02
 
 `matrix-346a450rn5oft` FINISHED/SUCCESS on virtual MediumPhone.arm/API35/pl_PL: one native testcase, zero failures/skips, 25s plus3s processing. Two actual chat HTTP200 requests after actual consent. Model requested process/material; TIG/316L shielding-gas detail led to the final contextual answer. Exact original question preserved in question_clarification.user_turns, server acknowledgement true, both answers visible (video frames27/30). No module question, retries or additional transports. Own-installation DELETE200/ok, private fixture removed. Production lib unchanged versus9c025f3; diagnostic debug scope, no microphone/release AOT/iOS runtime proof. Evidence clarification-qa-virtual-* in the2026-11-02 artifact directory; exact provider cost unavailable.
+
+## Native pipe-weight result question scenario
+
+`live_pipe_weight_test.dart` sends a local mass-calculation command through the real assistant UI, shows the actual calculator result, then asks the real model to explain the visible values after actual consent. It permits one chat transport, requires exact native context and server acknowledgement, user-facing labels, visible answer, unchanged native inputs and own-installation cleanup. No model/platform/network mocks. Production lib matches9babb9f (client version0.5.19+38); device result pending. This is a diagnostic build, not the shipped0.5.19 APK.
