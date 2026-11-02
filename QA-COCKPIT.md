@@ -1,5 +1,15 @@
 # QA-COCKPIT — FitterWelderPro
 
+## iOS 0.5.21 (1086) — Apple potwierdziło wewnętrzną betę, 2026-11-02
+
+- **VALID / IN_BETA_TESTING** potwierdzone przezAPIApple2026-11-02T06:28:04.233697Z. App6761770166,bundlecom.jakatora.fitterwelderpro,buildApple `80eb73d8-5b44-4b0f-96f7-a431a9fcfdf1`. Zewnętrzny stanREADY_FOR_BETA_SUBMISSION,reviewnull; nie zgłaszano zewnętrznej bety.
+- Codemagic `6ae82b4aec526396ba9b0a86`,workflowios-upload,commit `a0522ca698a75350209d773a713d4cc215a8ec6e`,wszystkie10etapówSUCCESS. Kodlib/test/assets/pubspec/lock/ios zgodny z Androidem2a2db65; różnica między commitami dotyczy dokumentacji. To wydanie zawiera nowe wyszukiwanieDN50 i poprawki szkicu/ponawiania.
+- IPA `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/fwp-ios-6ae82b4aec526396ba9b0a86.ipa`,34985639B,SHA256 `7a23b654dbe2776bde167df7ac90ce1e73222e5a8530c7695f28cce9fea57691`. Zgodneversion0.5.21/build1086,TeamB7J6A7R258,profilważnydo2027-07-10,brakdebugentitlement,zasobypodpisuobecne.
+- Wszystkie5opisówuprawnień w gotowymIPA zgodne ze źródłem:lokalizacja,bibliotekazdjęć,aparat,mikrofon,rozpoznawaniemowy. App.frameworkSHA `b05f21c5c90fab7017fcdaf8d6a6e167f33713f579184fcd8ad8762a35e92519` różni się od0.5.20; nie zawiera markerów diagnostycznych. Nie odczytujemy różnicyhashjako dowoduinterakcji.
+- Upload potwierdzony „UPLOAD SUCCEEDED with no errors”; brak zadań lub prób betareview. WidocznośćApple była opóźniona o kilka minut; oczekiwano na tę samą dostawę bez ponownego uploadu. UploadedDate2026-11-01T22:25:52-08:00 odpowiada2026-11-02T06:25:52Z.
+- Dowody `ios-0521-delivery-summary.json`, `fwp-ios-a0522ca-artifact-check.json`, `fwp-ios-a0522ca-publishing-result.json`, `fwp-apple-0521-status.json` w katalogu artefaktów2026-11-02. Androidv0521-release-summary.json wskazuje tę dostawęiOS.
+- Zakres:build/pakiet/upload/przetworzenie/dostępnośćwewnętrzna. FizycznyiPhone,mikrofon,schowek i rozmowa nie były testowane w tej operacji. Nie publikowano wAppStore, nie wysyłano zaproszeń lub emaili i nie zmieniano certyfikatów.
+
 ## Android 0.5.21 — zbiorczy APK wyszukiwania i rozmowy, 2026-11-02
 
 - **Gotowy podpisany APK ARM64:** `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/FitterWelder-Pro-0.5.21-arm64.apk`,39161553B,SHA256 `1f06bce690cedd4a1f48da582e3edfd0a1655f8040fe076b4bfa76c51a2f0037`. Pakietcom.startklaar.fitterwelder,wersja0.5.21/kod2040,źródło `2a2db6552b079d28b55e7b25d276ff51bfd0b126`,pubspec0.5.21+40.
