@@ -14,15 +14,13 @@ bool isBareKnowledgeTopicChange(Utterance u) =>
 
 // Strip discourse markers before checking action verbs as well as questions.
 // For example, 'so open the calculator' must remain an explicit command.
-final _continuation = RegExp(
-    r'^(?:(?:a|ale|and|but|czyli|wiec|so|then|to znaczy|'
-    r'in other words)\s+)+');
-final _inferenceQuestion =
-    RegExp(r'^(?:does that mean|you mean)\s+\S');
+final _continuation =
+    RegExp(r'^(?:(?:a|ale|and|but|czyli|wiec|so|then|to znaczy|'
+        r'in other words)\s+)+');
+final _inferenceQuestion = RegExp(r'^(?:does that mean|you mean)\s+\S');
 
 String _conversationText(Utterance u) =>
-    u.folded.replaceFirst(_newTopic, '')
-        .replaceFirst(_continuation, '');
+    u.folded.replaceFirst(_newTopic, '').replaceFirst(_continuation, '');
 
 // Conversation questions describe a problem; mentioning a tool is not a
 // navigation request. Native commands and literal field replies remain owned
@@ -31,7 +29,8 @@ final _question = RegExp(
     r'^(?:(?:prosze|please|hej|hey|powiedz mi|tell me)\s+)*'
     r'(?:jak\w*|dlaczego|czemu|czym|czy\b|co\b|ile\b|kiedy\b|'
     r'dla\b|przy\b|jesli\b|gdy\b|for\b|if\b|'
-    r'wyjasnij\w*|wytlumacz\w*|opisz\w*|explain\b|describe\b|'
+    r'wyjasnij\w*|wytlumacz\w*|opisz\w*|doradz\w*|polec\b|polecic\b|'
+    r'rekomend\w*|porown\w*|explain\b|describe\b|advise\b|recommend\b|compare\b|'
     r'what\b|why\b|how\b|which\b|when\b|(?:can|could) you\b|'
     r'(?:wyszukaj|poszukaj) w (?:internecie|sieci)\b|search the web\b|look up\b)');
 final _politeAction = RegExp(
@@ -47,8 +46,7 @@ final _action = RegExp(
 
 // "Help me understand" asks for an explanation, while "help me open"
 // still belongs to the command workflow.
-final _helpUnderstand = RegExp(
-    r'^(?:(?:prosze|please)\s+)*'
+final _helpUnderstand = RegExp(r'^(?:(?:prosze|please)\s+)*'
     r'(?:(?:czy (?:mozesz|moglbys)|can you|could you)\s+)?'
     r'(?:(?:mi|please)\s+)*(?:pomoz|pomoc|help)\s+'
     r'(?:(?:mi|me)\s+)?(?:zrozumiec|understand)\b');
@@ -58,7 +56,8 @@ bool requestsConversationAction(Utterance u) {
   if (_helpUnderstand.hasMatch(text)) return false;
   final verb = _politeAction.firstMatch(text)?.group(1);
   final explains = verb != null &&
-      RegExp(r'^(?:wyjasn|wytlumacz|opowiedz|powiedz|opis|explain|tell|describe)')
+      RegExp(r'^(?:wyjasn|wytlumacz|opowiedz|powiedz|opis|doradz|'
+              r'polec(?:ic|$)|rekomend|porown|explain|tell|describe|advise|recommend|compare)')
           .hasMatch(verb);
   return _action.hasMatch(text) || (verb != null && !explains);
 }
@@ -78,13 +77,14 @@ bool isKnowledgeQuestion(Utterance u) =>
         _helpUnderstand.hasMatch(_conversationText(u)) ||
         // Written elliptical questions still belong to the conversation;
         // explicit action verbs above retain their native workflow.
-        (u.raw.trimRight().endsWith('?') &&
-            isEllipticalKnowledgeFollowUp(u)));
+        (u.raw.trimRight().endsWith('?') && isEllipticalKnowledgeFollowUp(u)));
 
 bool isExplanationQuestion(Utterance u) =>
     _helpUnderstand.hasMatch(_conversationText(u)) ||
     RegExp(r'^(?:(?:prosze|please|powiedz mi|tell me)\s+)*'
+            r'(?:(?:czy (?:mozesz|moglbys)|can you|could you)\s+(?:(?:mi|please)\s+)?)?'
             r'(?:jak\b|dlaczego\b|czemu\b|czym\b|co to\b|'
-            r'wyjasnij\w*|wytlumacz\w*|opisz\w*|explain\b|describe\b|'
+            r'wyjasn\w*|wytlumacz\w*|opis\w*|doradz\w*|polec\b|polecic\b|'
+            r'rekomend\w*|porown\w*|explain\b|describe\b|advise\b|recommend\b|compare\b|'
             r'why\b|how\b(?! (?:many|much)\b)|what is\b|what are\b)')
         .hasMatch(_conversationText(u));

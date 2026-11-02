@@ -197,6 +197,8 @@ void main() {
     'Pomóż mi zrozumieć, dlaczego spoina ma pory',
     'Czy możesz mi pomóc zrozumieć spawanie TIG?',
     'Can you help me understand TIG welding?',
+    'Czy możesz doradzić, jaki gaz wybrać?',
+    'Can you recommend a shielding gas?',
   ]) {
     testWidgets('answers question instead of asking for a module: $question',
         (t) async {

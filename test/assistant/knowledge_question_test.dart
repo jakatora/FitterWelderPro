@@ -96,6 +96,15 @@ void main() {
         isFalse);
   });
   for (final text in [
+    'Czy możesz doradzić dla rury DN50?',
+    'Poleć gaz do TIG',
+    'Could you compare NPS 2 and DN50?',
+  ]) {
+    test('advice remains an explanation with numbers: $text', () {
+      expect(isExplanationQuestion(Utterance(text, lang: AppLanguage.pl)), isTrue);
+    });
+  }
+  for (final text in [
     'Jak spawać TIG?',
     'Jak zmienić wymiar?',
     'Czy mogę zmienić wymiar?',
@@ -119,6 +128,13 @@ void main() {
     'Can you help me understand TIG welding?',
     'Could you please help me understand this result?',
     'Please help me understand porosity',
+    'Czy możesz doradzić, jaki gaz wybrać?',
+    'Czy możesz porównać MIG i TIG?',
+    'Doradź jaki gaz do nierdzewki',
+    'Poleć gaz do TIG',
+    'Can you recommend a shielding gas?',
+    'Could you compare MIG and TIG?',
+    'Recommend a shielding gas',
   ]) {
     test('explanation is not execution: $text', () {
       expect(
