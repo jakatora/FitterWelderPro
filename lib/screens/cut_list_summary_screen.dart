@@ -172,7 +172,15 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
       if (gen != _loadGen || !mounted) return;
       setState(() {
         _loading = false;
-        _loadError = '$e';
+        _loadError = e is CutPlanTooLarge
+            ? context.tr(
+                pl: 'Plan przekracza $kMaxCutPlanPieces odcinków. Wróć do projektu i sprawdź długość sztangi lub podziel projekt na mniejsze części.',
+                en: 'The plan exceeds $kMaxCutPlanPieces pieces. Return to the project and check the stock length or split the project into smaller parts.')
+            : e is CutSplitImpossible
+                ? context.tr(
+                    pl: 'Nie można podzielić odcinka na poprawne części. Sprawdź długość sztangi i gap w projekcie.',
+                    en: 'The cut cannot be split into usable pieces. Check the stock length and joining gap in the project.')
+                : '$e';
       });
     } finally {
       _loadInFlight = false;

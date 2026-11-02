@@ -1,5 +1,15 @@
 # QA-COCKPIT — FitterWelderPro
 
+## Plan cięcia: ograniczenie rozrostu i brak ujemnych części — 2026-11-02
+
+- Odtworzono dwa błędy: bardzo mała sztanga mogła rozwinąć pojedynczyCUT do milionów części; dodatkowo niepasująca szczelina przy krótkiej sztandze mogła zostawić ujemne długości części. Osobne regresje przed poprawkamiFAILED. Nie wykonywano celowego zawieszenia pełnego interfejsu ani prób wyczerpania pamięci.
+- Dodano jawny produktowy limit **10000części na plan**, współdzielony między grupami średnic. Przekroczenie rzucaCutPlanTooLarge zamiast obcinać wynik. Kontrola następuje przed dużą alokacją/pętlą; sama pętla ma również ograniczenie. Metadane podziału są jedną niezmienną listą współdzieloną przez części, zamiast kopiilistydlakażdejczęści. Podział z niepoprawnymi długościami rzucaCutSplitImpossible; dla porównania ze sztangą zachowano tolerancję1e-6mm zgodną z regułą układania.
+- Ekran planu i ustawienia podają komunikatPL/EN o sprawdzeniu długości sztangi/szczeliny lub podziale projektu. Niepoprawna zmiana ustawień cofa się w transakcjiSQLite. Stare błędne projekty można naprawić; ich nieweryfikowalne odhaczenia części są wycofywane dopiero przy udanym zapisie poprawnych ustawień. Błąd nowego zapisu zachowuje poprzednie ustawienia i odhaczenia.
+- **107testów/10zestawów PASS**,0błędów/pominięć,10,660s: granice podziału, etykiety/układanie, sumy, rzeczywistaSQLite, oba ekrany, importCUTdo wyceny,CSV iPDF. Testy obejmują oba stare błędy, limit dokładnie10000 i jego przekroczenie, sumowanie grup, współdzieloną niezmienność, brak częściowego importu oraz naprawę starych projektów z obydwoma rodzajami błędu. UI przechodzi od komunikatu po błędnych danych do ponownie dostępnego eksportu po korekcie.
+- Money-pathreview: importer wyceny korzysta z tego samego podziału i odrzuca błędny wynik przed utworzeniem podglądu; selektor projektu przechwytuje błąd i nie pozwala go wybrać. Nie zmieniano stawek, logiki płatności ani usług zewnętrznych. Dowód dotyczy lokalnego importu iSQLite, nie nowego przepływu realnych płatności.
+- Analiza11zmienionych plikówNoissuesfound7,4s. Raport `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/cut-plan-capacity-summary.json`; regresje `cut-plan-capacity-before.jsonl`, `cut-plan-gap-before.jsonl`; końcowe `cut-plan-capacity-final-v5.jsonl`, `cut-plan-capacity-analyze-delivery.log`. Wcześniejsze nieudane próby harnessuUI zachowano; obejmowały wyszukiwanie niewidocznego eksportu i tooltipa zamiastIconButton.
+- ZakresWindows/obliczenia/SQLite/widgety, bez nowego testu fizycznego telefonu lub gwarancji wydajności wszystkich planów do limitu. Poprawka źródłowa po0.5.21; wydane APK/iOS1086 jeszcze jej nie zawierają. Brak nowego buildu, wdrożenia serwera lub zapytańAI.
+
 ## Eksport z długą nazwą projektu — 2026-11-02
 
 - Odtworzono błąd rzeczywistym zapisemCSV naWindows: długa nazwa projektu tworzyła za długi składnik ścieżki, a system odrzucał zapis(errno123). Projekt mógł istnieć poprawnie w aplikacji, ale załącznik nie powstawał. Wspólna funkcja nazwy pliku jest używana przezCSV iPDF.

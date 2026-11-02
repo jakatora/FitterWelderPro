@@ -98,6 +98,17 @@ void main() {
         findsOneWidget,
         reason: 'the fitter is told before saving what a gap change does');
 
+    final stockField = find.widgetWithText(TextField, 'Długość sztangi (mm)');
+    await tester.enterText(stockField, '0.001');
+    await tester.tap(find.text('Zapisz'));
+    await _pumpUntil(tester, () => find.textContaining('Sprawdź długość sztangi').evaluate().isNotEmpty);
+    expect(find.textContaining('Sprawdź długość sztangi'), findsOneWidget);
+    expect(tester.widget<TextField>(gapField).controller!.text, '3');
+    final unchanged = await tester.runAsync(() => projects.getById(id));
+    expect(unchanged!.stockLengthMm, 6000);
+    expect(unchanged.gapMm, 0);
+    await tester.enterText(stockField, '6000');
+
     await tester.tap(find.text('Zapisz'));
     await _pumpUntil(
         tester, () => find.text('Ustawienia projektu').evaluate().isEmpty);

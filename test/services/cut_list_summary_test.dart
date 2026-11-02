@@ -65,6 +65,11 @@ double _firstCut() {
 }
 
 void main() {
+  test('the total capacity applies across diameter groups without partial output', () {
+    expect(() => summarizeCutList(segments: [_seg(1, 1), _seg(2, 10000, diameterMm: 60.3)],
+        stockLengthMm: 1, sawKerfMm: 0), throwsStateError);
+  });
+
   test('plan text preserves stock and kerf used in the calculation', () {
     final summary = summarizeCutList(
       segments: [_seg(1, 1234.5)],

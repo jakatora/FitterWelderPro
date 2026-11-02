@@ -142,6 +142,7 @@ CutListSummary summarizeCutList({
   }
 
   final groups = <CutListGroup>[];
+  var usedPieces = 0;
   for (final key in order) {
     final requests = cutsByKey[key]!;
     // Stable descending sort: equal lengths keep segment order.
@@ -151,17 +152,17 @@ CutListSummary summarizeCutList({
         return byLength != 0 ? byLength : a.compareTo(b);
       });
     final sorted = [for (final i in indices) requests[i]];
+    final plans = nestPiecesToBars(
+      cuts: sorted, stockLengthMm: stockLengthMm, sawKerfMm: sawKerfMm,
+      joinGapMm: joinGapMm, pieceLimit: kMaxCutPlanPieces - usedPieces,
+    );
+    usedPieces += plans.fold<int>(0, (sum, plan) => sum + plan.pieces.length);
     groups.add(CutListGroup(
       diameterMm: dims[key]![0],
       wallMm: dims[key]![1],
       cutsMm: List<double>.unmodifiable([for (final r in sorted) r.lengthMm]),
       pieces: List<CutRequest>.unmodifiable(sorted),
-      plans: List<BarPlan>.unmodifiable(nestPiecesToBars(
-        cuts: sorted,
-        stockLengthMm: stockLengthMm,
-        sawKerfMm: sawKerfMm,
-        joinGapMm: joinGapMm,
-      )),
+      plans: List<BarPlan>.unmodifiable(plans),
     ));
   }
 

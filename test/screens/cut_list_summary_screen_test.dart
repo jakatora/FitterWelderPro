@@ -101,6 +101,28 @@ void main() {
     }
   }
 
+  testWidgets('oversized plan explains correction and recovers after stock repair', (tester) async {
+    const pid = 'plan-capacity-ui';
+    await tester.runAsync(() async {
+      await ProjectDao().insert(Project(id: pid, name: 'Capacity QA', materialGroup: 'SS',
+          diameterMm: 114.3, wallThicknessMm: 6.02, currentDiameterMm: 114.3,
+          stockLengthMm: 0.001, sawKerfMm: 0, gapMm: 0, createdAt: 0, updatedAt: 0));
+      await SegmentDao().insert(_segRow(pid, 1, 6000));
+    });
+    await tester.pumpWidget(AppLanguageScope(controller: AppLanguageController(AppLanguage.en),
+        child: const MaterialApp(home: CutListSummaryScreen(projectId: pid))));
+    await settle(tester, () => find.textContaining('check the stock length').evaluate().isNotEmpty);
+    expect(find.textContaining('check the stock length'), findsOneWidget);
+    expect(find.byTooltip('Export PDF'), findsNothing);
+    await tester.runAsync(() => ProjectDao().updateSettings(pid, name: 'Capacity QA', stockLengthMm: 6000,
+        sawKerfMm: 0, gapMm: 0));
+    await tester.tap(find.text('Try again'));
+    await settle(tester, () => find.byTooltip('Export PDF').evaluate().isNotEmpty);
+    expect(find.textContaining('check the stock length'), findsNothing);
+    expect(tester.widget<IconButton>(find.byWidgetPredicate((w) => w is IconButton && w.tooltip == 'Export PDF')).onPressed, isNotNull);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('stock edit resets changed split ticks in the visible progress', (tester) async {
     const pid = 'changed-split-progress';
     await tester.runAsync(() async {

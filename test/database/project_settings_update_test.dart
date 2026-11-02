@@ -20,17 +20,18 @@ import 'package:cut_list_app/database/segment_dao.dart';
 import 'package:cut_list_app/models/project.dart';
 import 'package:cut_list_app/screens/segment_builder_screen.dart';
 import 'package:cut_list_app/services/prefab_engine.dart';
+import 'package:cut_list_app/services/bar_nesting.dart' show CutPlanTooLarge;
 
 import '../support/test_database.dart';
 
-Project _project(String id, {double gap = 0, String? name}) => Project(
+Project _project(String id, {double gap = 0, String? name, double stock = 6000}) => Project(
       id: id,
       name: name ?? 'Projekt $id',
       materialGroup: 'SS',
       diameterMm: 114.3,
       wallThicknessMm: 3.05,
       currentDiameterMm: 114.3,
-      stockLengthMm: 6000,
+      stockLengthMm: stock,
       sawKerfMm: 1,
       gapMm: gap,
       createdAt: 1,
@@ -75,6 +76,32 @@ void main() {
 
   final projects = ProjectDao();
   final segments = SegmentDao();
+
+  test('oversized stock setting is atomic and legacy settings remain repairable', () async {
+    for (final kind in ['new', 'capacity', 'gap']) {
+      final legacy = kind != 'new';
+      final id = 'plan-capacity-$kind';
+      await projects.insert(_project(id, stock: legacy ? 0.001 : 6000,
+          gap: kind == 'gap' ? 3 : 0));
+      await segments.insert(_row(id, 1, startKind: 'logical', startValue: 0,
+          endKind: 'logical', endValue: 0, isoRef: 'FACE', iso: 6000, cut: 6000));
+      final marks = CutMarkDao();
+      await marks.mark(projectId: id, segmentId: '$id-seg1', part: 1, cutMm: 6000);
+      if (legacy) {
+        await projects.updateSettings(id, name: 'Repaired', stockLengthMm: 6000, sawKerfMm: 1, gapMm: 0);
+        expect((await projects.getById(id))!.stockLengthMm, 6000);
+        expect(await marks.forProject(id), isEmpty);
+      } else {
+        await expectLater(projects.updateSettings(id, name: 'Do not commit', stockLengthMm: 0.001,
+            sawKerfMm: 1, gapMm: 0), throwsA(isA<CutPlanTooLarge>()));
+        final saved = (await projects.getById(id))!;
+        expect(saved.stockLengthMm, 6000);
+        expect(saved.name, 'Projekt $id');
+        expect(await marks.forProject(id), isNotEmpty);
+      }
+    }
+  });
+
 
   for (final changeStock in [true, false]) {
     test(

@@ -142,6 +142,14 @@ int _ids = 0;
 String _newId() => 'c${++_ids}';
 
 void main() {
+  test('impossible joining-gap pieces cannot enter a quote', () {
+    expect(() => _plan([_seg(1, cut: 845)], project: _project(stock: 0.001, gap: 3)), throwsStateError);
+  });
+
+  test('oversized split cannot produce a partial or guessed quote import', () {
+    expect(() => _plan([_seg(1, cut: 6000)], project: _project(stock: 0.001)), throwsStateError);
+  });
+
   group('rura–kształtka', () {
     test('rura–kolano–rura = 2 doczołowe w wymiarze odcinków', () {
       final plan = _plan([

@@ -8,7 +8,7 @@ import '../models/project.dart';
 import '../models/segment.dart';
 import '../services/account_service.dart' show AccountException;
 import '../services/prefab_engine.dart';
-import '../services/bar_nesting.dart' show splitCutLengths;
+import '../services/bar_nesting.dart' show splitCutLengths, CutPlanTooLarge, CutSplitImpossible;
 import 'cut_mark_dao.dart';
 import 'local_record_owner.dart';
 import 'owned_table.dart';
@@ -389,8 +389,17 @@ class ProjectDao {
         // Saw ticks store the whole segment CUT, not its split-piece length.
         // Stock or joining-gap edits can change a part while the whole CUT
         // stays identical (e.g. open ends). Invalidate only those parts.
-        final oldParts = splitCutLengths(seg.cutMm,
-            stockLengthMm: oldStock, joinGapMm: oldGap);
+        List<double>? oldParts;
+        try {
+          oldParts = splitCutLengths(seg.cutMm,
+              stockLengthMm: oldStock, joinGapMm: oldGap);
+        } on CutPlanTooLarge {
+          // A legacy oversized plan must still be repairable. Its old saw
+          // ticks cannot be verified, so retire them when valid settings save.
+          oldParts = null;
+        } on CutSplitImpossible {
+          oldParts = null;
+        }
         final newParts = splitCutLengths(cut,
             stockLengthMm: stockLengthMm, joinGapMm: gapMm);
         final marks = await txn.query('cut_marks',
@@ -399,7 +408,7 @@ class ProjectDao {
             whereArgs: [projectId, seg.id]);
         for (final mark in marks) {
           final index = (mark['part'] as num).toInt() - 1;
-          if (index < 0 ||
+          if (oldParts == null || index < 0 ||
               index >= oldParts.length ||
               index >= newParts.length ||
               !CutMarkDao.stillValid(oldParts[index], newParts[index])) {

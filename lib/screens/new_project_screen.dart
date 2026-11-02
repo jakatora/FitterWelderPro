@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
 import '../database/project_dao.dart';
+import '../services/bar_nesting.dart' show CutPlanTooLarge, CutSplitImpossible, kMaxCutPlanPieces;
 import '../i18n/app_language.dart';
 import '../models/project.dart';
 import 'fitter_screen.dart';
@@ -488,6 +489,24 @@ class _ProjectSettingsDialogState extends State<_ProjectSettingsDialog> {
               'już czego ciąć (CUT ≤ 0). Nic nie zostało zmienione.',
           en: 'With a ${_fmtNumber(e.gapMm)} mm gap segment ${e.seqNo} has '
               'nothing left to cut (CUT ≤ 0). Nothing was changed.',
+        );
+      });
+    } on CutSplitImpossible {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = context.tr(
+          pl: 'Nie można podzielić odcinka przy tych ustawieniach. Sprawdź długość sztangi i gap. Nic nie zostało zmienione.',
+          en: 'These settings cannot split the cut into usable pieces. Check the stock length and joining gap. Nothing was changed.',
+        );
+      });
+    } on CutPlanTooLarge {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = context.tr(
+          pl: 'Plan przekroczyłby $kMaxCutPlanPieces odcinków. Sprawdź długość sztangi. Nic nie zostało zmienione.',
+          en: 'The plan would exceed $kMaxCutPlanPieces pieces. Check the stock length. Nothing was changed.',
         );
       });
     } catch (e) {

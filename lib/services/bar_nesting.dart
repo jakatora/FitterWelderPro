@@ -27,6 +27,17 @@ String formatCutMm(double mm) {
   return s.endsWith('.0') ? s.substring(0, s.length - 2) : s;
 }
 
+const kMaxCutPlanPieces = 10000;
+
+/// A mobile plan must remain bounded; never return a silently truncated plan.
+class CutPlanTooLarge extends StateError {
+  CutPlanTooLarge() : super('Cut plan exceeds $kMaxCutPlanPieces pieces');
+}
+
+class CutSplitImpossible extends StateError {
+  CutSplitImpossible() : super('Stock length and joining gap cannot produce positive fitting pieces');
+}
+
 /// Parts a cut of [cutMm] is split into when it is longer than a stock bar:
 /// full bars, then the rest — shortened by the root gap of every extra
 /// joining weld, so the spool welded back together is [cutMm] long.
@@ -41,10 +52,17 @@ List<double> splitCutLengths(
   required double stockLengthMm,
   double joinGapMm = 0,
 }) {
+  if (!cutMm.isFinite || !stockLengthMm.isFinite) {
+    throw ArgumentError('Cut and stock lengths must be finite');
+  }
   if (!(stockLengthMm > 0) || cutMm <= stockLengthMm) return [cutMm];
   final gap = joinGapMm.isFinite && joinGapMm > 0 ? joinGapMm : 0.0;
+  if (cutMm > kMaxCutPlanPieces * stockLengthMm + (kMaxCutPlanPieces - 1) * gap) {
+    throw CutPlanTooLarge();
+  }
   var n = 2;
   while (cutMm - gap * (n - 1) > n * stockLengthMm) {
+    if (n >= kMaxCutPlanPieces) throw CutPlanTooLarge();
     n++;
   }
   final net = cutMm - gap * (n - 1);
@@ -55,6 +73,9 @@ List<double> splitCutLengths(
     parts
       ..removeRange(n - 2, n)
       ..addAll([rest / 2, rest / 2]);
+  }
+  if (parts.any((part) => !part.isFinite || part <= 0 || part > stockLengthMm + 1e-6)) {
+    throw CutSplitImpossible();
   }
   return parts;
 }
@@ -174,8 +195,12 @@ List<BarPlan> nestPiecesToBars({
   required double stockLengthMm,
   required double sawKerfMm,
   double joinGapMm = 0,
+  int pieceLimit = kMaxCutPlanPieces,
 }) {
   if (stockLengthMm <= 0) return [];
+  if (pieceLimit < 0 || pieceLimit > kMaxCutPlanPieces) {
+    throw ArgumentError.value(pieceLimit, 'pieceLimit');
+  }
 
   // Stable descending sort: equal lengths keep their input order.
   final order = [for (var i = 0; i < cuts.length; i++) i]..sort((a, b) {
@@ -194,6 +219,7 @@ List<BarPlan> nestPiecesToBars({
     // split loop below forever.
     if (!c.isFinite || c <= 0) continue;
     if (c <= stockLengthMm) {
+      if (expanded.length >= pieceLimit) throw CutPlanTooLarge();
       expanded.add(BarPiece(
         lengthMm: c,
         label: cut.label,
@@ -207,6 +233,8 @@ List<BarPlan> nestPiecesToBars({
       stockLengthMm: stockLengthMm,
       joinGapMm: joinGapMm,
     );
+    if (expanded.length + parts.length > pieceLimit) throw CutPlanTooLarge();
+    final sharedParts = List<double>.unmodifiable(parts);
     final gap = joinGapMm.isFinite && joinGapMm > 0 ? joinGapMm : 0.0;
     for (var p = 0; p < parts.length; p++) {
       expanded.add(BarPiece(
@@ -217,7 +245,7 @@ List<BarPlan> nestPiecesToBars({
         partCount: parts.length,
         sourceLengthMm: c,
         sourceId: cut.sourceId,
-        partLengthsMm: List<double>.unmodifiable(parts),
+        partLengthsMm: sharedParts,
         joinGapMm: gap,
       ));
     }
