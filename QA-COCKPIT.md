@@ -1,5 +1,13 @@
 # QA-COCKPIT — FitterWelderPro
 
+## Tworzenie projektu odporne na szybkie podwójne kliknięcie — 2026-11-02
+
+- Odtworzono błąd rzeczywistym zapisemSQLite: dwa wywołania przycisku przed następną klatką interfejsu tworzyły dwa projekty. Wyłączanie przycisku dopiero przy przebudowaniu widoku nie blokowało drugiego wywołania funkcji.
+- Funkcja `_create` ekranuNewProjectScreen sprawdza teraz trwający zapis przed zmianą stanu. Walidacja i istniejąca obsługa błędów nadal przywracają możliwość ponowienia; ścieżka zapisu/identyfikatory/projekty istniejące bez zmian.
+- Przed zmianą1test kontrolnyPASS i1regresjaFAILED; baza miała dwa wiersze zamiast jednego. Końcowo **13testów/4zestawy PASS**,0błędów/pominięć,11,998s: tworzenie i otwieranie projektu, pola nowego projektu, tożsamość projektu, właściciel danych. Test sprawdza faktyczne wierszeSQLite i otwartyFitterScreen przy jednym oraz dwóch wywołaniach; transport bazy nie jest atrapą.
+- Analiza dwóch zmienionych plikówNoissuesfound7,0s. Dowody `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/project-double-create-summary.json`, `project-double-create-before.jsonl`, `project-double-create-final.jsonl`, `project-double-create-analyze.log`.
+- Zakres: izolowanaSQLite w pamięci i rzeczywiste widgety naWindows, bez danych użytkownika i bez nowego testu telefonu. To poprawka źródłowa po0.5.21; APK0.5.21/iOS1086 jeszcze jej nie zawierają. Brak buildu, wdrożenia serwera lub wywołaniaAI.
+
 ## Dokładny APK 0.5.21 — DN50 i kalkulator offline PASS, 2026-11-02
 
 - Test uruchomił niezmieniony podpisany APK0.5.21/2040,SHA256 `1f06bce690cedd4a1f48da582e3edfd0a1655f8040fe076b4bfa76c51a2f0037`,bezdebug/testowegoDarta. Osobny APK instrumentacji z certyfikatem wydania; użyto wyłącznie klasyRelease0521SmokeTest, nie starszego testu0.5.20 ani pomocniczego hostAPK.

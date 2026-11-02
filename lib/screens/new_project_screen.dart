@@ -42,6 +42,7 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
   }
 
   Future<void> _create() async {
+    if (_saving) return;
     setState(() {
       _error = null;
       _saving = true;

@@ -45,8 +45,8 @@ Finder _field(String label) => find.byWidgetPredicate(
 Future<void> _pumpUntil(WidgetTester tester, bool Function() done) async {
   for (var i = 0; i < 80 && !done(); i++) {
     await flushTestDatabase(tester);
-    await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)));
+    await tester
+        .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
     await tester.pump(const Duration(milliseconds: 50));
   }
 }
@@ -54,51 +54,65 @@ Future<void> _pumpUntil(WidgetTester tester, bool Function() done) async {
 void main() {
   useTestDatabase();
 
-  testWidgets('utworzenie projektu otwiera ten projekt', (tester) async {
-    tester.view.physicalSize = const Size(1100, 2200);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.reset);
+  for (final submissions in [1, 2]) {
+    testWidgets(
+        'creation persists and opens one project: $submissions submissions',
+        (tester) async {
+      tester.view.physicalSize = const Size(1100, 2200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
 
-    final name = 'Nowy-${DateTime.now().microsecondsSinceEpoch}';
-    await tester.pumpWidget(_host());
-    await tester.tap(find.text('list'));
-    await tester.pumpAndSettle();
+      final name = 'Nowy-${DateTime.now().microsecondsSinceEpoch}';
+      await tester.pumpWidget(_host());
+      await tester.tap(find.text('list'));
+      await tester.pumpAndSettle();
 
-    await tester.enterText(_field('Name (optional)'), name);
-    await tester.enterText(_field('Pipe diameter (mm)'), '60.3');
-    await tester.enterText(_field('Wall thickness (mm)'), '2.77');
-    await tester.pump();
-
-    final create = find.text('Create project');
-    await tester.ensureVisible(create);
-    await tester.pumpAndSettle();
-    await tester.runAsync(() async {
-      await tester.tap(create);
+      await tester.enterText(_field('Name (optional)'), name);
+      await tester.enterText(_field('Pipe diameter (mm)'), '60.3');
+      await tester.enterText(_field('Wall thickness (mm)'), '2.77');
       await tester.pump();
-    });
-    // The name is also in the form's own text field, so wait for it in the
-    // project screen's app bar — that only appears once the project loaded.
-    final title = find.descendant(
-        of: find.byType(AppBar), matching: find.text(name));
-    await _pumpUntil(tester, () => title.evaluate().isNotEmpty);
-    await tester.pumpAndSettle();
 
-    expect(find.byType(FitterScreen), findsOneWidget,
-        reason: 'a new project should open straight away, not drop the '
-            'fitter back on the list');
-    expect(title, findsOneWidget,
-        reason: 'the project just created, not some other one');
-    expect(find.byType(NewProjectScreen), findsNothing,
-        reason: 'the form is replaced, so "back" goes to the list');
-    expect(_listResult, isTrue,
-        reason: 'the list still learns a project was created and reloads');
+      final create = find.text('Create project');
+      await tester.ensureVisible(create);
+      await tester.pumpAndSettle();
+      final submit = tester
+          .widget<ElevatedButton>(
+              find.ancestor(of: create, matching: find.byType(ElevatedButton)))
+          .onPressed!;
+      await tester.runAsync(() async {
+        // A second callback can arrive before the disabled button rebuilds.
+        for (var i = 0; i < submissions; i++) {
+          submit();
+        }
+        await tester.pump();
+      });
+      // The name is also in the form's own text field, so wait for it in the
+      // project screen's app bar — that only appears once the project loaded.
+      final title =
+          find.descendant(of: find.byType(AppBar), matching: find.text(name));
+      await _pumpUntil(tester, () => title.evaluate().isNotEmpty);
+      await tester.pumpAndSettle();
 
-    final dao = ProjectDao();
-    await tester.runAsync(() async {
-      final mine = (await dao.listAll()).where((p) => p.name == name);
-      for (final p in mine) {
-        await dao.deleteById(p.id);
-      }
+      expect(find.byType(FitterScreen), findsOneWidget,
+          reason: 'a new project should open straight away, not drop the '
+              'fitter back on the list');
+      expect(title, findsOneWidget,
+          reason: 'the project just created, not some other one');
+      expect(find.byType(NewProjectScreen), findsNothing,
+          reason: 'the form is replaced, so "back" goes to the list');
+      expect(_listResult, isTrue,
+          reason: 'the list still learns a project was created and reloads');
+
+      final dao = ProjectDao();
+      await tester.runAsync(() async {
+        final mine =
+            (await dao.listAll()).where((p) => p.name == name).toList();
+        expect(mine, hasLength(1),
+            reason: 'Repeated clicks must not duplicate projects');
+        for (final p in mine) {
+          await dao.deleteById(p.id);
+        }
+      });
     });
-  });
+  }
 }
