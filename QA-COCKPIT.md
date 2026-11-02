@@ -1,5 +1,15 @@
 # QA-COCKPIT — FitterWelderPro
 
+## iOS 0.5.19 (1084) — gotowe w wewnętrznym TestFlight, 2026-11-02
+
+- **Apple VALID / IN_BETA_TESTING**, potwierdzone API2026-11-02T04:09:43.789245Z. Train0.5.19, build1084, ID `9608aab4-f0b9-4744-9a0b-cff0dfca67cf`, nie wygasł. Zewnętrzny stan READY_FOR_BETA_SUBMISSION; recenzji zewnętrznej bety nie zgłaszano.
+- Codemagic `6ae80a8f0e82a88742700149` /workflowios-upload/source `67131d22880c0c49adff5ab296ea53caf4e8a22b`: wszystkie10kroków SUCCESS,2026-11-02T03:59:17.046Z–04:04:44.223Z. Kod aplikacji/testów/zasobów/iOS/zależności identyczny z Android0.5.19/source08cca66. Zawiera kopiowanie odpowiedzi ze źródłami i nowe komunikaty błędów głosu.
+- IPA `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/fwp-ios-6ae80a8f0e82a88742700149.ipa`,34980782B,SHA256 `b9dccafb60f9e65eece3852d2d361dd20c86fc9f1eb8ba0a216a6292595ec839`. Bundlecom.jakatora.fitterwelderpro/TeamB7J6A7R258,profilważnydo2027-07-10T14:57:03,debugfalse,CodeResourcesobecne. AppleVALID jest potwierdzeniem przyjęcia i przetworzenia pakietu; lokalnie naWindows nie wykonywano kryptograficznego codesignverify.
+- W IPA sprawdzono wszystkie5opisów uprawnień: lokalizacja podczas użycia, zdjęcia, kamera, mikrofon, rozpoznawanie mowy. W App.framework potwierdzono ciągi nowych funkcji, brak markerów diagnostycznych; SHA256 `4f20a37749015e158415b79fa3af47207ab1a294ddf6c446a7db2990bcfbc09d`.
+- Upload potwierdzony `UPLOAD SUCCEEDED with no errors`,tasks[],betaReviewAttemptedfalse. Po uploadzie API Apple nie pokazywało1084 przez kilka minut; bez ponownego buildu/uploadu doczekano jego widoczności. UploadDate2026-11-01T20:05:37-08:00 =2026-11-02T04:05:37Z. Potwierdzenie przetworzenia pochodzi z Apple, nie z kończącego wcześniej logu CI.
+- Raport zbiorczy `ios-0519-delivery-summary.json`, kontrola IPA `fwp-ios-67131d2-artifact-check.json`, upload `fwp-ios-67131d2-publishing-result.json`, Apple `fwp-apple-0519-status.json` w katalogu artefaktów2026-11-02. Nie zmieniano certyfikatów, grup testerów, recenzji lub wcześniejszych buildów. Brak wysyłki email.
+- Zakres: CI/build/pakiet/upload/przetworzenie/dostępność wewnętrzna. **Fizyczny mikrofon, schowek i rozmowa na iPhonie pozostają niezweryfikowane.** Nie jest to publikacja AppStore ani wydanie zewnętrznej bety.
+
 ## Android 0.5.19 — podpisany APK gotowy, 2026-11-02
 
 - **APK0.5.19/2038 arm64 GOTOWY**: `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/FitterWelder-Pro-0.5.19-arm64.apk`,39161553B, SHA256 `2773e20afa88ffac1838e6edf3c8a3c82b4c296118c23cc480a6a3314d5a002b`. Źródło `08cca669946b723507744bc86528c54045f7f028`, wersja źródłowa0.5.19+38.
@@ -7,7 +17,7 @@
 - Czysty worktree `G:/Projekty/FitterWelderPro-release-0.5.19`, zależności z canonicalcommittedlockSHA `b4be63098b21a8ddc447318b54259366aaecd6f2643266e51253999dc8f0a135`. **260 testów/21 zestawów PASS**,79,223s,0błędów/pominięć. Wybrane zestawy obejmują głos, rozmowę, zgody, nawigację i kalkulatory; nie jest to pełny ponowiony zestaw bieżącego kodu.
 - Pełna analiza **No issues found**,34,8s; release build204,1s. Pakiet `com.startklaar.fitterwelder`, bez debug, podpisv2/certyfikatwydania `8cb31ad1f1e00afe899d53dcb75e0b644b1594db166d79b1e78bf72da6f9dbb8`, zipalign16KB, pięć bibliotekELF64 zLOAD>=16KB. Brak integracyjnych fixturemarkerów/testcode.
 - Raporty `v0519-release-summary.json`, `v0519-targeted-suite-summary.json`, `fwp-08cca66-arm64-android-release-artifact-check.json`, `v0519-aot-comparison.json`, `v0519-feature-markers.json` w katalogu artefaktów2026-11-02.
-- Zakres: testyWindows i kontrola gotowej binarki. Fizyczny mikrofon/schowek oraz runtime16KB nie były w tej turze testowane. iOS pozostaje0.5.18(1083), bez tych dwóch nowych zmian. Backend bez zmian; bez wysyłki email lub publikacji sklepowej.
+- Zakres: testyWindows i kontrola gotowej binarki. Fizyczny mikrofon/schowek oraz runtime16KB nie były w tej turze testowane. iOS0.5.19(1084) jest już gotowe w wewnętrznym TestFlight (raport powyżej). Backend bez zmian; bez wysyłki email lub publikacji sklepowej.
 
 ## Kopiowanie odpowiedzi z kontekstem i źródłami — 2026-11-02
 
