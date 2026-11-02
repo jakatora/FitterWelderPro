@@ -278,12 +278,22 @@ void main() {
           () => find.textContaining('Current route').evaluate().isNotEmpty);
       expect(find.textContaining('Current route: Ø60.3'), findsOneWidget);
 
-      await tester.tap(find.text('Add segment'));
+      final open = tester.widget<FloatingActionButton>(
+          find.byType(FloatingActionButton)).onPressed!;
+      open();
+      open();
       await tester.pumpAndSettle();
 
       // The wall of the pipe behind the reducer is asked for, not assumed.
       final wall = find.byType(TextField);
       expect(wall, findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(TextField), findsNothing,
+          reason: 'a repeated request must not leave another wall dialog');
+      await tester.tap(find.text('Add segment'));
+      await tester.pumpAndSettle();
+      expect(wall, findsOneWidget, reason: 'cancelling allows a fresh attempt');
       await tester.enterText(wall, '2,77');
       await tester.tap(find.text('OK'));
       await tester.pumpAndSettle();
@@ -293,6 +303,10 @@ void main() {
       expect(builder.currentDiameter, 60.3);
       expect(builder.wallThickness, 2.77,
           reason: 'old code opened the builder with the Ø114.3 wall 3.05');
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(SegmentBuilderScreen), findsNothing);
+      expect(find.byType(TextField), findsNothing);
 
       await tester.runAsync(() => projects.deleteById('route-proj'));
     });
