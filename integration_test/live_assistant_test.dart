@@ -44,7 +44,12 @@ class ObservedClient extends http.BaseClient {
       final body = jsonDecode(request.body) as Map;
       // Keep conversation evidence only; never identity or request headers.
       if (request.url.path == BackendConfig.aiChat) {
-        requests.add({'message': body['message'], 'history': body['history']});
+        requests.add({
+          'message': body['message'],
+          'history': body['history'],
+          if (body.containsKey('question_clarification'))
+            'questionClarification': body['question_clarification'],
+        });
       } else {
         requests.add({
           'text': body['text'],
