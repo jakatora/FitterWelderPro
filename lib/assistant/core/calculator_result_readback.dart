@@ -6,6 +6,21 @@ sealed class CalculatorResultReadback {
   Map<String, Object?> toJson();
 }
 
+final class FillerSelectorResultReadback extends CalculatorResultReadback {
+  const FillerSelectorResultReadback({required this.verdict,
+      required this.gasStatus, required this.shieldingGases,
+      required this.consumables, required this.warnings});
+  final String verdict, gasStatus, shieldingGases, consumables, warnings;
+  @override
+  Map<String, Object?> toJson() => {
+        'verdict': verdict,
+        'gas_status': gasStatus,
+        'shielding_gases': shieldingGases,
+        'consumables': consumables,
+        'warnings': warnings,
+      };
+}
+
 enum EfficiencyReadbackSource { processDefault, explicitOverride, notUsed }
 
 final class HeatInputResultReadback extends CalculatorResultReadback {

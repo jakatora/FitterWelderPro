@@ -1,5 +1,6 @@
 import 'core/calculator_result_readback.dart';
 import 'core/skill.dart';
+import '../domain/filler/filler_catalog.dart';
 
 // Explicit visible numeric/choice ports only. No records, text fields, accounts
 // or inferred outputs. Explicit native output is separately opted in. Keep the server contract in calculatorQuestionContext.js.
@@ -23,6 +24,7 @@ class CalculatorQuestionContext {
     'pipe_slope': {'length_mm', 'rise_mm', 'slope_pct'},
     'pipe_weight': {'od_mm', 'wall_mm', 'length_mm', 'quantity'},
     'pipe_route': {'h1_mm', 'h2_mm', 'x_mm', 'y_mm', 'r_mm', 'gap_mm', 'dn'},
+    'filler_selector': <String>{},
   };
   static const _choices = {
     'pipe_weight': {
@@ -61,6 +63,16 @@ class CalculatorQuestionContext {
       final value = fields['end_welds'];
       values['end_welds'] = value is bool ? value : null;
     }
+    if (id == 'filler_selector') {
+      for (final key in ['material_a', 'material_b']) {
+        final value = fields[key];
+        if (value is! String || !BaseMaterial.values.any((m) => m.name == value)) return null;
+        values[key] = value;
+      }
+      final process = fields['process'];
+      if (process is! String || !FillerProcess.values.any((p) => p.name == process)) return null;
+      values['process'] = process;
+    }
     final readback = modules is CalculatorResultModuleContext
         ? (modules as CalculatorResultModuleContext).calculatorResult(id)
         : null;
@@ -68,8 +80,10 @@ class CalculatorQuestionContext {
         id == 'heat_input' && readback is HeatInputResultReadback ||
             id == 'rolling_offset' && readback is RollingOffsetResultReadback ||
             id == 'pipe_slope' && readback is PipeSlopeResultReadback ||
-            id == 'pipe_weight' && readback is PipeWeightResultReadback;
+            id == 'pipe_weight' && readback is PipeWeightResultReadback ||
+            id == 'filler_selector' && readback is FillerSelectorResultReadback;
     final results = permitted ? readback!.toJson() : null;
+    if (id == 'filler_selector' && results == null) return null;
     return values.isEmpty
         ? null
         : CalculatorQuestionContext._(id, values, results);

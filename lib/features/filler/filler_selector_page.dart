@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 
 import '../../domain/filler/filler_catalog.dart';
 import '../../assistant/core/tool_bridge.dart';
+import '../../assistant/core/calculator_result_readback.dart';
 import '../../domain/filler/filler_selector.dart';
 import '../../domain/filler/schaeffler.dart';
 import '../../i18n/app_language.dart';
@@ -57,7 +58,8 @@ class _SelectorTab extends StatefulWidget {
 }
 
 class _SelectorTabState extends State<_SelectorTab>
-    with AutomaticKeepAliveClientMixin, ToolHandleHost<_SelectorTab> {
+    with AutomaticKeepAliveClientMixin, ToolHandleHost<_SelectorTab>
+    implements InputToolHandle, InputVisibilityHandle, CalculatorResultToolHandle {
   final _scroll = ScrollController();
   @override
   String get toolId => 'filler_selector';
@@ -107,6 +109,45 @@ class _SelectorTabState extends State<_SelectorTab>
   BaseMaterial _a = BaseMaterial.carbonSteel;
   BaseMaterial _b = BaseMaterial.carbonSteel;
   FillerProcess _process = FillerProcess.tig;
+
+  bool get _selectionVisible => mounted &&
+      DefaultTabController.maybeOf(context)?.index == 0;
+  @override
+  bool get inputsVisible => _selectionVisible;
+
+  @override
+  Map<String, Object?> get inputFields => _selectionVisible
+      ? {'material_a': _a.name, 'material_b': _b.name, 'process': _process.name}
+      : const {};
+
+  @override
+  FillerSelectorResultReadback? get questionResult {
+    if (!_selectionVisible) return null;
+    final rec = selectFiller(_a, _b);
+    final filler = rec.forProcess(_process);
+    final english = context.language == AppLanguage.en;
+    final gases = rec.verdict == FillerVerdict.typical && _process.usesShieldingGas
+        ? filler?.shielding ?? const <GasSymbol>[] : const <GasSymbol>[];
+    final gasStatus = rec.verdict != FillerVerdict.typical ? 'unavailable'
+        : !_process.usesShieldingGas ? 'not_applicable'
+        : gases.isEmpty ? 'per_wps' : 'available';
+    final warnings = rec.verdict == FillerVerdict.notArcWeldable
+        ? <String>[] : [
+            if (filler?.note != null) filler!.note!.of(english: english),
+            for (final warning in rec.warnings) warning.of(english: english),
+          ];
+    return FillerSelectorResultReadback(
+      verdict: rec.verdict.name,
+      gasStatus: gasStatus,
+      shieldingGases: gases.map((g) => '${g.code}: ${g.description.of(english: english)}').join('; '),
+      consumables: rec.verdict == FillerVerdict.typical && filler != null
+          ? filler.consumables.map((c) => '${c.isoStandard}: ${c.isoDesignation}; '
+              '${c.awsStandard}: ${c.awsDesignation}'
+              '${c.use == null ? '' : ' — ${c.use!.of(english: english)}'}').join('\n')
+          : '',
+      warnings: warnings.join('\n'),
+    );
+  }
 
   @override
   bool get wantKeepAlive => true;

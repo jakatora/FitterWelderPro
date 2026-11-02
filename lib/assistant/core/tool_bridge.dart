@@ -14,6 +14,11 @@ abstract interface class InputToolHandle {
   Map<String, Object?> get inputFields;
 }
 
+/// A kept-alive tab must not expose inputs while a different tab is shown.
+abstract interface class InputVisibilityHandle {
+  bool get inputsVisible;
+}
+
 abstract interface class CalculatorResultToolHandle {
   CalculatorResultReadback? get questionResult;
 }
@@ -121,6 +126,8 @@ class ToolBridge
     if (handle == null ||
         handle.toolId != toolId ||
         handle is! InputToolHandle ||
+        (handle is InputVisibilityHandle &&
+            !(handle as InputVisibilityHandle).inputsVisible) ||
         !isReady(handle) ||
         appRoutes.top is PopupRoute) {
       return null;

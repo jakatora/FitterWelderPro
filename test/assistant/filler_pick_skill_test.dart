@@ -2,13 +2,82 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:cut_list_app/assistant/core/skill.dart';
 import 'package:cut_list_app/assistant/core/tool_bridge.dart';
+import 'package:cut_list_app/assistant/calculator_question_context.dart';
 import 'package:cut_list_app/domain/filler/filler_catalog.dart';
 import 'package:cut_list_app/domain/filler/filler_reference.dart';
+import 'package:cut_list_app/domain/filler/filler_selector.dart';
 import 'package:cut_list_app/features/filler/filler_selector_page.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'support/assistant_test_support.dart';
 
 void main() {
+  test('catalogue gas and warning text fit the server context limits', () {
+    for (final a in BaseMaterial.values) {
+      for (final b in BaseMaterial.values) {
+        final recommendation=selectFiller(a,b);
+        for (final process in FillerProcess.values) {
+          final filler=recommendation.forProcess(process);
+          for (final english in [false,true]) {
+            final gases=(filler?.shielding ?? <GasSymbol>[])
+                .map((g)=>'${g.code}: ${g.description.of(english:english)}').join('; ');
+            final warnings=[
+              if (filler?.note != null) filler!.note!.of(english:english),
+              for (final warning in recommendation.warnings) warning.of(english:english),
+            ].join('\n');
+            final consumables=(filler?.consumables ?? <Consumable>[])
+                .map((c)=>'${c.isoStandard}: ${c.isoDesignation}; ${c.awsStandard}: ${c.awsDesignation}'
+                    '${c.use == null ? '' : ' — ${c.use!.of(english:english)}'}').join('\n');
+            expect(gases.length,lessThanOrEqualTo(500));
+            expect(consumables.length,lessThanOrEqualTo(1500));
+            expect(warnings.length,lessThanOrEqualTo(4000));
+          }
+        }
+      }
+    }
+  });
+  testWidgets('AI context reads only the visible selector and its actual gas result', (t) async {
+    ToolBridge.reset();
+    t.view.physicalSize = const Size(1000, 6000);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    await t.pumpWidget(AppLanguageScope(
+      controller: AppLanguageController(AppLanguage.pl),
+      child: const MaterialApp(home: FillerSelectorPage()),
+    ));
+    await t.pumpAndSettle();
+    final handle=ToolBridge.instance.current!;
+    expect(await handle.apply({'material_a':'ss316L','material_b':'ss316L','process':'tig'}),isEmpty);
+    await t.pumpAndSettle();
+    final selection=CalculatorQuestionContext.capture(ToolBridge.instance)!;
+    expect(selection.inputs,{'material_a':'ss316L','material_b':'ss316L','process':'tig'});
+    expect(selection.results!['verdict'],'typical');
+    expect(selection.results!['gas_status'],'available');
+    expect(selection.results!['shielding_gases'],contains('I1'));
+    expect(selection.results!['consumables'],contains('316'));
+    expect(selection.results!['warnings'],contains('WPS'));
+    await t.tap(find.text('Rozcieńczenie'));
+    await t.pumpAndSettle();
+    expect(CalculatorQuestionContext.capture(ToolBridge.instance),isNull);
+    expect(ToolBridge.instance.inputFields('filler_selector'),isNull);
+    expect(hasVisibleFormInputs(ToolBridge.instance,'filler_selector'),isFalse);
+    await t.tap(find.text('Dobór'));
+    await t.pumpAndSettle();
+    expect(await handle.apply({'material_a':'ss316L','material_b':'ss316L','process':'mma'}),isEmpty);
+    await t.pumpAndSettle();
+    final mma=CalculatorQuestionContext.capture(ToolBridge.instance)!;
+    expect(mma.results!['gas_status'],'not_applicable');
+    expect(mma.results!['shielding_gases'],'');
+    expect(await handle.apply({'material_a':'al5083','material_b':'ss316L','process':'tig'}),isEmpty);
+    await t.pumpAndSettle();
+    final incompatible=CalculatorQuestionContext.capture(ToolBridge.instance)!;
+    expect(incompatible.results!['verdict'],'notArcWeldable');
+    expect(incompatible.results!['gas_status'],'unavailable');
+    expect(incompatible.results!['shielding_gases'],'');
+    expect(incompatible.results!['consumables'],'');
+    await t.pumpWidget(const SizedBox());
+    await t.pumpAndSettle();
+    ToolBridge.reset();
+  });
   test('English offline guidance command opens the filler selector', () async {
     final reply = await BrainHarness(lang: AppLanguage.en)
         .say('Open filler metal selector');
