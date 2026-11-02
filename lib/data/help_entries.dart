@@ -652,14 +652,14 @@ List<HelpCategory> kHelpCategories = [
           '1 h na 25 mm grubości, min. 30 min (powyżej 125 mm: 5 h + 15 min na każde kolejne 25 mm). '
           'Nagrzewanie i chłodzenie powyżej 315 °C: maks. 335 °C/h podzielone przez połowę grubości w calach (nie więcej niż 335 °C/h). '
           'Specyfikacje projektów często zawężają zakres do 730–760 °C — wiąże WPS i procedura PWHT. '
-          'Górnej granicy nie przekraczaj: powyżej 800 °C spoina do wycięcia (reaustenityzacja). '
+          'Przekroczenie zakresu PWHT wymaga oceny niezgodności na podstawie wykresu i danych materiału; nie oznacza automatycznie wycięcia spoiny. Ac1 zależy od składu materiału i stopiwa. '
           'Strefa pęknięć typu IV (drobnoziarnista SWC) — równomierna temperatura w całej strefie, termopary i wykres do dokumentacji. '
           'Cały cykl policzysz w narzędziu „Obróbka cieplna po spawaniu".',
           'P91 (P-No 15E) per ASME B31.3 (2014+) and B31.1-2022: 705–775 °C, '
           '1 h per 25 mm of thickness, min 30 min (above 125 mm: 5 h + 15 min for each further 25 mm). '
           'Heating and cooling above 315 °C: max 335 °C/h divided by half the thickness in inches (not more than 335 °C/h). '
           'Project specifications often narrow the range to 730–760 °C — the WPS and PWHT procedure govern. '
-          'Never exceed the upper limit: above 800 °C the weld is cut out (re-austenitisation). '
+          'A PWHT range excursion requires nonconformance assessment using the cycle record and material data; it does not automatically mean cutting out the weld. Ac1 depends on base-metal and filler composition. '
           'Type IV cracking zone (fine-grained HAZ) — uniform temperature across it, thermocouples and a chart for the records. '
           'Plan the whole cycle in the "Post-weld heat treatment" tool.',
         ),

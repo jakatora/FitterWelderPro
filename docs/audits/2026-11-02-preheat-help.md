@@ -19,3 +19,6 @@ Backend follow-up (2026-11-02): `6c9045b` corrects the corresponding preheat/int
 
 
 Cooling follow-up (2026-11-02): backend `c246835` scopes the separate P91 cooling and DHT paragraphs to the component conditions in Böhler's printed page 9 and distinguishes DHT from PWHT. Full backend suite: 525 passed, including a top-four retrieval check for the scoped cooling paragraph. PWHT parameters, heat-input and other claims elsewhere in the section remain outside this correction; no paid live model answer was tested in this change.
+
+
+PWHT excursion follow-up (2026-11-02): backend `750cecd` and the bilingual `pwht-p91` help entry distinguish a procedure-temperature excursion from exceeding the composition-dependent Ac1. Removed automatic re-weld/cut-out decisions based solely on a single temperature. Basis: Böhler Grade 91, printed pages 10–11. Other PWHT temperature/time/ramp figures remain unchanged and are not validated by this focused correction. Backend suite: 525 passed; help suite and scoped analyzer also passed.
