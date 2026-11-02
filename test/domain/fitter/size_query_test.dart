@@ -32,6 +32,15 @@ void main() {
     }
     expect(parseNpsInches('1 1/2'), 1.5);
   });
+  test('embedded or repeated inch marks cannot turn a typo into another size', () {
+    for (final q in ['1"2"', '1″2"', '1”2"', '1" 1/2"', '2""',
+      '1"2', '1″2', '1”2', '"2']) {
+      expect(_hits(q), isEmpty, reason: q);
+      expect(parseNpsInches(q), isNull, reason: q);
+    }
+    expect(_hits('12"'), [300]);
+    expect(_hits('1 1/2"'), [40]);
+  });
 
   test('2" / 2 cale / 2 cali / 2 in → tylko NPS 2 (DN50)', () {
     for (final q in ['2"', '2 "', '2 cale', '2 cali', '2 cala', '2cal', '2 in',

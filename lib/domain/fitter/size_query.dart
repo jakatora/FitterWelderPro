@@ -16,7 +16,11 @@ final RegExp _inchSuffix = RegExp(
 double? parseNpsInches(String text) {
   // Pasted malformed values should never crash live table filtering.
   if (text.length > 128) return null;
-  var t = text.trim().replaceAll('"', '').replaceAll('″', '').replaceAll('”', '');
+  var t = text.trim();
+  if (t.endsWith('"') || t.endsWith('″') || t.endsWith('”')) {
+    t = t.substring(0, t.length - 1).trimRight();
+  }
+  if (RegExp(r'["″”]').hasMatch(t)) return null;
   if (t.isEmpty) return null;
   t = t.replaceAll(',', '.');
   // "1-1/2" / "1 1/2"
@@ -51,11 +55,15 @@ bool sizeQueryMatches(String query, {required int dn, required String nps}) {
   // Inch notation → exact NPS comparison.
   final inch = _inchSuffix.firstMatch(q);
   if (inch != null) {
-    final want = parseNpsInches(inch.group(1)!);
+    final valueText = inch.group(1)!;
+    // The outer suffix has already consumed the one allowed inch marker.
+    if (RegExp(r'''["″”']''').hasMatch(valueText)) return false;
+    final want = parseNpsInches(valueText);
     final have = parseNpsInches(nps);
     if (want == null || have == null) return false;
     return (want - have).abs() < 1e-6;
   }
+  if (RegExp(r'''["″”']''').hasMatch(q)) return false;
 
   // "DN 50" / "dn50" → substring on DN (live typing: DN5 → DN50, DN500).
   final compact = q.replaceAll(RegExp(r'\s+'), '');
@@ -67,5 +75,5 @@ bool sizeQueryMatches(String query, {required int dn, required String nps}) {
 
   // Plain text: DN substring or NPS text ("1 1/2", "3/4").
   final npsText = nps.toLowerCase().replaceAll('"', '');
-  return '$dn'.contains(q) || npsText.contains(q.replaceAll('"', ''));
+  return '$dn'.contains(q) || npsText.contains(q);
 }

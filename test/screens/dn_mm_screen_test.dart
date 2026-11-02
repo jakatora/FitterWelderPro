@@ -9,6 +9,23 @@ import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/screens/dn_mm_screen.dart';
 
 void main() {
+  testWidgets('malformed inch marks do not silently match another diameter', (tester) async {
+    tester.view.physicalSize = const Size(900, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(AppLanguageScope(
+      controller: AppLanguageController(AppLanguage.pl),
+      child: const MaterialApp(home: DnMmScreen()),
+    ));
+    final search = find.byType(TextField).at(2);
+    await tester.enterText(search, '1"2"');
+    await tester.pumpAndSettle();
+    expect(find.text('323.90'), findsNothing);
+    await tester.enterText(search, '12"');
+    await tester.pumpAndSettle();
+    expect(find.text('323.90'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('oversized inch fraction does not break search and can be corrected', (tester) async {
     tester.view.physicalSize = const Size(900, 1800);
     tester.view.devicePixelRatio = 1;
