@@ -13,6 +13,31 @@ import 'global_pipe_slope_flow_test.dart' show say, settle;
 void main() {
   useGuestAccount();
   useTestDatabase();
+  testWidgets('DN inference sends prior exchange to chat without asking for a module', (t) async {
+    final chats = <Map>[];
+    await http.runWithClient(() async {
+      await mount(t, interpret: (_) async => throw StateError('A contextual inference is not a module command'));
+      PremiumService.instance.resetForTest();
+      await say(t, 'Co oznacza DN na rurze?');
+      await say(t, 'Czyli to zmierzona średnica w milimetrach?');
+      expect(chats, hasLength(2));
+      expect(chats.last['message'], 'Czyli to zmierzona średnica w milimetrach?');
+      expect(chats.last['history'], [
+        {'role': 'user', 'text': 'Co oznacza DN na rurze?'},
+        {'role': 'assistant', 'text': 'DN to rozmiar nominalny.'},
+      ]);
+      expect(find.textContaining('Nie, DN jest oznaczeniem nominalnym.'), findsWidgets);
+      expect(find.textContaining('Które narzędzie'), findsNothing);
+      expect(t.takeException(), isNull);
+    }, () => MockClient((r) async {
+      if (r.url.path.endsWith('/ai/chat')) chats.add(jsonDecode(r.body) as Map);
+      return http.Response(jsonEncode({
+        'text': chats.length == 1 ? 'DN to rozmiar nominalny.' : 'Nie, DN jest oznaczeniem nominalnym.',
+        'calculator_context_used': true,
+        'needs_clarification': false,
+      }), 200, headers: {'content-type': 'application/json; charset=utf-8'});
+    }));
+  });
   testWidgets('bare topic change asks locally and clears the old clarification', (t) async {
     final chats = <Map>[];
     await http.runWithClient(() async {

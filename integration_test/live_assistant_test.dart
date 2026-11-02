@@ -18,7 +18,9 @@ class ObservedClient extends http.BaseClient {
   final answers = <Map<String, dynamic>>[];
   final http.Client delegate;
   final Map<String, dynamic> report;
-  int paidRequests = 0;
+  int aiAttempts = 0;
+  int aiRequestsSent = 0;
+  final blockedPaths = <String>[];
   Map<String, dynamic>? answer;
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
@@ -26,9 +28,10 @@ class ObservedClient extends http.BaseClient {
         (request.url.path.contains('/ai/') ||
             request.url.path.contains('/assistant/'));
     if (ai) {
-      paidRequests++;
-      if (paidRequests > maxRequests ||
+      aiAttempts++;
+      if (aiAttempts > maxRequests ||
           request.url.path != BackendConfig.aiChat) {
+        blockedPaths.add(request.url.path);
         throw StateError(
             'Explicit knowledge request budget exceeded; no retries');
       }
@@ -41,6 +44,7 @@ class ObservedClient extends http.BaseClient {
       requests.add({'message': body['message'], 'history': body['history']});
       report['conversationRequests'] = requests;
     }
+    if (ai) aiRequestsSent++;
     final response =
         await http.Response.fromStream(await delegate.send(request));
     if (ai) {
@@ -123,7 +127,7 @@ void main() {
         await waitFor(tester, () => observed.answer != null,
             timeout: const Duration(seconds: 75));
         expect(report['aiStatus'], 200);
-        expect(observed.paidRequests, 1);
+        expect(observed.aiAttempts, 1);
         expect(observed.answer!['needs_clarification'], isFalse);
         final text = observed.answer!['text'] as String;
         expect(text.toLowerCase(), contains('nominal'));
@@ -153,7 +157,7 @@ void main() {
           await waitFor(tester, () => observed.answers.length == 2,
               timeout: const Duration(seconds: 75));
           expect(report['aiStatus'], 200);
-          expect(observed.paidRequests, 2);
+          expect(observed.aiAttempts, 2);
           expect(observed.requests[1]['message'], question);
           expect(
               observed.requests[1]['history'],
@@ -192,7 +196,10 @@ void main() {
             reason: 'Own disposable fixture cleanup');
         expect(report['cleanupOk'], isTrue);
       }
-      report['aiRequests'] = observed.paidRequests;
+      report['aiRequests'] = observed.aiAttempts;
+      report['aiRequestAttempts'] = observed.aiAttempts;
+      report['aiRequestsSent'] = observed.aiRequestsSent;
+      report['blockedAiPaths'] = observed.blockedPaths;
       transport.close();
       final encodedReport = base64Encode(utf8.encode(jsonEncode(report)));
       final count = (encodedReport.length + 899) ~/ 900;

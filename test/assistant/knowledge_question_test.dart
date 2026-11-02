@@ -5,6 +5,37 @@ import 'package:cut_list_app/i18n/app_language.dart';
 
 void main() {
   for (final text in [
+    'Czyli to zmierzona średnica w milimetrach?',
+    'Więc to średnica zewnętrzna?',
+    'To znaczy nominalna?',
+    'So it is the measured diameter?',
+    'Does that mean nominal size?',
+    'In other words it is nominal?',
+    'You mean nominal size?',
+    'Does that mean open the valve?',
+    'You mean delete the pipe?',
+  ]) {
+    test('conversational inference stays a knowledge follow-up: $text', () {
+      final u = Utterance(text, lang: AppLanguage.pl);
+      expect(isEllipticalKnowledgeFollowUp(u), isTrue);
+      expect(isKnowledgeQuestion(u), isTrue);
+      expect(requestsConversationAction(u), isFalse);
+    });
+  }
+  for (final text in [
+    'Czyli otwórz kalkulator', 'Więc usuń rurę',
+    'So open the calculator', 'Then delete the pipe',
+    'To znaczy oblicz spadek',
+  ]) {
+    test('inference marker cannot swallow an explicit command: $text', () {
+      final u = Utterance(text, lang: AppLanguage.pl);
+      expect(requestsConversationAction(u), isTrue);
+      expect(isEllipticalKnowledgeFollowUp(u), isFalse);
+      expect(isKnowledgeQuestion(u), isFalse);
+    });
+  }
+
+  for (final text in [
     'A zmniejsz szczelinę o 1 mm?', 'A zwiększ długość rury',
     'A skróć drugi odcinek', 'A wydłuż rurę', 'A obróć kolano',
     'A przesuń element', 'A cofnij zmianę', 'A powtórz zmianę',
@@ -21,7 +52,7 @@ void main() {
     });
   }
   test('unpunctuated follow-ups require conversation context and exclude actions', () {
-    for (final text in ['A 316L', 'And stainless steel']) {
+    for (final text in ['A 316L', 'And stainless steel', 'Czyli nominalna', 'So nominal size']) {
       final u = Utterance(text, lang: AppLanguage.pl);
       expect(isEllipticalKnowledgeFollowUp(u), isTrue);
       expect(isKnowledgeQuestion(u), isFalse);
