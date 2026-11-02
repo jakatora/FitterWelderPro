@@ -1,5 +1,13 @@
 # QA-COCKPIT — FitterWelderPro
 
+## Doprecyzowanie przez AI z zachowaniem pytania — 2026-11-02
+
+- Rzeczywisty test rozmowy **PASS**: „Jaki gaz dobrać do spawania?” → AI pyta o proces i materiał → „TIG, stal nierdzewna 316L, chodzi o gaz osłonowy.” → końcowa odpowiedź dotycząca pierwotnego doboru gazu. Pierwsza odpowiedź ma `needs_clarification:true`, druga `false`; żadnego pytania o wybór modułu.
+- Wychodzące drugie żądanie zawiera dokładne pierwotne pytanie w `question_clarification.user_turns` i poprzednią wymianę w historii. Serwer potwierdza `question_clarification_used:true`. Obie odpowiedzi wyświetlono w rzeczywistym panelu; obejrzano kadry27/30 nagrania.
+- `matrix-346a450rn5oft` **FINISHED/SUCCESS**, wirtualny MediumPhone.arm / Android15 API35 / PL, 1 native testcase, 0 błędów/pominięć, 25s +3s przetwarzania. Dwa rzeczywiste żądania czatu HTTP200, zero przed faktyczną zgodą, zero blokowanych prób innych ścieżek, brak ponowień. Dane własnej instalacji usunięte HTTP200/ok, prywatny plik usunięty.
+- QA źródło `aa04a33c1ac773d55684a0c699f7e994fc293879`, produkcyjny `lib` identyczny z `9c025f3`. Analiza dwóch plików testu bez uwag. Ta tura dodaje dowód istniejącego zachowania; kod produkcyjny i wydania 0.5.18 pozostają bez zmian. Raport `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/clarification-qa-virtual-verification.json` i pliki `clarification-qa-virtual-*`.
+- Zakres: instrumentowany debug z prawdziwym backendem i modelem, bez atrap. Nie potwierdza dowolnej porady spawalniczej, działania mikrofonu, release AOT ani fizycznego iPhone’a. Serwer zachowuje limity/rezerwację budżetu; dwa żądania mobilne nie oznaczają gwarantowanej liczby płatnych wywołań dostawcy, dokładny koszt nie jest udostępniony.
+
 ## iOS 0.5.18 (1083) — wewnętrzny TestFlight gotowy, 2026-11-02
 
 - **Apple `VALID` / `IN_BETA_TESTING`**, potwierdzone API 2026-11-02T03:21:15.355748Z. Train `0.5.18`, build `1083`, Apple build ID `86c2f807-5c99-482d-9343-f1bfa0604b49`, nie wygasł. External state `READY_FOR_BETA_SUBMISSION`; recenzji zewnętrznej bety nie zgłaszano.
