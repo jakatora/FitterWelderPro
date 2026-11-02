@@ -1,5 +1,14 @@
 # QA-COCKPIT — FitterWelderPro
 
+## Ponawianie odpowiedzi bez utraty szkicu — 2026-11-02
+
+- Odtworzono rzeczywistą utratę nowego szkicu na pełnym ekranie rozmowy: po nieudanej odpowiedzi „Ponów” nadpisywało pole poprzednim pytaniem i czyściło je przy wysłaniu. Przed poprawką trzy przypadki tego ekranu FAILED; trzy kontrolne dla panelu na ekranie głównym już PASS. Rodzaje błędu:unavailable,offlineHelp,wyjątek transportu.
+- Ponowienie przekazuje teraz poprzednie pytanie bezpośrednio do wysyłki, bez przepisywania edytora. Pole jest czyszczone tylko wtedy, gdy nadal zawiera właśnie wysyłany tekst. Nowy szkic nie jest dołączany do ponawianego pytania ani wysyłany automatycznie.
+- Pełny ekran pozwala teraz edytować kolejne pytanie podczas oczekiwania naAI. Przycisk wysyłania i zatwierdzenie z klawiatury są wtedy nieaktywne; blokada w samej wysyłce i dotychczasowa ochrona przed dwukrotnym/starym ponowieniem pozostają.
+- **55testów/3zestawy PASS**,0błędów/pominięć,26,350s: nowy `knowledge_retry_draft_test.dart` (6przypadków, oba widoki), istniejące rozmowy i widok historii. Nowe testy sprawdzają oryginalną treść ponowienia, nowy szkic przed i po odpowiedzi, edycję w trakcie, podwójne kliknięcie i brak dodatkowej wysyłki klawiaturą. Analiza dwóch zmienionych plików:Noissuesfound10,1s.
+- Raport `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/retry-draft-test-summary.json`, przed `retry-draft-before-both.jsonl`, końcowe `retry-draft-final-suite-v2.jsonl`, analiza `retry-draft-analyze.log`. Pierwsza próba poprawki zachowywała szkic, ale stary edytor był zablokowany podczas oczekiwania; końcowa zmiana umożliwia również edycję.
+- Zakres: rzeczywiste widgetyFlutter naWindows, transportAI zastąpiony w testach. Bez nowego endpointu, automatycznych ponowień, zmiany budżetuAI lub działania na cudzych danych. To zmiana źródłowa po0.5.20; wydany APK/iOS1085 jeszcze jej nie zawierają. Nie wykonano nowego testu telefonu/mikrofonu ani nowego buildu.
+
 ## Krótsze wyjaśnienia wyników kalkulatora — 2026-11-02
 
 - Backend `3b9ae09b9a516893dc69f5ae97cfd437c1c07f81`: rozmowa oparta wyłącznie na jawnym odczycie wyników masy rury, odsadzki lub spadku nie otrzymuje automatycznej stopki oWPS. Stopka pozostaje dla energii spawania, odpowiedzi przypisujących sobie fragmenty bazy technicznej, wyszukiwania zewnętrznego i starszego trybu odpowiedzi. Bez zmian publicznego kontraktu lub źródeł danych.

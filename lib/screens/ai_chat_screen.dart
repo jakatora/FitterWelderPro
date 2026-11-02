@@ -2997,17 +2997,16 @@ class _AiChatScreenState extends State<AiChatScreen>
             return;
           }
           started = true;
-          _inputCtrl.text = text;
-          unawaited(_send(questionClarification: clarification));
+          unawaited(_send(questionClarification: clarification, retryText: text));
         },
       ),
     ));
   }
 
-  Future<void> _send({AiClarification? questionClarification}) async {
+  Future<void> _send({AiClarification? questionClarification, String? retryText}) async {
     questionClarification ??= _knowledgeClarification;
     final epoch = _conversationEpoch;
-    final text = _inputCtrl.text.trim();
+    final text = (retryText ?? _inputCtrl.text).trim();
     if (text.isEmpty || _typing.value) return;
     if (_blockCredentialInput(text)) return;
     if (text.length > kChatQuestionMaxChars) {
@@ -3031,7 +3030,9 @@ class _AiChatScreenState extends State<AiChatScreen>
     final history = chatHistoryForRequest(_messages);
     setState(() {
       _messages.add(ChatMessage(role: ChatRole.user, text: text));
-      _inputCtrl.clear();
+      // Retrying a previous turn must not replace a new draft. Also preserve
+      // edits made while the consent dialog for a normal send was open.
+      if (_inputCtrl.text.trim() == text) _inputCtrl.clear();
       _voiceUsed = false;
     });
 
@@ -4730,11 +4731,12 @@ class _Composer extends StatelessWidget {
                 key: const Key('assistant-question-input'),
                 controller: controller,
                 focusNode: focusNode,
-                enabled: enabled,
+                // The next draft stays editable while AI answers. Only sending
+                // is blocked, so typing never creates a concurrent request.
                 minLines: 1,
                 maxLines: 4,
                 textInputAction: TextInputAction.send,
-                onSubmitted: (_) => onSend(),
+                onSubmitted: enabled ? (_) => onSend() : null,
                 style: const TextStyle(color: _kTextPrimary, fontSize: 14),
                 decoration: InputDecoration(
                   errorText: value.text.trim().length > kChatQuestionMaxChars
