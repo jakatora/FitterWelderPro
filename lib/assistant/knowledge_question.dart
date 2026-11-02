@@ -12,9 +12,17 @@ bool startsNewKnowledgeTopic(Utterance u) => _newTopic.hasMatch(u.folded);
 bool isBareKnowledgeTopicChange(Utterance u) =>
     startsNewKnowledgeTopic(u) && _conversationText(u).isEmpty;
 
+// Strip discourse markers before checking action verbs as well as questions.
+// For example, 'so open the calculator' must remain an explicit command.
+final _continuation = RegExp(
+    r'^(?:(?:a|ale|and|but|czyli|wiec|so|then|to znaczy|'
+    r'in other words)\s+)+');
+final _inferenceQuestion =
+    RegExp(r'^(?:does that mean|you mean)\s+\S');
+
 String _conversationText(Utterance u) =>
     u.folded.replaceFirst(_newTopic, '')
-        .replaceFirst(RegExp(r'^(?:(?:a|ale|and|but)\s+)+'), '');
+        .replaceFirst(_continuation, '');
 
 // Conversation questions describe a problem; mentioning a tool is not a
 // navigation request. Native commands and literal field replies remain owned
@@ -58,7 +66,9 @@ bool requestsConversationAction(Utterance u) {
 /// Requires a current knowledge conversation when punctuation is absent.
 bool isEllipticalKnowledgeFollowUp(Utterance u) =>
     !requestsConversationAction(u) &&
-    RegExp(r'^(?:a|and)\s+\S').hasMatch(u.folded);
+    (_continuation.hasMatch(u.folded) ||
+        _inferenceQuestion.hasMatch(u.folded)) &&
+    _conversationText(u).isNotEmpty;
 
 bool isKnowledgeQuestion(Utterance u) =>
     !requestsConversationAction(u) &&

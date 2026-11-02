@@ -1,6 +1,15 @@
 # QA-COCKPIT — FitterWelderPro
 
-## Aktualna weryfikacja — 2026-11-02
+## Kontynuacje rozmowy — poprawka po teście urządzenia, 2026-11-02
+
+- Test dwóch tur na Pixelu 8 wykrył, że „Czyli to zmierzona średnica w milimetrach?” po odpowiedzi o DN nie trafiało do ścieżki wiedzy. Kończyło się próbą interpretacji polecenia i pomocą offline, zamiast drugą odpowiedzią czatu z historią.
+- Poprawiono rozpoznawanie kontynuacji PL/EN („czyli”, „więc”, „to znaczy”, „so”, „then”, „in other words”, „does that mean”, „you mean”). Bez znaku pytania wymagają istniejącej rozmowy. Jawne polecenia po łączniku zachowują ścieżkę działania; pytanie o znaczenie polecenia nie staje się jego wykonaniem.
+- Nowy test ekranu odtwarza pytanie o DN i dalsze pytanie, sprawdza dokładną historię wysłaną do czatu oraz brak pytania o moduł. Regresje: **137 widocznych testów / 8 plików, 0 błędów i pominięć**, dodatkowo 22 ukryte zdarzenia cyklu testów; terminal `success:true`. Analiza trzech zmienionych plików: `No issues found`. Log `inference-followup-regressions.jsonl` i raport `inference-followup-regressions-summary.json` w katalogu artefaktów 2026-11-02.
+- Dowód urządzenia PRZED poprawką: `matrix-1movuy01l05am`, [Test Lab](https://console.firebase.google.com/project/fitter-welder-pro/testlab/histories/bh.b011b172b6d018b9/matrices/5210637924530351844), terminal FAILURE. Stuknięcie i wpisanie drugiego pytania przeszły asercję. Jedno realne żądanie czatu HTTP200; dwie próby innych wywołań AI zablokowano przed transportem przez test. `aiRequests:3` w tym raporcie oznacza próby, nie trzy płatne żądania. Obejrzany kadr28 pokazuje oznaczoną pomoc offline. Sprzątanie HTTP200/ok; prywatny plik instalacji usunięty.
+- Wcześniejsze dwie próby testu dwóch tur też zakończyły się FAILURE: pierwsza ujawniła brak oczekiwania na gotowy formularz, druga pusty tekst po symulowanym wpisywaniu. Poprawiono sam test (oczekiwanie, realne stuknięcie, asercja tekstu). Obie wysłały tylko pierwsze żądanie i potwierdziły sprzątanie. Pełna historia w README gałęzi `qa/device-assistant-0516`.
+- **Poprawki produkcyjnego routingu nie potwierdzono jeszcze na urządzeniu i nie ma jej w wydanym APK 0.5.16.** Testy lokalne używają atrap sieci. Mikrofon, realne sterowanie aplikacją przez model i nowy build pozostają do sprawdzenia. Gałąź QA zachowuje kod bazowy 0.5.16; wymaga przeniesienia tej poprawki przed kolejnym buildem. Żaden proces testu urządzenia nie pozostaje aktywny.
+
+## Pełna weryfikacja wcześniejszego kodu — 2026-11-02
 
 Kod aplikacji: `f0c8b8376d3dd6b0c613d504470bde6a93b7f641`.
 
