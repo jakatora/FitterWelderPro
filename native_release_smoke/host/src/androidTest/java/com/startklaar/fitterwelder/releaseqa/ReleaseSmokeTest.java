@@ -16,6 +16,9 @@ import android.util.Base64;
 import android.util.Log;
 import android.view.InputDevice;
 import android.view.MotionEvent;
+import android.view.KeyEvent;
+import android.view.KeyCharacterMap;
+import android.view.accessibility.AccessibilityWindowInfo;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -80,9 +83,17 @@ public class ReleaseSmokeTest {
   ui.injectInputEvent(down,true);ui.injectInputEvent(up,true);down.recycle();up.recycle();
  }
  void set(AccessibilityNodeInfo node,String value) {
-  Bundle args=new Bundle();args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,value);
-  assertTrue("Native editable node must accept set-text",node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,args));
-  SystemClock.sleep(300);
+  click(node);SystemClock.sleep(300);
+  long time=SystemClock.uptimeMillis();
+  instrumentation.sendKeySync(new KeyEvent(time,time,KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_A,0,KeyEvent.META_CTRL_ON,KeyCharacterMap.VIRTUAL_KEYBOARD,0,0,InputDevice.SOURCE_KEYBOARD));
+  instrumentation.sendKeySync(new KeyEvent(time,time+40,KeyEvent.ACTION_UP,KeyEvent.KEYCODE_A,0,KeyEvent.META_CTRL_ON,KeyCharacterMap.VIRTUAL_KEYBOARD,0,0,InputDevice.SOURCE_KEYBOARD));
+  instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DEL);
+  instrumentation.sendStringSync(value);SystemClock.sleep(500);
+  for(AccessibilityWindowInfo window:ui.getWindows()) {
+   if(window.getType()==AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
+    instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);SystemClock.sleep(300);break;
+   }
+  }
  }
  List<AccessibilityNodeInfo> edits() {
   List<AccessibilityNodeInfo> fields=new ArrayList<>();
@@ -151,7 +162,7 @@ public class ReleaseSmokeTest {
    while(manager.getActiveNetwork()!=null && SystemClock.uptimeMillis()<until)SystemClock.sleep(200);
    assertNull("Offline calculation must have no active network",manager.getActiveNetwork());report.put("offlineBeforeLaunch",true);
    Intent launch=context.getPackageManager().getLaunchIntentForPackage(APP);assertNotNull(launch);launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);context.startActivity(launch);
-   AccessibilityNodeInfo search=waitNode(AccessibilityNodeInfo::isEditable);set(search,"ciężar rury");
+   AccessibilityNodeInfo search=waitNode(AccessibilityNodeInfo::isEditable);set(search,"ciezar rury");
    click(waitNode(n->text(n).contains("Ciężar rury") && !n.isEditable()));
    long fieldsUntil=SystemClock.uptimeMillis()+25000;
    while(edits().size()!=4 && SystemClock.uptimeMillis()<fieldsUntil)SystemClock.sleep(150);
