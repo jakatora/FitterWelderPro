@@ -72,6 +72,17 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
       return;
     }
 
+    if (w >= d / 2) {
+      setState(() {
+        _error = context.tr(
+          pl: 'Grubość ścianki musi być mniejsza niż połowa średnicy rury.',
+          en: 'Wall thickness must be less than half the pipe diameter.',
+        );
+        _saving = false;
+      });
+      return;
+    }
+
     if (stock == null || stock <= 0) {
       setState(() {
         _error = context.tr(pl: 'Podaj poprawną długość sztangi', en: 'Enter a valid stock length');

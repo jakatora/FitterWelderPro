@@ -1,5 +1,13 @@
 # QA-COCKPIT — FitterWelderPro
 
+## Nowy projekt rury: poprawna relacja średnicy i ścianki — 2026-11-02
+
+- Odtworzono zapis niemożliwych wymiarów w aktywnymNewProjectScreen:OD60.3mm/ścianka30.15mm lub40mm przechodziły dodatnią walidację i trafiały doSQLite. Nowy projekt wymaga terazścianki mniejszej niż połowa średnicy, zgodnie z istniejącym warunkiem geometrii w kalkulatorze masy rury.
+- KomunikatPL/EN wskazuje relację wymiarów; zapis nie następuje. Formularz zachowuje nazwę, średnicę i wpisaną ściankę, a poprawienie jej na2.77mm pozwala zapisać projekt i przejść doFitterScreen. Istniejących danych nie zmieniano; nie dodawano ogólnej blokady wDAO dla importów z inną reprezentacją brakujących wymiarów.
+- Przed poprawką2nowe testyFAILED, wykazując faktyczne wiersze zapisane w izolowanejSQLite. Po poprawce **16testów/5plików PASS**,0błędów/pominięć,11,464s:tworzenie/otwieranie i pola projektu,tożsamość,właściciel danych,ustawienia. Nowe regresje sprawdzają brak zapisu po błędzie,zachowanie formularza,korektę,poprawne wymiary zapisanego projektu i otwarcie właściwego ekranu.
+- Analiza dwóch zmienionych plikówNoissuesfound7,0s. Raport `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/project-pipe-wall-summary.json`, `project-pipe-wall-before.jsonl`, `project-pipe-wall-after.jsonl`, `project-pipe-wall-analyze.log`.
+- ZakresWindows/widgety/rzeczywistaSQLite,nie nowy test telefonu. Poprawka źródłowa po0.5.22; APK0.5.22/iOS1087 jeszcze jej nie zawierają. Bez nowego buildu,wdrożenia serwera,AI lub zmian istniejących projektów.
+
 ## iOS 0.5.22 (1087) — wewnętrzny TestFlight potwierdzony przez Apple, 2026-11-02
 
 - **VALID / IN_BETA_TESTING** potwierdzone przezAPIApple2026-11-02T07:42:49.107045Z. App6761770166,bundlecom.jakatora.fitterwelderpro,buildApple `6614d5e0-b576-46ce-bb5a-e4198276f5bd`. ExternalREADY_FOR_BETA_SUBMISSION,reviewnull; nie zgłaszano zewnętrznej bety.

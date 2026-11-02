@@ -54,6 +54,64 @@ Future<void> _pumpUntil(WidgetTester tester, bool Function() done) async {
 void main() {
   useTestDatabase();
 
+  for (final wall in ['30.15', '40']) {
+    testWidgets(
+        'invalid pipe wall is not persisted and can be corrected: $wall',
+        (tester) async {
+      tester.view.physicalSize = const Size(1100, 2200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final name = 'Geometry-$wall-${DateTime.now().microsecondsSinceEpoch}';
+      await tester.pumpWidget(_host());
+      await tester.tap(find.text('list'));
+      await tester.pumpAndSettle();
+      await tester.enterText(_field('Name (optional)'), name);
+      await tester.enterText(_field('Pipe diameter (mm)'), '60.3');
+      await tester.enterText(_field('Wall thickness (mm)'), wall);
+      final create = find.text('Create project');
+      await tester.ensureVisible(create);
+      await tester.runAsync(() async {
+        await tester.tap(create);
+        await tester.pump();
+      });
+      const error = 'Wall thickness must be less than half the pipe diameter.';
+      await _pumpUntil(
+          tester,
+          () =>
+              find.text(error).evaluate().isNotEmpty ||
+              find.byType(FitterScreen).evaluate().isNotEmpty);
+      final rows = await tester.runAsync(() => ProjectDao().listAll());
+      expect(rows!.where((p) => p.name == name), isEmpty,
+          reason: 'An impossible pipe must not be saved');
+      expect(find.text(error), findsOneWidget);
+      expect(
+          tester.widget<TextField>(_field('Name (optional)')).controller!.text,
+          name);
+      expect(
+          tester
+              .widget<TextField>(_field('Pipe diameter (mm)'))
+              .controller!
+              .text,
+          '60.3');
+      await tester.enterText(_field('Wall thickness (mm)'), '2.77');
+      await tester.ensureVisible(create);
+      await tester.runAsync(() async {
+        await tester.tap(create);
+        await tester.pump();
+      });
+      await _pumpUntil(
+          tester, () => find.byType(FitterScreen).evaluate().isNotEmpty);
+      expect(find.byType(FitterScreen), findsOneWidget);
+      final saved = await tester.runAsync(() => ProjectDao().listAll());
+      final mine = saved!.where((p) => p.name == name).single;
+      expect(mine.diameterMm, 60.3);
+      expect(mine.wallThicknessMm, 2.77);
+      await tester.runAsync(() => ProjectDao().deleteById(mine.id));
+      await tester.pumpWidget(const SizedBox());
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   for (final submissions in [1, 2]) {
     testWidgets(
         'creation persists and opens one project: $submissions submissions',
