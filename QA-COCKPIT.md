@@ -1,5 +1,24 @@
 # QA-COCKPIT — FitterWelderPro
 
+## iOS 0.5.20 (1085) — wewnętrzny TestFlight gotowy, 2026-11-02
+
+- **Apple VALID / IN_BETA_TESTING**, potwierdzone2026-11-02T04:48:30.312211Z. Train0.5.20/build1085,ID `3f457a48-a8a2-407d-990b-77f006f5d0ae`,niewygasł. ExternalREADY_FOR_BETA_SUBMISSION,reviewnull; bez zgłoszenia zewnętrznej recenzji.
+- Codemagic `6ae81411892fdbe7077f9d9c` /ios-upload/source `1c3bfc605e9387f2cb8ed6325347c354eeb00dc9`: wszystkie10krokówSUCCESS,2026-11-02T04:39:50.749Z–04:45:14.503Z. Ten sam kod co Android0.5.20. Persistent signing/SDK3.47.5/profil zachowane, bez modyfikacji certyfikatów, recenzji, grup testerów lub wcześniejszych buildów.
+- IPA `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/fwp-ios-6ae81411892fdbe7077f9d9c.ipa`,34979298B,SHA256 `7d2de076af26adef9819351eaba99f04d4a48b7bac03acb5d7f11f325ffcb2ba`; bundlecom.jakatora.fitterwelderpro/TeamB7J6A7R258/profilważnydo2027-07-10T14:57:03,debugfalse,CodeResourcesobecne. AppleVALID potwierdza przyjęcie i przetworzenie; lokalnieWindows nie wykonywano kryptograficznego codesignverify.
+- Wszystkie5opisów uprawnień zgodne ze źródłem: lokalizacja, zdjęcia, kamera, mikrofon, rozpoznawanie mowy. App.framework zawiera markery nowych funkcji i nie zawiera markerów diagnostycznych; SHA256 `cfa82a1c3e17b584b30e2259eda55e88a6f395b79ef94cd6faf48df34472b23e`.
+- Upload `UPLOAD SUCCEEDED with no errors`,tasks[],betaReviewAttemptedfalse; bez ponowienia uploadu podczas opóźnienia widoczności wApple. UploadedDate2026-11-01T20:46:54-08:00 =2026-11-02T04:46:54Z. Potwierdzenie przetworzenia pochodzi z APIApple, nie z kończącego wcześniej loguCI.
+- Raport `ios-0520-delivery-summary.json`, IPA `fwp-ios-1c3bfc6-artifact-check.json`, upload `fwp-ios-1c3bfc6-publishing-result.json`, Apple `fwp-apple-0520-status.json` w katalogu artefaktów2026-11-02. Android `v0520-release-summary.json` wskazuje tę samą dostawę iOS. CHANGELOG uzupełniony o0.5.19/0.5.20.
+- Zakres: build/pakiet/upload/przetworzenie/dostępność wewnętrzna. **Nie testowano fizycznego mikrofonu, schowka lub rozmowy na iPhonie.** To nie publikacja AppStore ani zewnętrznej bety; brak wysyłki email.
+
+## Android 0.5.20 — wydanie z odczytem masy dla AI, 2026-11-02
+
+- **APK0.5.20/2039 arm64 gotowy:** `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/FitterWelder-Pro-0.5.20-arm64.apk`,39161553B,SHA256 `3ff4675c87617ea5d4c6d4fd2e379335ac8314c3c28796d752b1c2fba3a22e6d`. Źródło `1c3bfc605e9387f2cb8ed6325347c354eeb00dc9`, wersja0.5.20+39.
+- Zawiera wspólną walidację masy rury dla formularza i asystenta(`5929d67`) oraz jawny odczyt widocznych danych i natywnych wyników do pytańAI(`ba2e567`). Nowe ciągi funkcji potwierdzono w libapp.so; AOT SHA256 `81912e7c35971181d0aaaf10249e6d356d32d79720765b490a1957b7e2c86991` różni się od0.5.19.
+- Czysty worktree `G:/Projekty/FitterWelderPro-release-0.5.20`, canonicalcommittedlockSHA `b4be63098b21a8ddc447318b54259366aaecd6f2643266e51253999dc8f0a135`. **345testów/30zestawów PASS**,95,214s,0błędów/pominięć; pełna analiza Noissuesfound43,5s. To wybrane regresje głosu/rozmowy/zgód/nawigacji/kalkulatorów, nie pełny ponowiony zestaw bieżącego kodu.
+- Releasebuild222,9s. Pakietcom.startklaar.fitterwelder,bezdebug,podpisv2/certwydania `8cb31ad1f1e00afe899d53dcb75e0b644b1594db166d79b1e78bf72da6f9dbb8`,zipalign16KB,pięć bibliotekELF64 zLOAD>=16KB,bezdiagnostycznychfixturemarkerów/testcode.
+- `v0520-release-summary.json` łączy testy, analizę, kontrolę pakietu, markery nowych funkcji, porównanie AOT i oddzielny dowód UI. `fwp-1c3bfc6-arm64-android-release-artifact-check.json`, `v0520-targeted-suite-summary.json`, `v0520-aot-comparison.json` w katalogu artefaktów2026-11-02.
+- Pełny przepływ kalkulator→AI był wcześniej potwierdzony na wirtualnym Androidzie w osobnym debugbuildzie z tym samym kodem funkcji(przed zmianą numeru wersji). Nie oznacza to testu rozmowy w releaseAOT/R8 ani fizycznego runtime16KB/mikrofonu/schowka. Brak wysyłki email i publikacji GooglePlay w tej operacji.
+
 ## Masa rury → pytanie AI: pełny przebieg interfejsu Android — 2026-11-02
 
 - **PASS** `matrix-1u2kt3fkhy6lj`, wirtualny MediumPhone.arm / Android15 API35 / PL,1nativecase/0błędów/pominięć,16s +3s przetwarzania. Prawdziwy interfejs, backend i model, bez atrap platformy/sieci/modelu.
@@ -7,7 +26,7 @@
 - Pytanie o trzy widoczne masy uruchomiło rzeczywisty ekran zgody; zeroAI przed zgodą. Potem dokładnie1chatHTTP200 zawierał właściwe pola i wyniki3/3/2miejsca. Serwer potwierdził calculator_context_used:true; odpowiedź wyświetliła poprawne wartości i naturalne nazwy(kadr21), bez technicznych nazwJSON. Dane kalkulatora nie zmieniły się. Natywna historia miała przybliżenie5,54, ale AI użyło aktualnego odczytu5,541.
 - QA źródło `5f3099d1a5ab1163a98e518a70bdb5f884e61180`; produkcyjny lib identyczny z `9babb9f`, backend `60fecd1`/wdrożenie `7dcd80f3-2d30-4162-9e4f-b5ff9e609bdb` SUCCESS sprawdzone przed testem. Analiza plików testu bez uwag. Diagnostyczne APK0.5.19/38 jest osobnym debugbuildem z nowszym kodem, a nie udostępnionym APK0.5.19/2038.
 - Sprzątanie własnej instalacji DELETE200/ok; prywatny plik usunięty. ZeroFATAL EXCEPTION/Eflutter/ANR aplikacji. Raport `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/pipe-weight-ui-qa-virtual-verification.json`, dane `pipe-weight-ui-qa-virtual-real-ui-report.json`, XML/log/wideo23,54s w tym samym katalogu.
-- Zakres: jeden rzeczywisty przepływ UI na wirtualnym Androidzie. Nie dowodzi runtime releaseAOT/R8, fizycznego mikrofonu, schowka ani iOS. Nie wykonywano ponowień, nie zmieniano bramek budżetu i nie włączano płatnego TestLab; dokładny koszt dostawcy nie jest udostępniony. Nowy klient nadal czeka na następne wydanie APK/iOS.
+- Zakres: jeden rzeczywisty przepływ UI na wirtualnym Androidzie. Nie dowodzi runtime releaseAOT/R8, fizycznego mikrofonu, schowka ani iOS. Nie wykonywano ponowień, nie zmieniano bramek budżetu i nie włączano płatnego TestLab; dokładny koszt dostawcy nie jest udostępniony. Kod tej funkcji jest już w wydaniu0.5.20 (raport powyżej).
 
 ## AI wyjaśnia rzeczywiste wyniki masy rury — 2026-11-02
 

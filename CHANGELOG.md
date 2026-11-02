@@ -2,6 +2,17 @@
 
 All notable changes per AGENTS.md directive. Newest first.
 
+## 0.5.20 — 2026-11-02
+
+- Pipe-weight questions can use the visible calculator inputs and displayed native mass per metre, per piece and total. Missing optional values and invalid results remain missing; the AI explains the readback with user-facing labels.
+- Manual pipe-weight entry and assistant field application share domain validation. A piece count without a length prompts for correction, and out-of-range mass calculations no longer render Infinity.
+- The complete local-command → calculator → consent → real AI answer flow passed on virtual Android in a separate diagnostic build. Release checks passed 345 selected Flutter tests in 30 suites, full analysis and package verification. Physical microphone and release AOT interaction remain separate checks.
+
+## 0.5.19 — 2026-11-02
+
+- Assistant answers can be copied with their context/source list and offline-help label. Clipboard failures keep the answer selectable; pending copy feedback is retired when its view closes.
+- Speech errors distinguish silence, connection problems, permissions, unavailable language and a busy recognizer in Polish and English. Editable text is retained and the microphone can be retried without sending the failed command.
+
 ## 0.5.18 — 2026-11-02
 
 - The compact assistant now offers Enable AI when a natural command needs consent. Accepting resumes the original request; cancelling preserves the command. Rapid repeated activation cannot send the request twice.
