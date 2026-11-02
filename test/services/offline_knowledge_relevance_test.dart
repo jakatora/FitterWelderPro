@@ -8,6 +8,9 @@ void main() {
   for (final query in [
     'Pomóż mi dobrać gaz osłonowy do nierdzewki',
     'Jaki gaz osłonowy wybrać do spawania stali nierdzewnej?',
+    'Jaki gaz do spawania nierdzewki?',
+    'Dobór gazu do TIG',
+    'Poradź mi jaki gaz do nierdzewki',
   ]) {
     test('offline shielding gas selection gives actionable context: $query', () {
       AppLanguageController.current = AppLanguage.pl;
@@ -17,6 +20,21 @@ void main() {
       expect(reply.text, contains('proces'));
       expect(reply.text, contains('WPS'));
       expect(reply.citations, isNotEmpty);
+    });
+  }
+  for (final (language, query) in [
+    (AppLanguage.pl, 'Dlaczego podczas spawania nierdzewki powstają pory?'),
+    (AppLanguage.en, 'Why does stainless steel welding have porosity?'),
+    (AppLanguage.pl, 'Jakie ciśnienie gazu osłonowego przy spawaniu nierdzewki?'),
+    (AppLanguage.en, 'What shielding gas pressure for stainless steel welding?'),
+    (AppLanguage.pl, 'Dlaczego gaz osłonowy powoduje pory w spoinie?'),
+    (AppLanguage.en, 'Why does shielding gas cause porosity in welding?'),
+  ]) {
+    test('unrelated question does not get gas selection help: $query', () {
+      AppLanguageController.current = language;
+      final reply = AiChatService.instance.offlineReply(query);
+      expect(reply.text, isNot(contains('Dobór spoiwa')));
+      expect(reply.text, isNot(contains('Filler metal selector')));
     });
   }
   test('English offline gas selection points to the selector', () {
@@ -29,6 +47,14 @@ void main() {
     expect(reply.text, contains('WPS'));
     expect(reply.citations, isNotEmpty);
   });
+  for (final query in ['What gas for stainless welding?',
+    'Which shielding gas for TIG welding?']) {
+    test('short English gas selection question: $query', () {
+      AppLanguageController.current = AppLanguage.en;
+      expect(AiChatService.instance.offlineReply(query).text,
+          contains('Filler metal selector'));
+    });
+  }
   for (final language in AppLanguage.values) {
     test('gas flow question still finds the flow entry: $language', () {
       AppLanguageController.current = language;

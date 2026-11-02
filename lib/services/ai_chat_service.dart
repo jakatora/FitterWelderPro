@@ -433,13 +433,22 @@ class AiChatService {
       }
       return matches >= requiredMatches;
     }
-    final asksFlow = terms.any((term) =>
-        term.startsWith('przeplyw') || term == 'flow' || term == 'flowrate');
+    final normalizedQuestion = normalizeForSearch(userText);
+    final asksGasSelection = RegExp(r'\b(gaz\w*|gas)\b')
+            .hasMatch(normalizedQuestion) &&
+        (RegExp(r'\b(dob\w*|wybi\w*|wybr\w*|wybor\w*|polec\w*|choose|choos\w*|select\w*|recommend\w*)\b')
+                .hasMatch(normalizedQuestion) ||
+            RegExp(r'\b(jaki|jaka|jakie|which|what)\s+(?:shielding\s+)?(?:gaz\w*|gas)\b')
+                .hasMatch(normalizedQuestion));
+    final asksOtherGasProperty = RegExp(
+            r'\b(przeplyw\w*|flow\w*|cisnieni\w*|pressure\w*|por(?:y|ow|ami|ach|a|owatosc\w*)?|porosity|dlaczego|czemu|why)\b')
+        .hasMatch(normalizedQuestion);
     final hits = searchHelp(query, lang)
         .where((hit) =>
-            !(asksFlow && hit.entry.id == 'gas-selection') &&
+            !(hit.entry.id == 'gas-selection' &&
+                (!asksGasSelection || asksOtherGasProperty)) &&
             hit.matchedTerms.length >= requiredMatches && supportedByWords(hit))
-        .take(1).toList();
+        .toList();
     if (hits.isEmpty) {
       return ChatMessage(
         role: ChatRole.assistant,
@@ -449,7 +458,12 @@ class AiChatService {
             'Zapytaj ponownie, gdy będzie internet, albo otwórz Pomoc (?) na ekranie głównym.'}',
       );
     }
-    final hit = hits.first;
+    // Explicit gas-selection intent is more specific than shared terms such
+    // as TIG or "dobór", which can also rank unrelated equipment guidance.
+    final gasHit = asksGasSelection && !asksOtherGasProperty
+        ? hits.indexWhere((hit) => hit.entry.id == 'gas-selection')
+        : -1;
+    final hit = gasHit < 0 ? hits.first : hits[gasHit];
     return ChatMessage(
       role: ChatRole.assistant,
       kind: AiReplyKind.offlineHelp,
