@@ -13,3 +13,6 @@ Evidence inspected:
 Validation: 149 automated tests across help entries, knowledge questions and knowledge conversation passed, including PL/EN numeric parity and offline help search. These tests check application behavior and data consistency; the technical assessment rests on the sources above.
 
 Remaining scope: backend `data/piping_knowledge.md` contains separate P22/preheat guidance (around section 12369) and other material-specific claims. They were located but not changed or verified by this help-entry correction. No assertion that all AI knowledge is now corrected.
+
+
+Backend follow-up (2026-11-02): `6c9045b` corrects the corresponding preheat/interpass block in `backend/data/piping_knowledge.md`. P91 guidance is explicitly attributed to Böhler; the unqualified P22 thresholds and fixed heating width were removed. ESAB's printed pages 9 and 12 give inconsistent thin-P22 figures, so no single compulsory P22 temperature is inferred from them. Full backend tests: 524 passed; a retrieval check finds the corrected scope in the actual top-four results for a P91/P22 preheat query. Adjacent heat-input, cooling and PWHT claims remain outside this correction and need their own review.
