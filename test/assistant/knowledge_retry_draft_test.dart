@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:cut_list_app/screens/ai_chat_screen.dart';
+import 'package:cut_list_app/screens/consent_screen.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/services/legal_consent.dart';
 import '../test_prefs.dart';
@@ -14,6 +15,93 @@ import 'global_pipe_slope_flow_test.dart' show settle;
 void main() {
   useGuestAccount();
   useTestDatabase();
+  testWidgets('rapid sends start only one answer request', (t) async {
+    seedFreshInstall();
+    await LegalConsent.instance.accept();
+    t.view.physicalSize = const Size(1080, 2400);
+    t.view.devicePixelRatio = 2.5;
+    addTearDown(t.view.reset);
+    final pending = Completer<ChatMessage>();
+    var calls = 0;
+    await t.pumpWidget(AppLanguageScope(
+      controller: AppLanguageController(AppLanguage.pl),
+      child: MaterialApp(
+          home: AiChatScreen(
+              initialMode: AssistantMode.answer,
+              chatSender: (_, __) {
+                calls++;
+                return pending.future;
+              })),
+    ));
+    await settle(t);
+    final input = find.byKey(const Key('assistant-question-input'));
+    await t.enterText(input, 'Co oznacza DN50?');
+    await t.pump();
+    final send = t
+        .widget<IconButton>(find.byKey(const Key('assistant-send')))
+        .onPressed!;
+    send();
+    send();
+    for (var i = 0; i < 10; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    expect(calls, 1);
+    pending.complete(ChatMessage(
+        role: ChatRole.assistant,
+        text: 'Rozmiar nominalny.',
+        kind: AiReplyKind.live));
+    await settle(t);
+    await t.enterText(input, 'A co oznacza NPS?');
+    await t.pump();
+    await t.tap(find.byKey(const Key('assistant-send')));
+    await settle(t);
+    expect(calls, 2,
+        reason: 'A new question is allowed after the first answer');
+    expect(t.takeException(), isNull);
+  });
+  testWidgets('rapid sends open consent once and cancellation unlocks sending',
+      (t) async {
+    seedFreshInstall();
+    LegalConsent.instance.resetForTest();
+    t.view.physicalSize = const Size(1080, 2400);
+    t.view.devicePixelRatio = 2.5;
+    addTearDown(t.view.reset);
+    var calls = 0;
+    await t.pumpWidget(AppLanguageScope(
+      controller: AppLanguageController(AppLanguage.pl),
+      child: MaterialApp(
+          home: AiChatScreen(
+              initialMode: AssistantMode.answer,
+              chatSender: (_, __) async {
+                calls++;
+                return ChatMessage(role: ChatRole.assistant, text: 'answer');
+              })),
+    ));
+    await settle(t);
+    final input = find.byKey(const Key('assistant-question-input'));
+    await t.enterText(input, 'Co oznacza DN50?');
+    await t.pump();
+    final send = t
+        .widget<IconButton>(find.byKey(const Key('assistant-send')))
+        .onPressed!;
+    send();
+    send();
+    await settle(t);
+    expect(find.byType(ConsentScreen), findsOneWidget);
+    await t.binding.handlePopRoute();
+    await settle(t);
+    expect(find.byType(ConsentScreen), findsNothing);
+    expect(calls, 0);
+    await t.enterText(input, 'Co oznacza NPS?');
+    await t.pump();
+    await t.tap(find.byKey(const Key('assistant-send')));
+    await settle(t);
+    expect(find.byType(ConsentScreen), findsOneWidget);
+    expect(calls, 0);
+    await t.binding.handlePopRoute();
+    await settle(t);
+    expect(t.takeException(), isNull);
+  });
   for (final embedded in [true, false]) {
     for (final failure in ['unavailable', 'offline', 'exception']) {
       testWidgets(

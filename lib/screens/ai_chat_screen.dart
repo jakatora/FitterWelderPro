@@ -188,6 +188,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   int _aiEpoch = 0;
   int _conversationEpoch = 0;
   int _knowledgeTurn = 0;
+  bool _preparingKnowledgeSend = false;
   late final _account = AccountService.instance;
   int _sessionRevision = 0;
   StreamSubscription<UserProfile?>? _profileChanges;
@@ -3007,34 +3008,43 @@ class _AiChatScreenState extends State<AiChatScreen>
     questionClarification ??= _knowledgeClarification;
     final epoch = _conversationEpoch;
     final text = (retryText ?? _inputCtrl.text).trim();
-    if (text.isEmpty || _typing.value) return;
+    if (text.isEmpty || _typing.value || _preparingKnowledgeSend) return;
     if (_blockCredentialInput(text)) return;
     if (text.length > kChatQuestionMaxChars) {
       return;
     }
-    // A retry belongs to its original user turn, never to a later question
-    // or to the clarification that question may have opened.
-    _knowledgeTurn++;
-    _brainContext.invalidateActionReference();
-    if (_listening) {
-      await _speech.stop();
-      if (!mounted) return;
-      setState(() => _listening = false);
-    }
-    // Treść pytania wychodzi na serwer — najpierw zgoda (bez wymogu imienia).
-    // Bez zgody: pomoc offline z aplikacji, NIC nie wychodzi z telefonu.
-    final consented = await ensureServerConsent(_navigationContext);
-    if (!mounted || epoch != _conversationEpoch) return;
+    _preparingKnowledgeSend = true;
+    late final bool consented;
+    late final List<ChatMessage> history;
+    try {
+      // A retry belongs to its original user turn, never to a later question
+      // or to the clarification that question may have opened.
+      _knowledgeTurn++;
+      _brainContext.invalidateActionReference();
+      if (_listening) {
+        await _speech.stop();
+        if (!mounted) return;
+        setState(() => _listening = false);
+      }
+      // Treść pytania wychodzi na serwer — najpierw zgoda (bez wymogu imienia).
+      // Bez zgody: pomoc offline z aplikacji, NIC nie wychodzi z telefonu.
+      consented = await ensureServerConsent(_navigationContext);
+      if (!mounted || epoch != _conversationEpoch) return;
 
-    // Historia BEZ bieżącego pytania, najwyżej 6 ostatnich wpisów.
-    final history = chatHistoryForRequest(_messages);
-    setState(() {
-      _messages.add(ChatMessage(role: ChatRole.user, text: text));
-      // Retrying a previous turn must not replace a new draft. Also preserve
-      // edits made while the consent dialog for a normal send was open.
-      if (_inputCtrl.text.trim() == text) _inputCtrl.clear();
-      _voiceUsed = false;
-    });
+      // Historia BEZ bieżącego pytania, najwyżej 6 ostatnich wpisów.
+      history = chatHistoryForRequest(_messages);
+      setState(() {
+        _messages.add(ChatMessage(role: ChatRole.user, text: text));
+        // Retrying a previous turn must not replace a new draft. Also preserve
+        // edits made while the consent dialog for a normal send was open.
+        if (_inputCtrl.text.trim() == text) _inputCtrl.clear();
+        _voiceUsed = false;
+      });
+
+      if (consented) _typing.value = true;
+    } finally {
+      _preparingKnowledgeSend = false;
+    }
 
     if (!consented) {
       final offline = AiChatService.instance.offlineReply(questionClarification?.sourceWithReply(text) ?? text);
@@ -3046,7 +3056,6 @@ class _AiChatScreenState extends State<AiChatScreen>
       return;
     }
 
-    _typing.value = true;
     _scrollToBottom();
 
     try {
