@@ -2,6 +2,8 @@
 // dialog → zapis. Zmiana gapu 0 → 3 przelicza CUT zapisanego segmentu
 // (kolano 152 → wolny koniec, ISO 1000): 1000 − 152 − 3 × 1 = 845.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -9,9 +11,27 @@ import 'package:cut_list_app/database/project_dao.dart';
 import 'package:cut_list_app/database/segment_dao.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/models/project.dart';
+import 'package:cut_list_app/screens/new_project_screen.dart';
 import 'package:cut_list_app/screens/projects_screen.dart';
 
 import '../support/test_database.dart';
+
+class PendingSettingsDao extends ProjectDao {
+  final pending = Completer<ProjectSettingsUpdate>();
+  int calls = 0;
+  @override
+  Future<ProjectSettingsUpdate> updateSettings(
+    String projectId, {
+    required String? name,
+    required double stockLengthMm,
+    required double sawKerfMm,
+    required double gapMm,
+    ProjectIdentity? identity,
+  }) {
+    calls++;
+    return pending.future;
+  }
+}
 
 Widget _wrap(Widget child) => AppLanguageScope(
       controller: AppLanguageController(AppLanguage.pl),
@@ -21,14 +41,64 @@ Widget _wrap(Widget child) => AppLanguageScope(
 Future<void> _pumpUntil(WidgetTester tester, bool Function() done) async {
   for (var i = 0; i < 80 && !done(); i++) {
     await flushTestDatabase(tester);
-    await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)));
+    await tester
+        .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
     await tester.pump(const Duration(milliseconds: 50));
   }
 }
 
 void main() {
   useTestDatabase();
+
+  testWidgets('saving settings cannot be dismissed or submitted twice',
+      (tester) async {
+    tester.view.physicalSize = const Size(1100, 2200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final dao = PendingSettingsDao();
+    final project = Project(
+        id: 'pending',
+        name: 'Pending',
+        materialGroup: 'SS',
+        diameterMm: 60.3,
+        wallThicknessMm: 2.77,
+        currentDiameterMm: 60.3,
+        stockLengthMm: 6000,
+        sawKerfMm: 1,
+        gapMm: 0,
+        createdAt: 1,
+        updatedAt: 1);
+    ProjectSettingsUpdate? result;
+    await tester.pumpWidget(_wrap(Builder(
+        builder: (context) => Scaffold(
+              body: TextButton(
+                  onPressed: () async {
+                    result = await showProjectSettingsDialog(context, project,
+                        dao: dao);
+                  },
+                  child: const Text('Open')),
+            ))));
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    final save = tester
+        .widget<ElevatedButton>(find.widgetWithText(ElevatedButton, 'Zapisz'))
+        .onPressed!;
+    save();
+    save();
+    await tester.pump();
+    expect(dao.calls, 1);
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+    expect(find.text('Ustawienia projektu'), findsOneWidget);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('Ustawienia projektu'), findsOneWidget);
+    dao.pending.complete(
+        const ProjectSettingsUpdate(recomputed: 0, changedBeyondGap: []));
+    await tester.pumpAndSettle();
+    expect(find.text('Ustawienia projektu'), findsNothing);
+    expect(result, isNotNull);
+  });
 
   testWidgets('lista projektów → Ustawienia projektu → gap 3 przelicza CUT',
       (tester) async {
@@ -101,7 +171,12 @@ void main() {
     final stockField = find.widgetWithText(TextField, 'Długość sztangi (mm)');
     await tester.enterText(stockField, '0.001');
     await tester.tap(find.text('Zapisz'));
-    await _pumpUntil(tester, () => find.textContaining('Sprawdź długość sztangi').evaluate().isNotEmpty);
+    await _pumpUntil(
+        tester,
+        () => find
+            .textContaining('Sprawdź długość sztangi')
+            .evaluate()
+            .isNotEmpty);
     expect(find.textContaining('Sprawdź długość sztangi'), findsOneWidget);
     expect(tester.widget<TextField>(gapField).controller!.text, '3');
     final unchanged = await tester.runAsync(() => projects.getById(id));

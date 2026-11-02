@@ -471,6 +471,7 @@ class _ProjectSettingsDialogState extends State<_ProjectSettingsDialog> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     final stock = _parse(_stock);
     final kerf = _parse(_kerf);
     final gap = _parse(_gap);
@@ -559,7 +560,9 @@ class _ProjectSettingsDialogState extends State<_ProjectSettingsDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    return PopScope(
+      canPop: !_saving,
+      child: AlertDialog(
       title: Text(context.tr(pl: 'Ustawienia projektu', en: 'Project settings')),
       content: SingleChildScrollView(
         child: Column(
@@ -620,6 +623,7 @@ class _ProjectSettingsDialogState extends State<_ProjectSettingsDialog> {
           child: Text(context.tr(pl: 'Zapisz', en: 'Save')),
         ),
       ],
+      ),
     );
   }
 }
