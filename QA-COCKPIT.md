@@ -1,5 +1,14 @@
 # QA-COCKPIT — FitterWelderPro
 
+## Android 0.5.22 — pełny zestaw testów i podpisany APK, 2026-11-02
+
+- **Gotowy APK ARM64:** `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/FitterWelder-Pro-0.5.22-arm64.apk`,39161553B,SHA256 `619c8c8bddae9aaa02400ea75b6dc3cf5191b4e01f704dc7c4874f4c6bcbe28b`. Pakietcom.startklaar.fitterwelder,wersja0.5.22/kod2041,pubspec0.5.22+41,źródło `1b4bfaf69addddc8c9b7747d1b9455e4d5b07724`.
+- Zawiera poprawki po0.5.21:jednokrotne tworzenie projektu przy szybkich kliknięciach(a7f6424), krótsze nazwy załącznikówCSV/PDF z pełnym tytułem wewnątrz(10c3024), ograniczenie planu10000części i odrzucanie niemożliwych/ujemnych podziałów wraz z naprawą starych ustawień(e220fe0). CHANGELOG i stała wersji zgodne zpubspec.
+- **PEŁNE `test/`:10357testów/666plików PASS,0błędów/pominięć,846,124s**,bez filtrów ścieżek,concurrency4. Czysty worktree `G:/Projekty/FitterWelderPro-release-0.5.22`,offlinepubget i canonicalcommittedlockSHA `b4be63098b21a8ddc447318b54259366aaecd6f2643266e51253999dc8f0a135` zgodne. To nowy pełny wynik bieżącego wydania, a nie wcześniejsza baza lub wybrane107regresji.
+- Pełna analiza Noissuesfound28,3s; build218,8s. Podpisv2/cert `8cb31ad1f1e00afe899d53dcb75e0b644b1594db166d79b1e78bf72da6f9dbb8`,bezdebug,zipalign16KB,5ELF64 zLOAD>=16KB,bezmarkerówdiagnostycznych. Źródła6zmienionych plików klienta zgodne zcommitem; AOT SHA `38808db8d5223ea16cce89b860675c1e90e92fc7c79eec660d36e9cceedd4c38` różni się od0.5.21.
+- Dowody `v0522-release-summary.json`, `v0522-full-suite-summary.json`, `v0522-release-verification.json`, `fwp-1b4bfaf-arm64-android-release-artifact-check.json`, logitestów/analizy/buildu w katalogu artefaktów2026-11-02. PorównanieAOT i źródeł dowodzi pochodzenia, nie interakcji.
+- Ten nowy APK nie był jeszcze uruchamiany na urządzeniu; ostatni udany exactreleaseoffline test dotyczył0.5.21. Pełne testy wykonano naWindows z prywatnąSQLite i atrapami sieci/platformy, bez dowodu mikrofonu lub fizycznegoruntime16KB. iOS nadal0.5.21(1086),nowegoCodemagic nie uruchamiano. Bez GooglePlaypublikacji,wysyłkiemail lub wdrożenia backendu.
+
 ## Plan cięcia: ograniczenie rozrostu i brak ujemnych części — 2026-11-02
 
 - Odtworzono dwa błędy: bardzo mała sztanga mogła rozwinąć pojedynczyCUT do milionów części; dodatkowo niepasująca szczelina przy krótkiej sztandze mogła zostawić ujemne długości części. Osobne regresje przed poprawkamiFAILED. Nie wykonywano celowego zawieszenia pełnego interfejsu ani prób wyczerpania pamięci.
