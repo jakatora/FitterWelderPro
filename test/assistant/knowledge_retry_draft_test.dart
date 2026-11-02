@@ -102,6 +102,56 @@ void main() {
     await settle(t);
     expect(t.takeException(), isNull);
   });
+  testWidgets('retry preserves a new draft identical to the failed question',
+      (t) async {
+    seedFreshInstall();
+    await LegalConsent.instance.accept();
+    t.view.physicalSize = const Size(1080, 2400);
+    t.view.devicePixelRatio = 2.5;
+    addTearDown(t.view.reset);
+    final pending = Completer<ChatMessage>();
+    var calls = 0;
+    await t.pumpWidget(AppLanguageScope(
+      controller: AppLanguageController(AppLanguage.pl),
+      child: MaterialApp(
+        home: AiChatScreen(
+          initialMode: AssistantMode.answer,
+          chatSender: (_, __) async {
+            calls++;
+            if (calls == 1) {
+              return ChatMessage(
+                  role: ChatRole.assistant,
+                  text: 'Temporary failure',
+                  kind: AiReplyKind.unavailable);
+            }
+            return pending.future;
+          },
+        ),
+      ),
+    ));
+    await settle(t);
+    final input = find.byKey(const Key('assistant-question-input'));
+    const question = 'Co oznacza DN50?';
+    await t.enterText(input, question);
+    await t.tap(find.byKey(const Key('assistant-send')));
+    await settle(t);
+    final retry =
+        t.widget<SnackBarAction>(find.byType(SnackBarAction)).onPressed;
+    await t.enterText(input, question);
+    retry();
+    retry();
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 100));
+    expect(calls, 2);
+    expect(t.widget<TextField>(input).controller!.text, question);
+    pending.complete(ChatMessage(
+        role: ChatRole.assistant,
+        text: 'Rozmiar nominalny.',
+        kind: AiReplyKind.live));
+    await settle(t);
+    expect(t.widget<TextField>(input).controller!.text, question);
+    expect(t.takeException(), isNull);
+  });
   for (final embedded in [true, false]) {
     for (final failure in ['unavailable', 'offline', 'exception']) {
       testWidgets(

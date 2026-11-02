@@ -3037,7 +3037,9 @@ class _AiChatScreenState extends State<AiChatScreen>
         _messages.add(ChatMessage(role: ChatRole.user, text: text));
         // Retrying a previous turn must not replace a new draft. Also preserve
         // edits made while the consent dialog for a normal send was open.
-        if (_inputCtrl.text.trim() == text) _inputCtrl.clear();
+        if (retryText == null && _inputCtrl.text.trim() == text) {
+          _inputCtrl.clear();
+        }
         _voiceUsed = false;
       });
 
