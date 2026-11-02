@@ -13,6 +13,46 @@ import 'global_pipe_slope_flow_test.dart' show say, settle;
 void main() {
   useGuestAccount();
   useTestDatabase();
+  testWidgets('help choosing a gas goes to AI and accepts a clarification',
+      (t) async {
+    const question = 'Pomóż mi dobrać gaz osłonowy do nierdzewki';
+    const clarification = 'TIG, blacha 2 mm';
+    final chats = <Map>[];
+    await http.runWithClient(() async {
+      await mount(t,
+          interpret: (_) async =>
+              throw StateError('Advice must not enter the module interpreter'));
+      PremiumService.instance.resetForTest();
+      await say(t, question);
+      expect(chats, hasLength(1));
+      expect(find.textContaining('Jaka metoda i grubość?'), findsWidgets);
+      await say(t, clarification);
+      expect(chats, hasLength(2));
+      expect(chats.last['message'], clarification);
+      expect(chats.last['question_clarification'], {
+        'user_turns': [question]
+      });
+      expect(find.textContaining('Sprawdź WPS i specyfikację'), findsWidgets);
+      expect(find.textContaining('Które narzędzie'), findsNothing);
+      expect(t.takeException(), isNull);
+    },
+        () => MockClient((r) async {
+              if (r.url.path.endsWith('/ai/chat')) {
+                chats.add(jsonDecode(r.body) as Map);
+              }
+              return http.Response(
+                  jsonEncode({
+                    'text': chats.length == 1
+                        ? 'Jaka metoda i grubość?'
+                        : 'Sprawdź WPS i specyfikację.',
+                    'needs_clarification': chats.length == 1,
+                    if (chats.length > 1) 'question_clarification_used': true,
+                    'calculator_context_used': true,
+                  }),
+                  200,
+                  headers: {'content-type': 'application/json; charset=utf-8'});
+            }));
+  });
   testWidgets('explanation with a follow-up retains the whole question across turns', (t) async {
     const first = 'Jaką grubość ścianki rury mam zastosować?';
     const second = 'Stal 316L, DN50, 10 bar';

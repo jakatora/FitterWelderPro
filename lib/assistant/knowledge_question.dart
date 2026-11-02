@@ -51,9 +51,32 @@ final _helpUnderstand = RegExp(r'^(?:(?:prosze|please)\s+)*'
     r'(?:(?:mi|please)\s+)*(?:pomoz|pomoc|help)\s+'
     r'(?:(?:mi|me)\s+)?(?:zrozumiec|understand)\b');
 
+// Asking for help deciding is a request for advice, not permission to open or
+// change a tool. Keep operational requests such as "help me open" as actions.
+final _helpDecide = RegExp(r'^(?:(?:prosze|please)\s+)*'
+    r'(?:(?:czy (?:mozesz|moglbys)|can you|could you)\s+)?'
+    r'(?:(?:mi|please)\s+)*(?:pomoz|pomoc|help)\s+'
+    r'(?:(?:mi|me)\s+)?(?:dobrac|wybrac|zdecydowac|porownac|'
+    r'choose|decide|compare)\b');
+final _needAdvice = RegExp(r'^(?:(?:prosze|please)\s+)*'
+    r'(?:potrzebuje (?:porady|wskazowek)|i need (?:advice|guidance))\b');
+final _followingAction =
+    RegExp(r'\b(?:i|oraz|potem|nastepnie|and|then)\s+(?:(?:prosze|please)\s+)?'
+    r'(?:otworz|pokaz|uruchom|zapisz|dodaj|ustaw|zmien|usun|wybierz|'
+    r'oblicz|policz|przelicz|narysuj|dorysuj|skopiuj|wyczysc|nazwij|'
+    r'podsumuj|zmniejsz|zwieksz|wydluz|skroc|obroc|przesun|cofnij|powtorz|'
+    r'open|show|launch|save|add|set|change|delete|select|calculate|compute|'
+    r'draw|copy|clear|increase|decrease|reduce|extend|shorten|rotate|move|'
+    r'undo|redo|rename|reset)\b');
+
+bool _isAdviceRequest(String text) =>
+    _helpUnderstand.hasMatch(text) ||
+    _helpDecide.hasMatch(text) ||
+    _needAdvice.hasMatch(text);
+
 bool requestsConversationAction(Utterance u) {
   final text = _conversationText(u);
-  if (_helpUnderstand.hasMatch(text)) return false;
+  if (_isAdviceRequest(text)) return _followingAction.hasMatch(text);
   final verb = _politeAction.firstMatch(text)?.group(1);
   final explains = verb != null &&
       RegExp(r'^(?:wyjasn|wytlumacz|opowiedz|powiedz|opis|doradz|'
@@ -74,13 +97,13 @@ bool isKnowledgeQuestion(Utterance u) =>
     !RegExp(r'co (?:potrafisz|umiesz)|w czym pomozesz|what can you do')
         .hasMatch(u.folded) &&
     (_question.hasMatch(_conversationText(u)) ||
-        _helpUnderstand.hasMatch(_conversationText(u)) ||
+        _isAdviceRequest(_conversationText(u)) ||
         // Written elliptical questions still belong to the conversation;
         // explicit action verbs above retain their native workflow.
         (u.raw.trimRight().endsWith('?') && isEllipticalKnowledgeFollowUp(u)));
 
 bool isExplanationQuestion(Utterance u) =>
-    _helpUnderstand.hasMatch(_conversationText(u)) ||
+    _isAdviceRequest(_conversationText(u)) ||
     RegExp(r'^(?:(?:prosze|please|powiedz mi|tell me)\s+)*'
             r'(?:(?:czy (?:mozesz|moglbys)|can you|could you)\s+(?:(?:mi|please)\s+)?)?'
             r'(?:jak\b|dlaczego\b|czemu\b|czym\b|co to\b|'

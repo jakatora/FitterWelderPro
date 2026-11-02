@@ -5,6 +5,24 @@ import 'package:cut_list_app/i18n/app_language.dart';
 
 void main() {
   for (final text in [
+    'Pomóż mi dobrać gaz osłonowy do nierdzewki',
+    'Pomóż mi dobrać gaz i ustawienia do TIG',
+    'Pomóż mi wybrać metodę spawania',
+    'Czy możesz mi pomóc dobrać parametry TIG dla 3 mm?',
+    'Potrzebuję porady dotyczącej spawania aluminium',
+    'Help me choose a shielding gas',
+    'Could you help me choose a welding process?',
+    'I need advice about welding stainless steel',
+  ]) {
+    test('requests for help deciding are questions, not module commands: $text',
+        () {
+      final u = Utterance(text, lang: AppLanguage.pl);
+      expect(isKnowledgeQuestion(u), isTrue);
+      expect(isExplanationQuestion(u), isTrue);
+      expect(requestsConversationAction(u), isFalse);
+    });
+  }
+  for (final text in [
     'Czyli to zmierzona średnica w milimetrach?',
     'Więc to średnica zewnętrzna?',
     'To znaczy nominalna?',
@@ -157,6 +175,12 @@ void main() {
     'A czy możesz podsumować rysunek?',
     'Czy możesz pomóc mi otworzyć kalkulator?',
     'Can you help me open the calculator?',
+    'Czy możesz mi pomóc ustawić szczelinę?',
+    'Could you help me calculate the pipe length?',
+    'Pomóż mi wybrać gaz i otwórz kalkulator',
+    'Help me choose a gas and open the calculator',
+    'Pomóż mi dobrać gaz i pokaż kalkulator',
+    'Help me choose a gas and save the project',
     'Nowe pytanie: otwórz kalkulator',
     'New question: set the second pipe to 500 mm',
   ]) {
