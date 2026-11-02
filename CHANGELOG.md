@@ -2,6 +2,12 @@
 
 All notable changes per AGENTS.md directive. Newest first.
 
+## 0.5.18 — 2026-11-02
+
+- The compact assistant now offers Enable AI when a natural command needs consent. Accepting resumes the original request; cancelling preserves the command. Rapid repeated activation cannot send the request twice.
+- The assistant header grows to fit larger accessibility text without clipping.
+- A physical Pixel 8 diagnostic test verified first-use consent, one real AI navigation into Heat input, native calculator input changes and local clarification of a bare open request. Microphone and release AOT runtime remain separate checks.
+
 ## 0.5.17 — 2026-11-02
 
 - Follow-up questions starting with “Czyli”, “Więc”, “So” and similar conversational phrases stay in the knowledge conversation with the prior exchange instead of entering command interpretation.
