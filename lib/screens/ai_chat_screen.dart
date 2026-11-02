@@ -2991,7 +2991,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     final turn = _knowledgeTurn;
     var started = false;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(_tr('Nie otrzymałem odpowiedzi AI.', 'No AI answer was received.')),
+      content: Text(_tr('Możesz ponowić pytanie.', 'You can retry your question.')),
       duration: const Duration(seconds: 6),
       behavior: SnackBarBehavior.floating,
       backgroundColor: _kCard,

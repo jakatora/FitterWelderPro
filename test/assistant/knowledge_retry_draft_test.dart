@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:cut_list_app/screens/ai_chat_screen.dart';
 import 'package:cut_list_app/screens/consent_screen.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
@@ -7,6 +10,7 @@ import '../test_prefs.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:cut_list_app/services/ai_chat_service.dart';
+import 'package:cut_list_app/services/premium_service.dart';
 import '../support/test_account.dart';
 import '../support/test_database.dart';
 import 'ai_chat_execution_test.dart' show mount;
@@ -15,6 +19,62 @@ import 'global_pipe_slope_flow_test.dart' show settle;
 void main() {
   useGuestAccount();
   useTestDatabase();
+  for (final language in [AppLanguage.pl, AppLanguage.en]) {
+    testWidgets('unverified research offers an honest retry in $language',
+        (t) async {
+      seedFreshInstall();
+      await LegalConsent.instance.accept();
+      PremiumService.instance.resetForTest();
+      t.view.physicalSize = const Size(1080, 2400);
+      t.view.devicePixelRatio = 2.5;
+      addTearDown(t.view.reset);
+      var calls = 0;
+      await http.runWithClient(() async {
+        await t.pumpWidget(AppLanguageScope(
+          controller: AppLanguageController(language),
+          child: const MaterialApp(
+              home: AiChatScreen(initialMode: AssistantMode.answer)),
+        ));
+        await settle(t);
+        await t.enterText(find.byKey(const Key('assistant-question-input')),
+            'Explain TIG welding');
+        await t.tap(find.byKey(const Key('assistant-send')));
+        await settle(t);
+        expect(calls, 1, reason: 'Research must not retry automatically');
+        expect(find.textContaining('Fixture: no evidence'), findsWidgets);
+        expect(
+            find.text(language == AppLanguage.pl
+                ? 'Możesz ponowić pytanie.'
+                : 'You can retry your question.'),
+            findsOneWidget);
+        final retry =
+            t.widget<SnackBarAction>(find.byType(SnackBarAction)).onPressed;
+        retry();
+        retry();
+        await settle(t);
+        expect(calls, 2, reason: 'Repeated taps start only one retry');
+        expect(t.takeException(), isNull);
+      },
+          () => MockClient((request) async {
+                if (request.url.path != '/api/fitter/ai/chat') {
+                  return http.Response('{}', 200);
+                }
+                calls++;
+                return http.Response(
+                    jsonEncode({
+                      'text': calls == 1
+                          ? 'Fixture: no evidence'
+                          : 'Fixture: answer',
+                      if (calls == 1) 'research_status': 'unverified',
+                      if (calls == 1) 'web_sources': [],
+                    }),
+                    200,
+                    headers: {
+                      'content-type': 'application/json; charset=utf-8'
+                    });
+              }));
+    });
+  }
   testWidgets('rapid sends start only one answer request', (t) async {
     seedFreshInstall();
     await LegalConsent.instance.accept();
