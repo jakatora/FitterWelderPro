@@ -5,6 +5,21 @@ import 'package:cut_list_app/services/ai_chat_service.dart';
 void main() {
   final original = AppLanguageController.current;
   tearDown(() => AppLanguageController.current = original);
+  test('porosity question does not return unrelated imported weld help', () {
+    AppLanguageController.current = AppLanguage.pl;
+    final reply =
+        AiChatService.instance.offlineReply('dlaczego powstaja pory w spoinie');
+    expect(reply.text, isNot(contains('spoin z importu')));
+    expect(reply.citations, isEmpty);
+    expect(reply.text, contains('Nie znalazłem'));
+  });
+  test('English porosity question does not return unrelated imported weld help',
+      () {
+    AppLanguageController.current = AppLanguage.en;
+    final reply = AiChatService.instance
+        .offlineReply('why does porosity appear in welds');
+    expect(reply.text, isNot(contains('imported welds')));
+  });
   for (final language in AppLanguage.values) {
     test('pump NPSH keeps its own offline entry: $language', () {
       AppLanguageController.current = language;

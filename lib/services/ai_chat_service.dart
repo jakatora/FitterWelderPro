@@ -407,19 +407,35 @@ class AiChatService {
         : '(Tryb offline — pomoc z aplikacji, nie odpowiedź AI.)';
     // Generic question words alone must not select an unrelated help entry.
     const questionWords = {
-      'jak', 'jaka', 'jakie', 'jaki', 'czy', 'co', 'czym', 'jest', 'sa',
+      'jak', 'jaka', 'jakie', 'jaki', 'czy', 'co', 'czym', 'dlaczego', 'czemu', 'kiedy', 'ile', 'jest', 'sa',
       'na', 'do', 'dla', 'przy', 'w', 'z', 'ze', 'od', 'o', 'po', 'mi', 'mnie', 'prosze',
       'powiedz', 'wyjasnij', 'what', 'how', 'can', 'could', 'i', 'you',
       'the', 'a', 'an', 'is', 'are', 'does', 'to', 'for', 'in', 'on',
-      'of', 'please', 'tell', 'me', 'explain',
+      'of', 'please', 'tell', 'me', 'explain', 'why', 'when', 'which',
     };
     final terms = normalizeForSearch(userText).split(' ')
         .where((term) => term.length >= 2 && !questionWords.contains(term)).toSet();
     final query = terms.join(' ');
     // A single shared word in a longer unrelated question is too weak.
     final requiredMatches = terms.length <= 1 ? 1 : 2;
+    bool supportedByWords(HelpSearchResult hit) {
+      final words = normalizeForSearch(
+          '${hit.entry.question(lang)} ${hit.entry.answer(lang)} ${hit.entry.tags.join(' ')}')
+          .split(' ').toSet();
+      var matches = 0;
+      for (final original in terms) {
+        final nominal = RegExp(r'^(dn|nps)\d+$').firstMatch(original);
+        final term = nominal?.group(1) ?? original;
+        final anchored = words.any((word) => word == term ||
+            term.length >= 5 && word.length >= 5 &&
+                word.substring(0, 5) == term.substring(0, 5));
+        if (anchored) matches++;
+      }
+      return matches >= requiredMatches;
+    }
     final hits = searchHelp(query, lang)
-        .where((hit) => hit.matchedTerms.length >= requiredMatches).take(1).toList();
+        .where((hit) => hit.matchedTerms.length >= requiredMatches && supportedByWords(hit))
+        .take(1).toList();
     if (hits.isEmpty) {
       return ChatMessage(
         role: ChatRole.assistant,

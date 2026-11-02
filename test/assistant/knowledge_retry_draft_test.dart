@@ -20,6 +20,27 @@ import 'global_pipe_slope_flow_test.dart' show settle;
 void main() {
   useGuestAccount();
   useTestDatabase();
+  testWidgets(
+      'retry remains visible above the input after a long offline reply',
+      (t) async {
+    await mount(t,
+        interpret: (_) async => throw StateError('Unexpected'),
+        chatSender: (_, __) async => ChatMessage(
+            role: ChatRole.assistant,
+            text: List.filled(80, 'Długa odpowiedź offline.').join('\n'),
+            kind: AiReplyKind.offlineHelp));
+    await t.enterText(
+        find.byKey(const Key('assistant-command')), 'Wyjaśnij spawanie TIG');
+    await t.tap(find.byKey(const Key('assistant-go')));
+    await settle(t);
+    await t.pump(const Duration(seconds: 7));
+    await settle(t);
+    final retry = find.byKey(const Key('assistant-persistent-retry'));
+    expect(retry.hitTestable(), findsOneWidget);
+    expect(find.byKey(const Key('assistant-command')).hitTestable(),
+        findsOneWidget);
+    expect(t.takeException(), isNull);
+  });
   for (final event in ['new question', 'logout']) {
     testWidgets('persistent retry expires after $event', (t) async {
       seedFreshInstall();

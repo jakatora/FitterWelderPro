@@ -3405,7 +3405,6 @@ class _AiChatScreenState extends State<AiChatScreen>
               ],
               if (_localResult case final result?) _localAnswerCard(result),
               if (_pendingKnowledgeAnswer == null) _visibleSourceButtons(),
-              if (_knowledgeRetry != null) _persistentRetryButton(),
               if (_question != null) Text(_question!),
               if (_notice != null) ...[
                 Text(_notice!),
@@ -3433,6 +3432,7 @@ class _AiChatScreenState extends State<AiChatScreen>
                 Text(_tr('Słucham…', 'Listening…'),
                     key: const Key('assistant-listening')),
             ])),
+        if (_knowledgeRetry != null) _persistentRetryButton(),
         Padding(
             padding: const EdgeInsets.all(8),
             child: Row(children: [
