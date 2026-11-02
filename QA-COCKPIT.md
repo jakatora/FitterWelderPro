@@ -1,5 +1,14 @@
 # QA-COCKPIT — FitterWelderPro
 
+## Masa rury → pytanie AI: pełny przebieg interfejsu Android — 2026-11-02
+
+- **PASS** `matrix-1u2kt3fkhy6lj`, wirtualny MediumPhone.arm / Android15 API35 / PL,1nativecase/0błędów/pominięć,16s +3s przetwarzania. Prawdziwy interfejs, backend i model, bez atrap platformy/sieci/modelu.
+- Wpisane polecenie „Oblicz masę rury OD60,3mm ścianka3,91mm długość1m 316L ilość2” otworzyło właściwy kalkulator i lokalnie obliczyło5,541kg/m,5,541kg/sztukę,11,08kgłącznie. Zero żądańAI do tego momentu. Zwinęto panel i pokazano pełny wynik(kadr14).
+- Pytanie o trzy widoczne masy uruchomiło rzeczywisty ekran zgody; zeroAI przed zgodą. Potem dokładnie1chatHTTP200 zawierał właściwe pola i wyniki3/3/2miejsca. Serwer potwierdził calculator_context_used:true; odpowiedź wyświetliła poprawne wartości i naturalne nazwy(kadr21), bez technicznych nazwJSON. Dane kalkulatora nie zmieniły się. Natywna historia miała przybliżenie5,54, ale AI użyło aktualnego odczytu5,541.
+- QA źródło `5f3099d1a5ab1163a98e518a70bdb5f884e61180`; produkcyjny lib identyczny z `9babb9f`, backend `60fecd1`/wdrożenie `7dcd80f3-2d30-4162-9e4f-b5ff9e609bdb` SUCCESS sprawdzone przed testem. Analiza plików testu bez uwag. Diagnostyczne APK0.5.19/38 jest osobnym debugbuildem z nowszym kodem, a nie udostępnionym APK0.5.19/2038.
+- Sprzątanie własnej instalacji DELETE200/ok; prywatny plik usunięty. ZeroFATAL EXCEPTION/Eflutter/ANR aplikacji. Raport `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/pipe-weight-ui-qa-virtual-verification.json`, dane `pipe-weight-ui-qa-virtual-real-ui-report.json`, XML/log/wideo23,54s w tym samym katalogu.
+- Zakres: jeden rzeczywisty przepływ UI na wirtualnym Androidzie. Nie dowodzi runtime releaseAOT/R8, fizycznego mikrofonu, schowka ani iOS. Nie wykonywano ponowień, nie zmieniano bramek budżetu i nie włączano płatnego TestLab; dokładny koszt dostawcy nie jest udostępniony. Nowy klient nadal czeka na następne wydanie APK/iOS.
+
 ## AI wyjaśnia rzeczywiste wyniki masy rury — 2026-11-02
 
 - Kod `ba2e56741d0c7266ff547bf10ecca3cd20c472cd` dodaje jawny odczyt widocznych pól kalkulatora masy rury i natywnych wyników kg/m, kg/sztukę, kg łącznie. Wysyłane są wartości zaokrąglone tak jak na ekranie(3/3/2miejsca), nie ponowne obliczenia AI. Brak długości/ilości pozostaje brakiem; błędny formularz usuwa wszystkie wyniki z kontekstu. Zmiana zakładki nie udostępnia starej masy. Port nie czyta rekordów, notatek, tożsamości ani innych zakładek.
