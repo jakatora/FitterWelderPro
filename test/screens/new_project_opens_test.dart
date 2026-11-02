@@ -3,11 +3,14 @@
 // otworzyć — z nowym projektem zawsze robi się to samo: dodaje pierwszy
 // segment.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cut_list_app/database/project_dao.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
+import 'package:cut_list_app/models/project.dart';
 import 'package:cut_list_app/screens/fitter_screen.dart';
 import 'package:cut_list_app/screens/new_project_screen.dart';
 
@@ -17,7 +20,7 @@ Object? _listResult;
 
 /// Stands in for the project list: pushes the form and keeps its result, the
 /// way ProjectsScreen reloads on `true`.
-Widget _host() => AppLanguageScope(
+Widget _host({Future<void> Function(Project)? onCreate}) => AppLanguageScope(
       controller: AppLanguageController(AppLanguage.en),
       child: MaterialApp(
         home: Builder(
@@ -27,7 +30,8 @@ Widget _host() => AppLanguageScope(
                 onPressed: () async {
                   _listResult = await Navigator.push(
                     ctx,
-                    MaterialPageRoute(builder: (_) => const NewProjectScreen()),
+                    MaterialPageRoute(
+                        builder: (_) => NewProjectScreen(onCreate: onCreate)),
                   );
                 },
                 child: const Text('list'),
@@ -53,6 +57,67 @@ Future<void> _pumpUntil(WidgetTester tester, bool Function() done) async {
 
 void main() {
   useTestDatabase();
+
+  testWidgets('pending project save prevents editing or leaving the form',
+      (tester) async {
+    tester.view.physicalSize = const Size(1100, 2200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final release = Completer<void>();
+    await tester.pumpWidget(_host(onCreate: (_) => release.future));
+    await tester.tap(find.text('list'));
+    await tester.pumpAndSettle();
+    await tester.enterText(_field('Name (optional)'), 'Pending project');
+    await tester.enterText(_field('Pipe diameter (mm)'), '60.3');
+    await tester.enterText(_field('Wall thickness (mm)'), '2.77');
+    addTearDown(() async {
+      if (!release.isCompleted) release.complete();
+    });
+    await tester.ensureVisible(find.text('Create project'));
+    await tester.tap(find.text('Create project'));
+    await tester.pump();
+    expect(find.text('Saving...'), findsOneWidget);
+    expect(tester.widget<TextField>(_field('Pipe diameter (mm)')).enabled,
+        isFalse);
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    expect(find.byType(NewProjectScreen), findsOneWidget);
+    release.complete();
+    await _pumpUntil(
+        tester, () => find.byType(FitterScreen).evaluate().isNotEmpty);
+    expect(find.byType(FitterScreen), findsOneWidget);
+  });
+
+  testWidgets('failed project save restores editable draft', (tester) async {
+    tester.view.physicalSize = const Size(1100, 2200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final pending = Completer<void>();
+    await tester.pumpWidget(_host(onCreate: (_) => pending.future));
+    await tester.tap(find.text('list'));
+    await tester.pumpAndSettle();
+    await tester.enterText(_field('Name (optional)'), 'Saved draft');
+    await tester.enterText(_field('Pipe diameter (mm)'), '60.3');
+    await tester.enterText(_field('Wall thickness (mm)'), '2.77');
+    await tester.ensureVisible(find.text('Create project'));
+    await tester.tap(find.text('Create project'));
+    await tester.pump();
+    pending.completeError(Exception('fixture failure'));
+    await tester.pumpAndSettle();
+    expect(find.byType(NewProjectScreen), findsOneWidget);
+    expect(
+        tester.widget<TextField>(_field('Pipe diameter (mm)')).enabled, isTrue);
+    expect(tester.widget<TextField>(_field('Name (optional)')).controller!.text,
+        'Saved draft');
+    expect(
+        tester
+            .widget<TextField>(_field('Wall thickness (mm)'))
+            .controller!
+            .text,
+        '2.77');
+    expect(find.text('Could not save the project. Please try again.'),
+        findsWidgets);
+  });
 
   for (final wall in ['30.15', '40']) {
     testWidgets(

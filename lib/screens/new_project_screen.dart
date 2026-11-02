@@ -10,7 +10,10 @@ import '../widgets/number_field.dart';
 import '../widgets/project_identity_fields.dart';
 
 class NewProjectScreen extends StatefulWidget {
-  const NewProjectScreen({super.key});
+  const NewProjectScreen({super.key, this.onCreate});
+
+  /// Overrides persistence when embedding or testing the form.
+  final Future<void> Function(Project project)? onCreate;
 
   @override
   State<NewProjectScreen> createState() => _NewProjectScreenState();
@@ -129,7 +132,7 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
     );
 
     try {
-      await _dao.insert(p);
+      await (widget.onCreate ?? _dao.insert)(p);
       if (!mounted) return;
       didPop = true;
       // Straight into the new project: the next thing a fitter does with a
@@ -143,6 +146,7 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
         result: true,
       );
     } catch (e) {
+      if (!mounted) return;
       // Don't expose the raw exception to a user filling in a project form —
       // map to a category they can act on; keep $e in the debug log for
       // support. Most common causes: duplicate name (DB UNIQUE) and disk-full.
@@ -236,7 +240,9 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: !_saving,
+      child: Scaffold(
       appBar: AppBar(title: Text(context.tr(pl: 'Nowy projekt', en: 'New project'))),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -245,6 +251,7 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
             children: [
               TextField(
                 controller: _name,
+                enabled: !_saving,
                 decoration: InputDecoration(labelText: context.tr(pl: 'Nazwa (opcjonalnie)', en: 'Name (optional)')),
               ),
               const SizedBox(height: 12),
@@ -286,6 +293,7 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
               // cannot be handed a value it will reject.
               TextField(
                 controller: _diameter,
+                enabled: !_saving,
                 keyboardType: numberKeyboard(),
                 inputFormatters: numberInputFormatters(),
                 decoration: InputDecoration(labelText: context.tr(pl: 'Średnica rury (mm)', en: 'Pipe diameter (mm)')),
@@ -293,6 +301,7 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
               const SizedBox(height: 12),
               TextField(
                 controller: _wall,
+                enabled: !_saving,
                 keyboardType: numberKeyboard(),
                 inputFormatters: numberInputFormatters(),
                 decoration: InputDecoration(labelText: context.tr(pl: 'Grubość ścianki (mm)', en: 'Wall thickness (mm)')),
@@ -300,6 +309,7 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
               const SizedBox(height: 12),
               TextField(
                 controller: _stock,
+                enabled: !_saving,
                 keyboardType: numberKeyboard(),
                 inputFormatters: numberInputFormatters(),
                 decoration: InputDecoration(
@@ -310,6 +320,7 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
               const SizedBox(height: 12),
               TextField(
                 controller: _kerf,
+                enabled: !_saving,
                 // Its own helper text says "Np. 1,0" — the field must be able
                 // to produce that.
                 keyboardType: numberKeyboard(),
@@ -329,6 +340,7 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
               const SizedBox(height: 12),
               TextField(
                 controller: _gap,
+                enabled: !_saving,
                 keyboardType: numberKeyboard(),
                 inputFormatters: numberInputFormatters(),
                 decoration: InputDecoration(
@@ -354,6 +366,7 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
             ],
           ),
         ),
+      ),
       ),
     );
   }
