@@ -1,5 +1,14 @@
 # QA-COCKPIT — FitterWelderPro
 
+## Podpisany APK 0.5.20 — rzeczywisty kalkulator offline, 2026-11-02
+
+- **PASS: dokładnie udostępniony APK 0.5.20/2039**, bez przebudowania aplikacji lub dodawania kodu diagnostycznego. Zainstalowany SHA256 `3ff4675c87617ea5d4c6d4fd2e379335ac8314c3c28796d752b1c2fba3a22e6d`; test sprawdza brak flagi debug. Osobny natywny APK instrumentacji podpisano tym samym certyfikatem wydania; pomocniczego host APK nie używano do uruchomienia.
+- Firebase Test Lab: wirtualny MediumPhone ARM64/API35/PL, `matrix-2isgs4zu4saaz` SUCCESS, 1 test / 0 błędów / 0 pominięć, 17 s + 3 s przetwarzania. Tryb samolotowy i brak aktywnej sieci potwierdzono przed startem i przy odczycie wyniku. Klawiatura wyszukuje „ciezar rury”, otwiera kalkulator i wpisuje OD60.3 / t3.91 / długość1000mm / ilość2 dla SS316/316L.
+- Zrzut ekranu i semantyka rzeczywistego interfejsu potwierdzają **5.541kg/m, 5.541kg/szt. i 11.08kg łącznie**. Każde pole ma kontrolę dokładnej wpisanej wartości. Log: 0 FATAL EXCEPTION, 0 E/flutter, 0 ANR aplikacji. Własna instalacja testowa usunięta: HTTP200/ok; prywatny plik odzyskiwania usunięty. Bez zapytań AI i interakcji z publicznym czatem.
+- Zachowano historię trzech nieudanych prób instrumentacji: brak biblioteki Kotlin w runnerze (0 testów), ACTION_SET_TEXT bez odświeżenia wyników oraz nieskuteczne Ctrl+A w polu liczbowym. Poprawiono wyłącznie projekt testowy; te wyniki nie dowodzą błędu produkcyjnego kalkulatora. Końcowy kod QA `a7cd8e79518a899ffdd1947502040583eebe6820`.
+- Dowody: `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/release-native-qa-v4-verification.json`, `release-native-qa-v4-calculator.png`, XML, log i nagranie w tym samym katalogu; historia `release-native-qa-attempt-history.json`. Podsumowanie wydania `v0520-release-summary.json` uzupełnione.
+- Zakres jest wąski: ten przebieg **nie testuje rozmowy AI, mikrofonu, iOS ani fizycznego runtime16KB**. Nowsza poprawka DN/OD i podpowiedź asystenta `1b3adde` pozostają tylko w źródłach po0.5.20. Wydany APK i backend nie zostały zmienione.
+
 ## Wyszukiwanie DN/OD bez przypadkowych fragmentów słów — 2026-11-02
 
 - Naprawiono dopasowanie krótkich kodów DN i OD w wyszukiwarce narzędzi oraz współdzielonym wyszukiwaniu nawigacji. „DN” nie pasuje już do środka „hardness”, a „OD” do „podpory”. Kody są dopasowywane jako pełne słowa lub kody z dołączonym oznaczeniem liczbowym w indeksowanym materiale. Zwykłe słowa zachowują dotychczasowe prefiksy i odmianę polską.
