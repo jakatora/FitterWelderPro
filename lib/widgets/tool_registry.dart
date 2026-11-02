@@ -2856,6 +2856,13 @@ List<String> _stems(String term) => [
       if (term.length >= 6) term.substring(0, term.length - 2),
     ];
 
+// These short codes must not match the middle of ordinary words:
+// DN in "hardness" or OD in "podpory".
+final _atomicToolTerms = {
+  for (final term in const ['dn', 'od'])
+    term: RegExp('(?:^| )$term(?:[0-9][a-z0-9]*)?(?= |\$)'),
+};
+
 /// Szuka narzędzi po tytule, słowach kluczowych i podtytule — w obu językach
 /// naraz, bo monter w polskiej wersji też wpisuje „takeout" czy „rolling".
 /// Wielkość liter i polskie znaki nie mają znaczenia. Każde wpisane słowo musi
@@ -2908,6 +2915,20 @@ int? _score({
   var score = 0;
   for (final term in terms) {
     var best = 0;
+    final atomic = _atomicToolTerms[term];
+    if (atomic != null) {
+      if (atomic.hasMatch(main)) best = 12;
+      if (keys.any((key) => key == term)) {
+        best = _max(best, 10);
+      } else if (keys.any(atomic.hasMatch)) {
+        best = _max(best, 8);
+      }
+      if (atomic.hasMatch(other)) best = _max(best, 6);
+      if (atomic.hasMatch(subs)) best = _max(best, 3);
+      if (best == 0) return null;
+      score += best;
+      continue;
+    }
     for (final (i, stem) in _stems(term).indexed) {
       // Dokładne słowo wygrywa z rdzeniem.
       final penalty = i * 2;

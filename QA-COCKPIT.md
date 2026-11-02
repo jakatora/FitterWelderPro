@@ -1,5 +1,14 @@
 # QA-COCKPIT — FitterWelderPro
 
+## Wyszukiwanie DN/OD bez przypadkowych fragmentów słów — 2026-11-02
+
+- Naprawiono dopasowanie krótkich kodów DN i OD w wyszukiwarce narzędzi oraz współdzielonym wyszukiwaniu nawigacji. „DN” nie pasuje już do środka „hardness”, a „OD” do „podpory”. Kody są dopasowywane jako pełne słowa lub kody z dołączonym oznaczeniem liczbowym w indeksowanym materiale. Zwykłe słowa zachowują dotychczasowe prefiksy i odmianę polską.
+- Regresje PL/EN:8przypadków, przed zmianą6FAILED dlaDN/OD i2kontrolneAIpoprawne. ZachowaniaAI nie zmieniono. Po poprawce **1612testów/5zestawów PASS**,0błędów/pominięć,20,229s: wyszukiwarka, integralność rejestru, korpus poleceń asystenta, wydajność routingu, ekran główny.
+- Podpowiedź pustego panelu asystenta pokazuje teraz krótkie pytanie oDN i polecenie obliczenia masy rury, z informacją o dopytywaniu, zamiast dominującego przykładu wieloetapowego rysowania. TreśćPL/EN; logika bez zmian.
+- Test rzeczywistego widgetu ekranu głównego wpisujeOD iDN, sprawdza brak przypadkowych kafli i otwiera DnMmScreen z wyniku. To testFlutter naWindows, nie test fizycznego telefonu. Wzorce kompilowane raz, bez dodatkowych usług lub wywołańAI.
+- Pełna analiza `flutter analyze --no-pub`: **No issues found**,90,3s; po zmianie treści podpowiedzi dodatkowo sprawdzono plik asystenta bez uwag. Logi `tool-acronyms-analyze.log` / `tool-acronyms-hint-analyze.log`.
+- Raport `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/tool-acronyms-summary.json`; surowe `tool-acronyms-before.jsonl` i `tool-acronyms-final-suite.jsonl`. Zmiana źródłowa po0.5.20; udostępnione APK0.5.20/iOS1085 jeszcze jej nie zawierają.
+
 ## Trafniejsze materiały kontekstu AI — aktualizacja serwera 2026-11-02
 
 - Backend `3c98b354222a12f1b75be45d721403798bf37095` nie dołącza już automatycznie wszystkich pobranych fragmentów bazy do odpowiedzi rozmowy. Model wskazuje użyte sekcje po numerowanych identyfikatorach; serwer mapuje je wyłącznie na pobrane tytuły. Brak wskazania oznacza pustą listę, nigdy całą listę pobrań.

@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cut_list_app/app.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/screens/chat_screen.dart';
+import 'package:cut_list_app/screens/dn_mm_screen.dart';
 import 'package:cut_list_app/screens/consent_screen.dart';
 import 'package:cut_list_app/screens/elbow_takeout_screen.dart';
 import 'package:cut_list_app/screens/fitter_menu_screen.dart';
@@ -148,6 +149,22 @@ void main() {
   });
 
   group('szybki dostęp', () {
+    testWidgets('DN and OD search omit incidental words and open pipe sizing', (tester) async {
+      seedOnboardedUser();
+      await boot(tester);
+      await tester.enterText(key('home-tool-search'), 'OD');
+      await settle(tester);
+      expect(key('tool-row-dn_mm'), findsOneWidget);
+      expect(key('tool-row-pipe_supports'), findsNothing);
+      await tester.enterText(key('home-tool-search'), 'DN');
+      await settle(tester);
+      expect(key('tool-row-hardness'), findsNothing);
+      await tester.tap(key('tool-row-dn_mm'));
+      await settle(tester);
+      expect(find.byType(DnMmScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets(
         'szukaj „kolan": wynik otwiera narzędzie, które wraca w ostatnio '
         'używanych', (tester) async {

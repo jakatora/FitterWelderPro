@@ -3341,9 +3341,10 @@ class _AiChatScreenState extends State<AiChatScreen>
               ],
               if (_localResult == null && _question == null && _notice == null)
                 Text(_tr(
-                    'Powiedz np. „narysuj rura metr kolano w górę rura metr” '
-                        'albo zapytaj o wymiar.',
-                    'Say e.g. "draw pipe one metre elbow up pipe one metre", or ask a dimension.')),
+                    'Zapytaj np. „Co oznacza DN?” lub powiedz „oblicz masę rury”. '
+                        'Jeśli potrzeba szczegółów, dopytam.',
+                    'Ask e.g. "What does DN mean?" or say "calculate pipe weight". '
+                        'I will ask if I need more details.')),
               if (_listening)
                 Text(_tr('Słucham…', 'Listening…'),
                     key: const Key('assistant-listening')),
