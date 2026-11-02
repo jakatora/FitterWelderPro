@@ -1,5 +1,14 @@
 # QA-COCKPIT — FitterWelderPro
 
+## Android 0.5.21 — zbiorczy APK wyszukiwania i rozmowy, 2026-11-02
+
+- **Gotowy podpisany APK ARM64:** `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/FitterWelder-Pro-0.5.21-arm64.apk`,39161553B,SHA256 `1f06bce690cedd4a1f48da582e3edfd0a1655f8040fe076b4bfa76c51a2f0037`. Pakietcom.startklaar.fitterwelder,wersja0.5.21/kod2040,źródło `2a2db6552b079d28b55e7b25d276ff51bfd0b126`,pubspec0.5.21+40.
+- Zawiera nowsze zmiany klienta:DN/OD bez przypadkowych fragmentów słów i nową podpowiedź asystenta(1b3adde), zachowanie szkicu przy ponawianiu oraz edycję następnego pytania podczas oczekiwania(1f7de21), DN50/DN 100 z otwieraniem wybranego rozmiaru(2f08f70). Te zmiany były wcześniej tylko w źródłach po0.5.20.
+- Czysty worktree `G:/Projekty/FitterWelderPro-release-0.5.21`, zależności offline i canonicalcommittedlockSHA `b4be63098b21a8ddc447318b54259366aaecd6f2643266e51253999dc8f0a135` zgodne. **1745testów/16zestawów PASS**,0błędów/pominięć,73,730s. Pełna analiza Noissuesfound37,1s. To adekwatny wybrany zestaw, nie ponowienie wszystkich testów projektu.
+- Buildrelease246,3s. Podpisv2/cert `8cb31ad1f1e00afe899d53dcb75e0b644b1594db166d79b1e78bf72da6f9dbb8`,bezdebug,zipalign16KB i5bibliotekELF64 zLOAD>=16KB,bezmarkerów/testówdiagnostycznych. AOT SHA256 `40f3a0f46ad0b4e66115afc3cba7c12f47ad132f866953b3706c41f8d4307b20` różni się od0.5.20; źródła czterech zmienionych plików klienta zgadzają się zcommitem. Pochodzenie buildu i różnicaAOT nie zastępują testu interakcji.
+- Dowody: `v0521-release-summary.json`, `v0521-release-verification.json`, `v0521-targeted-suite-summary.json`, `fwp-2a2db65-arm64-android-release-artifact-check.json` i logi w katalogu artefaktów2026-11-02.
+- Nie uruchamiano jeszcze tego nowego APK na urządzeniu. Poprzedni udany test niezmienionego release offline dotyczył0.5.20. Brak nowego iOS; aktualny0.5.20(1085) nadal nie zawiera tych zmian klienta. Bez publikacjiGooglePlay, wysyłkiemail lub nowego wdrożenia serwera.
+
 ## Wyszukiwanie DN50 otwiera właściwy rozmiar — 2026-11-02
 
 - Pełne oznaczenie rozmiaru, np.DN50/dn50/DN 50, daje teraz bezpośrednio wynik tabeliDN i przekazuje wybrany rozmiar do ekranu. To samo działa po kliknięciu wiersza i po zatwierdzeniu wyszukiwania klawiaturą; nie trzeba ponownie wpisywać rozmiaru w module.
