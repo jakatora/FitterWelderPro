@@ -14,3 +14,6 @@ The first DN response retrieved an unrelated refractory-pipe context first. A re
 
 
 Retrieval follow-up: six PL/EN questions cover attached DN25/NPS1 and Schedule/pressure/wall-thickness queries. Two initially failed: English DN25 chose pulsation-dampener knowledge, and the English Schedule-pressure question lacked the pipe-Schedule section in the top four. Backend `05f17e7` extends nominal-size recognition to attached digits and maps explicitly numbered Schedule designators to pipe dimensions and their dimensional standards. All 532 backend tests passed. This does not add provider calls, change monthly/daily limits or assert a second live-model result. No general work-schedule phrase is expanded unless it has a numeric pipe-designator form.
+
+
+Timed-schedule boundary: two queries about maintenance/work “schedule 40 hours” initially selected pipe-Schedule context. Backend `8f4577d` prevents pipe-designator expansion when the numeric value is immediately followed by a time unit. Existing dimensional queries remain covered. All 534 backend tests passed; this correction adds no provider calls. This is a local retrieval regression, not an additional paid live-model probe.
