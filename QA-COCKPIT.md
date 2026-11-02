@@ -1,5 +1,15 @@
 # QA-COCKPIT — FitterWelderPro
 
+## iOS 0.5.22 (1087) — wewnętrzny TestFlight potwierdzony przez Apple, 2026-11-02
+
+- **VALID / IN_BETA_TESTING** potwierdzone przezAPIApple2026-11-02T07:42:49.107045Z. App6761770166,bundlecom.jakatora.fitterwelderpro,buildApple `6614d5e0-b576-46ce-bb5a-e4198276f5bd`. ExternalREADY_FOR_BETA_SUBMISSION,reviewnull; nie zgłaszano zewnętrznej bety.
+- Codemagic `6ae83ceaf5cf37d1b433705b`,workflowios-upload,commit `39b7c50ce65c10776a1d1890a38080ac37b9a8e5`,wszystkie10etapówSUCCESS. Kod aplikacji zgodny zAndroidem1b4bfaf po porównaniulib/test/assets/pubspec/lock/ios; różnica commitów dotyczy dokumentacji. Wydanie zawiera poprawki pojedynczego tworzenia projektu, długich nazw eksportu i nieprawidłowych/za dużych podziałów.
+- IPA `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/fwp-ios-6ae83ceaf5cf37d1b433705b.ipa`,34987078B,SHA256 `64de0ecc9251a853635e68f0af267608eec498d75c08261f81c20e10e9ab58e9`. Zweryfikowanoversion0.5.22/build1087,TeamB7J6A7R258,profilważnydo2027-07-10,brakdebugentitlement,zasobypodpisuobecne.
+- Wszystkie5opisówuprawnień zgodneźródło/IPA:lokalizacja,zdjęcia,aparat,mikrofon,rozpoznawaniemowy. App.frameworkSHA `807ed93fee7d50ce7a43fd9a77b33082de4412815f016ed28a414592923bd781` różni się od0.5.21 i nie zawiera markerówdiagnostycznych. To kontrola pakietu/pochodzenia, nie test interakcji.
+- „UPLOAD SUCCEEDED with no errors”,tasks[],betaReviewAttemptedfalse. Opóźnioną widocznośćApple obsłużono oczekiwaniem na tę samą dostawę,bezduplikatów. UploadedDate2026-11-01T23:40:42-08:00=2026-11-02T07:40:42Z.
+- Dowody `ios-0522-delivery-summary.json`, `fwp-ios-39b7c50-artifact-check.json`, `fwp-ios-39b7c50-publishing-result.json`, `fwp-apple-0522-status.json` w katalogu artefaktów2026-11-02. Androidv0522-release-summary.json wskazuje tę dostawę. Pełne10357testów i analiza dotyczą wspólnego kodu naWindows; nie powtarzano ich bez zmiany źródeł.
+- Zakres:build/pakiet/upload/przetworzenie/dostępnośćwewnętrzna. FizycznyiPhone,mikrofon,schowek irozmowa nie były testowane wtej operacji. Nie publikowano AppStore,nie wysyłano zaproszeń/email i nie zmieniano certyfikatów.
+
 ## Android 0.5.22 — pełny zestaw testów i podpisany APK, 2026-11-02
 
 - **Gotowy APK ARM64:** `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/FitterWelder-Pro-0.5.22-arm64.apk`,39161553B,SHA256 `619c8c8bddae9aaa02400ea75b6dc3cf5191b4e01f704dc7c4874f4c6bcbe28b`. Pakietcom.startklaar.fitterwelder,wersja0.5.22/kod2041,pubspec0.5.22+41,źródło `1b4bfaf69addddc8c9b7747d1b9455e4d5b07724`.
