@@ -60,6 +60,13 @@ final _helpDecide = RegExp(r'^(?:(?:prosze|please)\s+)*'
     r'choose|decide|compare)\b');
 final _needAdvice = RegExp(r'^(?:(?:prosze|please)\s+)*'
     r'(?:potrzebuje (?:porady|wskazowek)|i need (?:advice|guidance))\b');
+// Restrict this to information-seeking phrases; "find my project" still
+// belongs to the app's own data and action workflows.
+final _informationSearch = RegExp(r'^(?:(?:prosze|please)\s+)*'
+    r'(?:(?:czy (?:mozesz|moglbys)|can you|could you)\s+)?'
+    r'(?:(?:mi|please)\s+)*'
+    r'(?:(?:wyszukaj|poszukaj|znajdz|znalezc)\s+informacj\w*\s+(?:o|na temat)|'
+    r'(?:search for|find|look for)\s+information\s+(?:about|on))\b\s+\S');
 final _followingAction =
     RegExp(r'\b(?:i|oraz|potem|nastepnie|and|then)\s+(?:(?:prosze|please)\s+)?'
     r'(?:otworz|pokaz|uruchom|zapisz|dodaj|ustaw|zmien|usun|wybierz|'
@@ -76,7 +83,9 @@ bool _isAdviceRequest(String text) =>
 
 bool requestsConversationAction(Utterance u) {
   final text = _conversationText(u);
-  if (_isAdviceRequest(text)) return _followingAction.hasMatch(text);
+  if (_isAdviceRequest(text) || _informationSearch.hasMatch(text)) {
+    return _followingAction.hasMatch(text);
+  }
   final verb = _politeAction.firstMatch(text)?.group(1);
   final explains = verb != null &&
       RegExp(r'^(?:wyjasn|wytlumacz|opowiedz|powiedz|opis|doradz|'
@@ -98,6 +107,7 @@ bool isKnowledgeQuestion(Utterance u) =>
         .hasMatch(u.folded) &&
     (_question.hasMatch(_conversationText(u)) ||
         _isAdviceRequest(_conversationText(u)) ||
+        _informationSearch.hasMatch(_conversationText(u)) ||
         // Written elliptical questions still belong to the conversation;
         // explicit action verbs above retain their native workflow.
         (u.raw.trimRight().endsWith('?') && isEllipticalKnowledgeFollowUp(u)));

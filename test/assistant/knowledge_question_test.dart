@@ -5,6 +5,34 @@ import 'package:cut_list_app/i18n/app_language.dart';
 
 void main() {
   for (final text in [
+    'Wyszukaj informacje o spawaniu hybrydowym',
+    'Poszukaj informacji o nierdzewce',
+    'Czy możesz znaleźć informacje na temat TIG?',
+    'Search for information about stainless steel welding',
+    'Can you find information about TIG?',
+  ]) {
+    test('explicit information search is a knowledge request: $text', () {
+      final u = Utterance(text, lang: AppLanguage.pl);
+      expect(isKnowledgeQuestion(u), isTrue);
+      expect(requestsConversationAction(u), isFalse);
+    });
+  }
+  for (final text in ['Wyszukaj mój projekt', 'Find my project']) {
+    test('personal data search is not generic research: $text', () {
+      expect(isKnowledgeQuestion(Utterance(text, lang: AppLanguage.pl)), isFalse);
+    });
+  }
+  for (final text in [
+    'Wyszukaj informacje o TIG i otwórz kalkulator',
+    'Search for information about TIG and delete the project',
+  ]) {
+    test('information search cannot swallow an action: $text', () {
+      final u = Utterance(text, lang: AppLanguage.pl);
+      expect(requestsConversationAction(u), isTrue);
+      expect(isKnowledgeQuestion(u), isFalse);
+    });
+  }
+  for (final text in [
     'Pomóż mi dobrać gaz osłonowy do nierdzewki',
     'Pomóż mi dobrać gaz i ustawienia do TIG',
     'Pomóż mi wybrać metodę spawania',

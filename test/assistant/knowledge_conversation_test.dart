@@ -14,6 +14,43 @@ import 'global_pipe_slope_flow_test.dart' show say, settle;
 void main() {
   useGuestAccount();
   useTestDatabase();
+  testWidgets('unverified web research can be retried in the embedded assistant',
+      (t) async {
+    var requests = 0;
+    await http.runWithClient(() async {
+      await mount(t, interpret: (_) async =>
+          throw StateError('Research is not a module command'));
+      PremiumService.instance.resetForTest();
+      await say(t, 'Wyszukaj informacje o spawaniu hybrydowym');
+      expect(requests, 1);
+      expect(find.textContaining('Nie udało mi się potwierdzić'), findsWidgets);
+      expect(find.textContaining('Źródła internetowe'), findsNothing);
+      final retry = find.byKey(const Key('assistant-persistent-retry'));
+      expect(retry, findsOneWidget);
+      await t.ensureVisible(retry);
+      await t.tap(retry);
+      await settle(t);
+      expect(requests, 2);
+      expect(find.textContaining('Potwierdzona informacja testowa'), findsWidgets);
+      expect(find.textContaining('Źródła internetowe'), findsWidgets);
+      expect(find.textContaining('twi-global.com'), findsWidgets);
+      expect(t.takeException(), isNull);
+    }, () => MockClient((r) async {
+      if (!r.url.path.endsWith('/ai/chat')) {
+        throw StateError('Unexpected request');
+      }
+      requests++;
+      return http.Response(jsonEncode({
+        'text': requests == 1 ? 'Nie udało mi się potwierdzić informacji.'
+            : 'Potwierdzona informacja testowa [1].',
+        'research_status': requests == 1 ? 'unverified' : 'verified_sources',
+        'web_sources': requests == 1 ? [] : [
+          {'title': 'Źródło testowe', 'url': 'https://www.twi-global.com/fixture'}
+        ],
+        'calculator_context_used': true,
+      }), 200, headers: {'content-type': 'application/json; charset=utf-8'});
+    }));
+  });
   testWidgets('offline gas advice gives a command that opens the selector',
       (t) async {
     await http.runWithClient(() async {
