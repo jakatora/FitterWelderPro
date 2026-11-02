@@ -2,6 +2,7 @@
 
 import 'dart:math' as math;
 import '../assistant/core/calculator_action_tools.dart';
+import '../assistant/core/calculator_result_readback.dart';
 import '../assistant/core/skill.dart' show AssistantText, ModuleActionResult;
 import '../assistant/core/tool_bridge.dart';
 
@@ -150,7 +151,7 @@ bool _positive(double? v) => v != null && v > 0;
 
 class _FitterToolsScreenState extends State<FitterToolsScreen>
     with SingleTickerProviderStateMixin, ToolHandleHost<FitterToolsScreen>
-    implements TabbedToolHandle, InputToolHandle, ModuleActionHandle {
+    implements TabbedToolHandle, InputToolHandle, ModuleActionHandle, CalculatorResultToolHandle {
   late final TabController _tabs;
   final _keys = List.generate(8, (_) => GlobalKey());
   @override
@@ -165,6 +166,13 @@ class _FitterToolsScreenState extends State<FitterToolsScreen>
     return state is _FitterTabReadable
         ? Map.unmodifiable((state as _FitterTabReadable).inputFields)
         : const {};
+  }
+
+  @override
+  CalculatorResultReadback? get questionResult {
+    if (toolId != 'pipe_weight') return null;
+    final state = _keys[_tabs.index].currentState;
+    return state is _PipeWeightTabState ? state.questionResult : null;
   }
 
   @override
@@ -2063,6 +2071,16 @@ class _PipeWeightTabState extends State<_PipeWeightTab>
         'quantity': parseDecimal(_qty.text),
         'material': _mat.name,
       };
+  PipeWeightResultReadback get questionResult {
+    if (_error != null || _kgm == null) return const PipeWeightResultReadback();
+    double? shown(double? value, int decimals) =>
+        value == null ? null : double.parse(value.toStringAsFixed(decimals));
+    return PipeWeightResultReadback(
+      kgPerM: shown(_kgm, 3), kgPerPiece: shown(_kgPiece, 3),
+      kgTotal: shown(_kgTotal, 2),
+    );
+  }
+
   @override
   Set<String> applyFields(Map<String, Object?> f) {
     final od = _finite(f, 'od_mm'),

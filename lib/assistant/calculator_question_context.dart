@@ -21,9 +21,13 @@ class CalculatorQuestionContext {
     'heat_input': {'volts', 'amps', 'travel_mm_min', 'efficiency'},
     'rolling_offset': {'rise_mm', 'spread_mm', 'angle_deg', 'dn', 'gap_mm'},
     'pipe_slope': {'length_mm', 'rise_mm', 'slope_pct'},
+    'pipe_weight': {'od_mm', 'wall_mm', 'length_mm', 'quantity'},
     'pipe_route': {'h1_mm', 'h2_mm', 'x_mm', 'y_mm', 'r_mm', 'gap_mm', 'dn'},
   };
   static const _choices = {
+    'pipe_weight': {
+      'material': {'ss316', 'ss304', 'cs', 'al'},
+    },
     'heat_input': {
       'process': {'SMAW', 'GMAW', 'FCAW-G', 'FCAW-S', 'GTAW', 'SAW'},
       'standard': {'en1011', 'asmeIx'},
@@ -63,7 +67,8 @@ class CalculatorQuestionContext {
     final permitted =
         id == 'heat_input' && readback is HeatInputResultReadback ||
             id == 'rolling_offset' && readback is RollingOffsetResultReadback ||
-            id == 'pipe_slope' && readback is PipeSlopeResultReadback;
+            id == 'pipe_slope' && readback is PipeSlopeResultReadback ||
+            id == 'pipe_weight' && readback is PipeWeightResultReadback;
     final results = permitted ? readback!.toJson() : null;
     return values.isEmpty
         ? null
