@@ -61,3 +61,7 @@ Artifacts `research-qa-v2-virtual-*` and `research-link-rendering-*` in the 2026
 ## Real-model clarification scenario
 
 `live_clarification_test.dart` asks an underspecified shielding-gas question. It requires an actual AI clarification about essential process/material information, displays that question, then supplies TIG/316L and verifies the exact original question in the outgoing clarification context, backend acknowledgement and a final contextual answer on screen. At most two chat transports are allowed, with existing fresh-install/consent/private-fixture cleanup protections. No model/network/platform mocking. Device result pending.
+
+## Real-model clarification result — 2026-11-02
+
+`matrix-346a450rn5oft` FINISHED/SUCCESS on virtual MediumPhone.arm/API35/pl_PL: one native testcase, zero failures/skips, 25s plus3s processing. Two actual chat HTTP200 requests after actual consent. Model requested process/material; TIG/316L shielding-gas detail led to the final contextual answer. Exact original question preserved in question_clarification.user_turns, server acknowledgement true, both answers visible (video frames27/30). No module question, retries or additional transports. Own-installation DELETE200/ok, private fixture removed. Production lib unchanged versus9c025f3; diagnostic debug scope, no microphone/release AOT/iOS runtime proof. Evidence clarification-qa-virtual-* in the2026-11-02 artifact directory; exact provider cost unavailable.
