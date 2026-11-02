@@ -1,5 +1,14 @@
 # QA-COCKPIT — FitterWelderPro
 
+## Dokładny APK 0.5.21 — DN50 i kalkulator offline PASS, 2026-11-02
+
+- Test uruchomił niezmieniony podpisany APK0.5.21/2040,SHA256 `1f06bce690cedd4a1f48da582e3edfd0a1655f8040fe076b4bfa76c51a2f0037`,bezdebug/testowegoDarta. Osobny APK instrumentacji z certyfikatem wydania; użyto wyłącznie klasyRelease0521SmokeTest, nie starszego testu0.5.20 ani pomocniczego hostAPK.
+- FirebaseTestLab `matrix-2phllj0l6e1ce` SUCCESS,1test/0błędów/pominięć,19s+3sprzetwarzania,MediumPhoneARM64/API35/PL. Brak aktywnej sieci przed startem i przy odczycie. Rzeczywista klawiatura wyszukujeDN50; otwartyDN-MM ma pole50 i widoczny wierszOD60.30. Po powrocie Home otwiera kalkulator i wpisuje60.3/3.91/1000/2,uzyskując5.541kg/m/5.541kg/szt./11.08kg.
+- Obejrzano oba natywne zrzuty ekranu; DN50 pokazuje także pozostałe serie wymiarowe, bez zakładania jednej średnicy dla każdegoDN. XML,raport i znacznikBase64 wlogu zgodne znową klasą/wersją/hash. Log3598846B:0FATAL EXCEPTION,0E/flutter,0ANRaplikacji; nagranie3850643B pobrano. Własne dane testoweDELETE200/ok,prywatny plikodzyskiwania usunięty,bez zapytańAI/publicznegoczatu.
+- BillingFirebasefalse; bez podłączonego telefonu lokalnego. Osobny odczyt metryk limitów był niedostępny; samo przyjęcie i wykonanie przebiegu potwierdziło możliwość tego testu. Nie włączano rozliczeń ani nie ponawiano fizycznych testów z wyczerpanym limitem.
+- Dowody `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/release0521-native-qa-verification.json`, `release0521-native-qa-release-dn50.png`, `release0521-native-qa-release-calculator.png`,raport/XML/log/nagranie wtym samym katalogu. v0521-release-summary.json ma teraz jawny zakres interakcjiAOT ioddzielnie brak testu fizycznego urządzenia. QA testbc41014,końcowa dokumentacja770e0ff,pushpotwierdzony.
+- Ten przebieg nie testujeAIrozmowy,szkicu„Ponów”,mikrofonu,iOS ani fizycznegoruntime16KB. APK/backend/iOS pozostają bez zmian. To nowy dowód urządzeniowy dla0.5.21; nie wynik przeniesiony ze starszej wersji.
+
 ## iOS 0.5.21 (1086) — Apple potwierdziło wewnętrzną betę, 2026-11-02
 
 - **VALID / IN_BETA_TESTING** potwierdzone przezAPIApple2026-11-02T06:28:04.233697Z. App6761770166,bundlecom.jakatora.fitterwelderpro,buildApple `80eb73d8-5b44-4b0f-96f7-a431a9fcfdf1`. Zewnętrzny stanREADY_FOR_BETA_SUBMISSION,reviewnull; nie zgłaszano zewnętrznej bety.
