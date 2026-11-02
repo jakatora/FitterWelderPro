@@ -1,5 +1,14 @@
 # QA-COCKPIT — FitterWelderPro
 
+## Android 0.5.19 — podpisany APK gotowy, 2026-11-02
+
+- **APK0.5.19/2038 arm64 GOTOWY**: `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/FitterWelder-Pro-0.5.19-arm64.apk`,39161553B, SHA256 `2773e20afa88ffac1838e6edf3c8a3c82b4c296118c23cc480a6a3314d5a002b`. Źródło `08cca669946b723507744bc86528c54045f7f028`, wersja źródłowa0.5.19+38.
+- Zawiera lepszą obsługę błędów rozpoznawania mowy (`9446754`) i kopiowanie odpowiedzi z kontekstem/źródłami oraz oznaczeniem offline (`af83e35`). W skompilowanym libapp.so potwierdzono nowe ciągiPL/EN, nieobecne w0.5.18; AOT SHA256 `3f4759232e473891bdda4bc541372c01ebfab1207feba3829c57309f6e43377c` różni się od poprzedniego wydania.
+- Czysty worktree `G:/Projekty/FitterWelderPro-release-0.5.19`, zależności z canonicalcommittedlockSHA `b4be63098b21a8ddc447318b54259366aaecd6f2643266e51253999dc8f0a135`. **260 testów/21 zestawów PASS**,79,223s,0błędów/pominięć. Wybrane zestawy obejmują głos, rozmowę, zgody, nawigację i kalkulatory; nie jest to pełny ponowiony zestaw bieżącego kodu.
+- Pełna analiza **No issues found**,34,8s; release build204,1s. Pakiet `com.startklaar.fitterwelder`, bez debug, podpisv2/certyfikatwydania `8cb31ad1f1e00afe899d53dcb75e0b644b1594db166d79b1e78bf72da6f9dbb8`, zipalign16KB, pięć bibliotekELF64 zLOAD>=16KB. Brak integracyjnych fixturemarkerów/testcode.
+- Raporty `v0519-release-summary.json`, `v0519-targeted-suite-summary.json`, `fwp-08cca66-arm64-android-release-artifact-check.json`, `v0519-aot-comparison.json`, `v0519-feature-markers.json` w katalogu artefaktów2026-11-02.
+- Zakres: testyWindows i kontrola gotowej binarki. Fizyczny mikrofon/schowek oraz runtime16KB nie były w tej turze testowane. iOS pozostaje0.5.18(1083), bez tych dwóch nowych zmian. Backend bez zmian; bez wysyłki email lub publikacji sklepowej.
+
 ## Kopiowanie odpowiedzi z kontekstem i źródłami — 2026-11-02
 
 - W bieżącej rozmowie i pełnym widoku czatu odpowiedzi mają przycisk **Kopiuj odpowiedź / Copy answer**. Kopiowany jest pełny tekst, kontekst i odnośniki ze źródeł; powtórzone odnośniki są pomijane. Pomoc offline zachowuje swoje oznaczenie również po skopiowaniu. Kopiowanie następuje wyłącznie po naciśnięciu przycisku, bez wysyłania wiadomości lub wywołania AI.
