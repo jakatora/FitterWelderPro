@@ -294,6 +294,18 @@ void main() {
       await tester.tap(find.text('Add segment'));
       await tester.pumpAndSettle();
       expect(wall, findsOneWidget, reason: 'cancelling allows a fresh attempt');
+      for (final invalid in ['30,15', '40']) {
+        await tester.enterText(wall, invalid);
+        await tester.tap(find.text('OK'));
+        await tester.pumpAndSettle();
+        expect(find.byType(SegmentBuilderScreen), findsNothing);
+        expect(find.text('Wall thickness must be less than half the outside diameter.'),
+            findsOneWidget);
+      }
+      await tester.enterText(wall, '0');
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      expect(find.text('Enter a positive wall thickness.'), findsOneWidget);
       await tester.enterText(wall, '2,77');
       await tester.tap(find.text('OK'));
       await tester.pumpAndSettle();

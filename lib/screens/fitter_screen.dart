@@ -615,6 +615,7 @@ class _WallBehindReducerDialog extends StatefulWidget {
 
 class _WallBehindReducerDialogState extends State<_WallBehindReducerDialog> {
   final _c = TextEditingController();
+  String? _error;
 
   @override
   void dispose() {
@@ -624,7 +625,20 @@ class _WallBehindReducerDialogState extends State<_WallBehindReducerDialog> {
 
   void _submit() {
     final v = parseDecimal(_c.text);
-    if (v == null || !v.isFinite || v <= 0) return;
+    if (v == null || !v.isFinite || v <= 0) {
+      setState(() => _error = context.tr(
+        pl: 'Podaj dodatnią grubość ścianki.',
+        en: 'Enter a positive wall thickness.',
+      ));
+      return;
+    }
+    if (v >= widget.diameterMm / 2) {
+      setState(() => _error = context.tr(
+        pl: 'Grubość ścianki musi być mniejsza niż połowa średnicy zewnętrznej.',
+        en: 'Wall thickness must be less than half the outside diameter.',
+      ));
+      return;
+    }
     Navigator.pop(context, v);
   }
 
@@ -641,10 +655,14 @@ class _WallBehindReducerDialogState extends State<_WallBehindReducerDialog> {
         autofocus: true,
         keyboardType: numberKeyboard(),
         inputFormatters: numberInputFormatters(),
+        onChanged: (_) {
+          if (_error != null) setState(() => _error = null);
+        },
         onSubmitted: (_) => _submit(),
         decoration: InputDecoration(
           labelText:
               context.tr(pl: 'Grubość ścianki (mm)', en: 'Wall thickness (mm)'),
+          errorText: _error,
           helperText: context.tr(
             pl: 'Po redukcji zmienia się rura — podaj jej ściankę.',
             en: 'The pipe changes at the reducer — enter its wall.',
