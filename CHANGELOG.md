@@ -2,6 +2,13 @@
 
 All notable changes per AGENTS.md directive. Newest first.
 
+## 0.5.21 — 2026-11-02
+
+- Home search accepts catalogued DN designations such as DN50 and DN 100, opening the sizing table at the requested row by tap or keyboard submission. Unsupported sizes are not substituted.
+- DN and OD keyword searches avoid unrelated word fragments; the compact assistant hint includes questions and calculations.
+- Retrying a failed AI answer preserves a new draft. The full chat remains editable while an answer is pending, with button and keyboard submission blocked until completion.
+- Server update: native mass/geometry explanations omit unrelated WPS footers and routine cautions; heat-input and technical-knowledge verification reminders remain.
+
 ## 0.5.20 — 2026-11-02
 
 - Server update: conversation answers list only model-attributed app knowledge sections, rather than every retrieved fragment. Native-result explanations can omit unrelated app materials; the public citation format is unchanged.
