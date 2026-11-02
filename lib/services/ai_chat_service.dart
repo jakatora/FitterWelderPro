@@ -405,7 +405,21 @@ class AiChatService {
     final prefix = en
         ? '(Offline mode — in-app help, not an AI answer.)'
         : '(Tryb offline — pomoc z aplikacji, nie odpowiedź AI.)';
-    final hits = searchHelp(userText, lang, limit: 1);
+    // Generic question words alone must not select an unrelated help entry.
+    const questionWords = {
+      'jak', 'jaka', 'jakie', 'jaki', 'czy', 'co', 'czym', 'jest', 'sa',
+      'na', 'do', 'dla', 'przy', 'w', 'z', 'ze', 'od', 'o', 'po', 'mi', 'mnie', 'prosze',
+      'powiedz', 'wyjasnij', 'what', 'how', 'can', 'could', 'i', 'you',
+      'the', 'a', 'an', 'is', 'are', 'does', 'to', 'for', 'in', 'on',
+      'of', 'please', 'tell', 'me', 'explain',
+    };
+    final terms = normalizeForSearch(userText).split(' ')
+        .where((term) => term.length >= 2 && !questionWords.contains(term)).toSet();
+    final query = terms.join(' ');
+    // A single shared word in a longer unrelated question is too weak.
+    final requiredMatches = terms.length <= 1 ? 1 : 2;
+    final hits = searchHelp(query, lang)
+        .where((hit) => hit.matchedTerms.length >= requiredMatches).take(1).toList();
     if (hits.isEmpty) {
       return ChatMessage(
         role: ChatRole.assistant,
@@ -420,7 +434,7 @@ class AiChatService {
       role: ChatRole.assistant,
       kind: AiReplyKind.offlineHelp,
       text:
-          '$prefix\n\n${hit.entry.question(lang)}\n\n${hit.entry.answer(lang)}',
+          '$prefix\n\n${en ? 'Closest help entry — it may not cover the whole question.' : 'Najbliższy wpis pomocy — może nie obejmować całego pytania.'}\n\n${hit.entry.question(lang)}\n\n${hit.entry.answer(lang)}',
       citations: [hit.category.title(lang)],
     );
   }
