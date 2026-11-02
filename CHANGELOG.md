@@ -2,6 +2,12 @@
 
 All notable changes per AGENTS.md directive. Newest first.
 
+## 0.5.17 — 2026-11-02
+
+- Follow-up questions starting with “Czyli”, “Więc”, “So” and similar conversational phrases stay in the knowledge conversation with the prior exchange instead of entering command interpretation.
+- Explicit commands after a conversational connector still retain the action workflow; questions about the meaning of an action do not execute it.
+- The routing fix passed 137 local regression tests and targeted static analysis. Physical post-fix verification and release validation are recorded separately in QA-COCKPIT.
+
 ## 0.5.16 — 2026-11-02
 
 - Short follow-ups retain the initiating knowledge question after a failed AI reply, including consecutive failures. Cancellation and explicit topic changes still end the old context.
