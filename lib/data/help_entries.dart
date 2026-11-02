@@ -232,6 +232,29 @@ List<HelpCategory> kHelpCategories = [
         tags: ['tungsten', 'ostrzenie', 'sharpening', 'grinding', 'angle'],
       ),
       HelpEntry(
+        id: 'gas-selection',
+        question: _bi(
+          'Jak dobrać gaz osłonowy do spawania?',
+          'How do I choose a shielding gas for welding?',
+        ),
+        answer: _bi(
+          'Dobór zależy od procesu i materiałów łączonych w złączu. '
+          'Sprawdź metodę spawania oraz dokładne gatunki obu materiałów. '
+          'W narzędziu „Dobór spoiwa” wybierz oba materiały i proces, aby '
+          'sprawdzić typową propozycję gazu. Wiążący dobór sprawdź w WPS '
+          'i dokumentacji producenta; bez tych danych nie wybieraj mieszanki '
+          'wyłącznie na podstawie ogólnego określenia „nierdzewka”.',
+          'Selection depends on the process and the materials in the joint. '
+          'Check the welding process and the exact grades of both materials. '
+          'In the “Filler metal selector”, select both materials and the '
+          'process to see the typical gas suggestion. Check the binding '
+          'selection against the WPS and manufacturer documentation; do not '
+          'choose a mixture from the general term “stainless steel” alone.',
+        ),
+        tags: ['gaz', 'oslonowy', 'dobor', 'dobrac', 'wybrac', 'nierdzewka',
+          'shielding', 'gas', 'choose', 'select', 'stainless', 'welding'],
+      ),
+      HelpEntry(
         id: 'gas-flow',
         question: _bi(
           'Jaki przepływ gazu osłonowego ustawić?',

@@ -433,8 +433,12 @@ class AiChatService {
       }
       return matches >= requiredMatches;
     }
+    final asksFlow = terms.any((term) =>
+        term.startsWith('przeplyw') || term == 'flow' || term == 'flowrate');
     final hits = searchHelp(query, lang)
-        .where((hit) => hit.matchedTerms.length >= requiredMatches && supportedByWords(hit))
+        .where((hit) =>
+            !(asksFlow && hit.entry.id == 'gas-selection') &&
+            hit.matchedTerms.length >= requiredMatches && supportedByWords(hit))
         .take(1).toList();
     if (hits.isEmpty) {
       return ChatMessage(

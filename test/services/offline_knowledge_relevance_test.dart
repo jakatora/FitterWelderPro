@@ -5,6 +5,53 @@ import 'package:cut_list_app/services/ai_chat_service.dart';
 void main() {
   final original = AppLanguageController.current;
   tearDown(() => AppLanguageController.current = original);
+  for (final query in [
+    'Pomóż mi dobrać gaz osłonowy do nierdzewki',
+    'Jaki gaz osłonowy wybrać do spawania stali nierdzewnej?',
+  ]) {
+    test('offline shielding gas selection gives actionable context: $query', () {
+      AppLanguageController.current = AppLanguage.pl;
+      final reply = AiChatService.instance.offlineReply(query);
+      expect(reply.text, contains('Dobór spoiwa'));
+      expect(reply.text, contains('gatunk'));
+      expect(reply.text, contains('proces'));
+      expect(reply.text, contains('WPS'));
+      expect(reply.citations, isNotEmpty);
+    });
+  }
+  test('English offline gas selection points to the selector', () {
+    AppLanguageController.current = AppLanguage.en;
+    final reply = AiChatService.instance.offlineReply(
+        'Help me choose a shielding gas for stainless steel welding');
+    expect(reply.text, contains('Filler metal selector'));
+    expect(reply.text, contains('grade'));
+    expect(reply.text, contains('process'));
+    expect(reply.text, contains('WPS'));
+    expect(reply.citations, isNotEmpty);
+  });
+  for (final language in AppLanguage.values) {
+    test('gas flow question still finds the flow entry: $language', () {
+      AppLanguageController.current = language;
+      final reply = AiChatService.instance.offlineReply(language == AppLanguage.pl
+          ? 'Jaki przepływ gazu osłonowego ustawić?'
+          : 'What shielding gas flow should be set?');
+      expect(reply.text, contains(language == AppLanguage.pl
+          ? 'Jaki przepływ gazu osłonowego ustawić?'
+          : 'What shielding gas flow should be set?'));
+    });
+  }
+  for (final query in [
+    'Jaki przepływ gazu osłonowego do spawania nierdzewki TIG?',
+    'What shielding gas flow for stainless steel TIG welding?',
+  ]) {
+    test('gas flow is not mistaken for gas selection: $query', () {
+      AppLanguageController.current = query.startsWith('What')
+          ? AppLanguage.en : AppLanguage.pl;
+      final reply = AiChatService.instance.offlineReply(query);
+      expect(reply.text, isNot(contains('Filler metal selector')));
+      expect(reply.text, isNot(contains('Dobór spoiwa')));
+    });
+  }
   test('porosity question does not return unrelated imported weld help', () {
     AppLanguageController.current = AppLanguage.pl;
     final reply =
