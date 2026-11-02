@@ -69,3 +69,7 @@ Artifacts `research-qa-v2-virtual-*` and `research-link-rendering-*` in the 2026
 ## Native pipe-weight result question scenario
 
 `live_pipe_weight_test.dart` sends a local mass-calculation command through the real assistant UI, shows the actual calculator result, then asks the real model to explain the visible values after actual consent. It permits one chat transport, requires exact native context and server acknowledgement, user-facing labels, visible answer, unchanged native inputs and own-installation cleanup. No model/platform/network mocks. Production lib matches9babb9f (client version0.5.19+38); device result pending. This is a diagnostic build, not the shipped0.5.19 APK.
+
+## Native pipe-weight result UI proof — 2026-11-02
+
+`matrix-1u2kt3fkhy6lj` FINISHED/SUCCESS: virtualMediumPhone.arm/API35/pl_PL,1nativecase/0fail/skips,16s+3s processing. Local command opened actual pipe calculator and showed5.541kg/m,5.541kg/piece,11.08kgtotal with zeroAI. Actual consent then1chatHTTP200, exact native context, server acknowledgement, displayed natural-language answer and unchanged inputs. Frames14/21 inspected. CleanupDELETE200/ok/privatefilegone, noFATAL/Eflutter/appANR. No retries, billingfalse. Diagnostic source5f3099d/prodlib9babb9f/backend60fecd1; not shipped0.5.19AOT or physicalmic/iOS proof. Evidence pipe-weight-ui-qa-virtual-* in2026-11-02 artifacts.
