@@ -9,6 +9,8 @@
 //   * the decoding of the packed `iso_ref` column a restore depends on,
 //   * and the restore itself, driven through the real screen.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -131,6 +133,59 @@ void main() {
   });
 
   group('editing a saved segment', () {
+    testWidgets('pending save blocks back and repeated saves until it finishes',
+        (tester) async {
+      _useTallPhone(tester);
+      final pending = Completer<void>();
+      var calls = 0;
+      Map<String, dynamic>? saved;
+      await tester.pumpWidget(_wrap(Builder(
+          builder: (context) => Scaffold(
+                body: TextButton(
+                    onPressed: () async {
+                      saved = await Navigator.of(context)
+                          .push<Map<String, dynamic>>(
+                        MaterialPageRoute(
+                            builder: (_) => SegmentBuilderScreen(
+                                  materialGroup: 'SS',
+                                  currentDiameter: 60.3,
+                                  wallThickness: 2.77,
+                                  gapMm: 0,
+                                  existing: _savedSegment(),
+                                  onSave: (result) {
+                                    calls++;
+                                    return pending.future;
+                                  },
+                                )),
+                      );
+                    },
+                    child: const Text('Open editor')),
+              ))));
+      await tester.tap(find.text('Open editor'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '1250');
+      await tester.pump();
+      await tester.ensureVisible(find.text('Save changes'));
+      final button = find.ancestor(
+          of: find.text('Save changes'), matching: find.byType(ElevatedButton));
+      final save = tester.widget<ElevatedButton>(button).onPressed!;
+      save();
+      save();
+      await tester.pump();
+      expect(calls, 1);
+      expect(find.text('Saving…'), findsOneWidget);
+      expect(tester.widget<TextField>(find.byType(TextField)).enabled, isFalse);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(SegmentBuilderScreen), findsOneWidget);
+      expect(find.textContaining('discard', findRichText: true), findsNothing);
+      pending.complete();
+      await tester.pumpAndSettle();
+      expect(find.byType(SegmentBuilderScreen), findsNothing);
+      expect(saved!['cutMm'], 1250);
+      expect(calls, 1);
+    });
+
     testWidgets('rapid repeated save returns to the project exactly once',
         (tester) async {
       _useTallPhone(tester);
