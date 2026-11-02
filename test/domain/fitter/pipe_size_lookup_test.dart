@@ -9,6 +9,14 @@ import 'package:cut_list_app/data/pipe_schedules.dart';
 import 'package:cut_list_app/domain/fitter/pipe_size_lookup.dart';
 
 void main() {
+  test('invalid table-shaped NPS values do not overflow or divide by zero', () {
+    final digits = '9' * 400;
+    for (final value in ['1/0"', '$digits/2"', '1/$digits"', '$digits"',
+      '99999999999999999999/2"']) {
+      expect(npsInchesOf(value), isNull, reason: value);
+    }
+    expect(npsInchesOf('1 1/2"'), 1.5);
+  });
   group('odForDn — seria główna', () {
     test('DN40 → 48,3 (ASME + EN seria 1)', () {
       expect(odForDn(40), 48.3);

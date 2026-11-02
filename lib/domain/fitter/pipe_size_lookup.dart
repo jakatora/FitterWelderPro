@@ -8,6 +8,7 @@
 // Nieznany rozmiar → null / pusta lista (nie zgadujemy „najbliższego").
 
 import '../../data/nps_dn_od_r.dart';
+import 'size_query.dart';
 
 /// Źródło liczb DN → OD (normy wymiarowe rur, NIE ISO 6708 — ta definiuje
 /// tylko samo oznaczenie DN).
@@ -66,11 +67,10 @@ double? odForDn(int dn) {
 
 /// Rozmiar NPS w calach z zapisu tabeli („1 1/4"" = 1,25, „2"" = 2) albo null.
 double? npsInchesOf(String nps) {
+  if (nps.length > 128) return null;
   final m = RegExp(r'^(?:(\d+)\s+)?(?:(\d+)/(\d+)|(\d+))"$').firstMatch(nps);
   if (m == null) return null;
-  if (m[4] != null) return double.parse(m[4]!);
-  final whole = m[1] == null ? 0 : int.parse(m[1]!);
-  return whole + int.parse(m[2]!) / int.parse(m[3]!);
+  return parseNpsInches(nps.substring(0, nps.length - 1));
 }
 
 bool _sameInches(String nps, double inches) {

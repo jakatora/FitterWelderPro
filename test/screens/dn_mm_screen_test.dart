@@ -9,6 +9,24 @@ import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/screens/dn_mm_screen.dart';
 
 void main() {
+  testWidgets('oversized inch fraction does not break search and can be corrected', (tester) async {
+    tester.view.physicalSize = const Size(900, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(AppLanguageScope(
+      controller: AppLanguageController(AppLanguage.pl),
+      child: const MaterialApp(home: DnMmScreen()),
+    ));
+    final search = find.byType(TextField).at(2);
+    await tester.enterText(search, '99999999999999999999/2"');
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('60.30'), findsNothing);
+    await tester.enterText(search, '2"');
+    await tester.pumpAndSettle();
+    expect(find.text('60.30'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('DN100 → wiersz OD 114.30 z R 152.40 i serią ASME / EN s.1',
       (tester) async {
     tester.view.physicalSize = const Size(900, 1800);

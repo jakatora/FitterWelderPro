@@ -23,6 +23,15 @@ void main() {
     expect(parseNpsInches('abc'), isNull);
     expect(parseNpsInches('1/0'), isNull);
   });
+  test('oversized and non-finite inch inputs are safely rejected', () {
+    final digits = '9' * 400;
+    for (final q in ['$digits/2', '1/$digits', '$digits 1/2', digits,
+      '99999999999999999999/2', '1/99999999999999999999', '1/0']) {
+      expect(parseNpsInches(q), isNull, reason: q);
+      expect(sizeQueryMatches('$q"', dn: 50, nps: '2"'), isFalse, reason: q);
+    }
+    expect(parseNpsInches('1 1/2'), 1.5);
+  });
 
   test('2" / 2 cale / 2 cali / 2 in → tylko NPS 2 (DN50)', () {
     for (final q in ['2"', '2 "', '2 cale', '2 cali', '2 cala', '2cal', '2 in',
