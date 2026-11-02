@@ -17,6 +17,8 @@ import 'package:cut_list_app/database/project_dao.dart';
 import 'package:cut_list_app/models/job_listing.dart';
 import 'package:cut_list_app/models/project.dart';
 import 'package:cut_list_app/screens/ai_chat_screen.dart';
+import 'package:cut_list_app/screens/database_recovery_screen.dart';
+import 'package:cut_list_app/data/database_location_problem.dart';
 import 'package:cut_list_app/screens/account_screen.dart';
 import 'package:cut_list_app/services/account_service.dart';
 import 'package:cut_list_app/screens/bolt_torque_screen.dart';
@@ -181,6 +183,10 @@ class _OfflineHttpClient implements HttpClient {
 
 Widget buildAuditedScreen(String entryPoint) => switch (entryPoint) {
       'AiChatScreen' => const AiChatScreen(),
+      'DatabaseRecoveryScreen' => DatabaseRecoveryScreen(
+          problem: const DatabaseLocationProblem(candidates: []),
+          onSelect: (_, __) async {},
+        ),
       'BoltTorqueScreen' => const BoltTorqueScreen(),
       'ChatScreen' => ChatScreen(
           loadRooms: () async =>

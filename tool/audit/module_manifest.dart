@@ -64,6 +64,19 @@ const moduleManifest = <ModuleAuditEntry>[
       scenario:
           'Użytkownik wysyła pytanie o spawanie i otrzymuje odpowiedź bez uruchamiania płatnej funkcji.'),
   ModuleAuditEntry(
+      id: 'database-recovery',
+      entryPoint: 'DatabaseRecoveryScreen',
+      sourcePath: 'lib/screens/database_recovery_screen.dart',
+      category: AuditCategory.project,
+      risk: AuditRisk.high,
+      status: AuditStatus.unverified,
+      scenario:
+          'Windows: wybór istniejącej lub przeniesionej bazy po konflikcie, z potwierdzeniem i bez nadpisywania pozostałych plików.',
+      evidence: [
+        'test/data/database_recovery_screen_test.dart: wybór, anulowanie i wskazanie przeniesionego pliku (mock pickera)',
+        'test/data/windows_database_location_test.dart: kontrola bazy i zachowanie danych; bez testu natywnego okna',
+      ]),
+  ModuleAuditEntry(
       id: 'bolt-kit',
       entryPoint: 'BoltKitPage',
       sourcePath: 'lib/features/bolt_kit/bolt_kit_page.dart',

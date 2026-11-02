@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:cut_list_app/data/database_location_problem.dart';
 import 'package:cut_list_app/screens/database_recovery_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 
 void main() {
   testWidgets('choice requires confirmation and passes the selected database',
@@ -36,7 +39,8 @@ void main() {
   testWidgets('a moved database can be located without using a different file',
       (tester) async {
     String? selected;
-    var file = r'C:\Moved\unrelated.db';
+    final moved = p.join(Directory.systemTemp.path, 'fwp-fixture', 'Moved');
+    var file = p.join(moved, 'unrelated.db');
     await tester.pumpWidget(MaterialApp(
       theme: ThemeData(splashFactory: NoSplash.splashFactory),
       home: DatabaseRecoveryScreen(
@@ -54,11 +58,11 @@ void main() {
     expect(find.text('Wybierz plik cutlist.db. / Select the cutlist.db file.'),
         findsOneWidget);
     expect(selected, isNull);
-    file = r'C:\Moved\cutlist.db';
+    file = p.join(moved, 'cutlist.db');
     await tester.tap(find.text('Znajdź plik bazy / Find database file'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Wybierz / Select'));
     await tester.pumpAndSettle();
-    expect(selected, r'C:\Moved');
+    expect(selected, moved);
   });
 }
