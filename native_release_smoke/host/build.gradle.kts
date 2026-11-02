@@ -29,5 +29,6 @@ android {
 tasks.withType<JavaCompile>().configureEach { options.encoding = "UTF-8" }
 dependencies {
  androidTestImplementation("androidx.test:runner:1.6.2")
+ androidTestImplementation("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
  androidTestImplementation("junit:junit:4.13.2")
 }
