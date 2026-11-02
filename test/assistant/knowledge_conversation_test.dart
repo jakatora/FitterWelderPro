@@ -13,6 +13,45 @@ import 'global_pipe_slope_flow_test.dart' show say, settle;
 void main() {
   useGuestAccount();
   useTestDatabase();
+  testWidgets('offline gas advice reaches the user and offers a retry',
+      (t) async {
+    var chatRequests = 0;
+    await http.runWithClient(() async {
+      await mount(t, interpret: (_) async =>
+          throw StateError('Advice must not enter the module interpreter'));
+      PremiumService.instance.resetForTest();
+      await say(t, 'Pomóż mi dobrać gaz osłonowy do nierdzewki');
+      expect(chatRequests, 1);
+      expect(find.textContaining('Tryb offline'), findsWidgets);
+      expect(find.textContaining('Dobór spoiwa'), findsWidgets);
+      expect(find.textContaining('WPS'), findsWidgets);
+      expect(find.textContaining('Które narzędzie'), findsNothing);
+      final retry = find.byKey(const Key('assistant-persistent-retry'));
+      expect(retry, findsOneWidget);
+      await t.enterText(find.byKey(const Key('assistant-command')), 'Nowy szkic');
+      await t.ensureVisible(retry);
+      await t.tap(retry);
+      await settle(t);
+      expect(chatRequests, 2);
+      expect(find.textContaining('Podaj metodę i gatunek materiału'), findsWidgets);
+      expect(t.widget<TextField>(find.byKey(const Key('assistant-command')))
+          .controller!.text, 'Nowy szkic');
+      expect(t.takeException(), isNull);
+    }, () => MockClient((r) async {
+      if (r.url.path.endsWith('/ai/chat')) {
+        chatRequests++;
+        if (chatRequests == 1) throw http.ClientException('Offline test');
+        expect((jsonDecode(r.body) as Map)['message'],
+            'Pomóż mi dobrać gaz osłonowy do nierdzewki');
+        return http.Response(jsonEncode({
+          'text': 'Podaj metodę i gatunek materiału',
+          'needs_clarification': true,
+          'calculator_context_used': true,
+        }), 200, headers: {'content-type': 'application/json; charset=utf-8'});
+      }
+      throw StateError('Unexpected network request in offline test');
+    }));
+  });
   testWidgets('help choosing a gas goes to AI and accepts a clarification',
       (t) async {
     const question = 'Pomóż mi dobrać gaz osłonowy do nierdzewki';
