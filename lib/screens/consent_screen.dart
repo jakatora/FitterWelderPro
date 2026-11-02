@@ -208,23 +208,28 @@ class _Bullets extends StatelessWidget {
               context.tr(
                 pl: 'Treść pytania (i kilka ostatnich wiadomości rozmowy) '
                     'wysyłamy na nasz serwer, a stamtąd do Anthropic (model '
-                    'Claude), który przygotuje odpowiedź. Nie zapisujemy pytań '
-                    'ani odpowiedzi.',
+                    'Claude), który przygotuje odpowiedź. Możemy dołączyć dane '
+                    'widocznego kalkulatora lub podsumowanie rysunku. AI może '
+                    'utworzyć zapytanie do wyszukiwarki internetowej. Nie '
+                    'zapisujemy pytań ani odpowiedzi.',
                 en: 'We send the question (and a few recent messages of the '
                     'conversation) to our server and on to Anthropic (the '
-                    'Claude model), which prepares the answer. We do not '
-                    'store questions or answers.',
+                    'Claude model), which prepares the answer. We may include '
+                    'visible calculator data or a drawing summary. AI may '
+                    'create a web search query. We do not store questions or answers.',
               )
             ),
             (
               Icons.person_off_outlined,
               context.tr(
-                pl: 'Nie wysyłamy imienia ani nazwiska — serwer widzi tylko '
-                    'identyfikator instalacji. Nie wpisuj w pytaniach danych '
-                    'osobowych.',
-                en: 'We do not send your name — the server only sees the '
-                    'installation identifier. Do not put personal data in '
-                    'your questions.',
+                pl: 'Nie wysyłamy imienia ani nazwiska automatycznie do modelu. '
+                    'Jeśli włączysz profil zawodowy, serwer użyje sesji konta '
+                    'i dołączy zawód, metody spawania oraz staż. Nie wpisuj '
+                    'danych osobowych ani poufnych.',
+                en: 'We do not automatically send your name to the model. '
+                    'If you enable the professional profile, the server uses '
+                    'your account session and adds your profession, welding '
+                    'processes and experience. Do not enter personal or confidential data.',
               )
             ),
             (

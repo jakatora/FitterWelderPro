@@ -45,6 +45,15 @@ LegalSection _section(LegalDocument d, String heading) =>
 
 void main() {
   group('polityka: co zostaje na telefonie, a co wychodzi', () {
+    testWidgets('privacy explains external search limitations in both languages',
+        (tester) async {
+      final pl = _all(await _build(tester, AppLanguage.pl, privacyPolicy));
+      expect(pl, contains('zapytanie do wyszukiwarki internetowej'));
+      expect(pl, contains('nie jest to gwarantowane'));
+      final en = _all(await _build(tester, AppLanguage.en, privacyPolicy));
+      expect(en, contains('web search query'));
+      expect(en, contains('not guaranteed'));
+    });
     testWidgets('PL: imię i nazwisko nie są na liście „nie opuszczają"',
         (tester) async {
       final doc = await _build(tester, AppLanguage.pl, privacyPolicy);
@@ -139,6 +148,24 @@ void main() {
       expect(find.textContaining('własnym imieniem i nazwiskiem'),
           findsNothing);
       expect(find.textContaining('napiszesz na czacie'), findsNothing);
+      expect(find.textContaining('wyszukiwarki internetowej'), findsOneWidget);
+      expect(find.textContaining('serwer użyje sesji konta'), findsOneWidget);
+      expect(find.textContaining('serwer widzi tylko'), findsNothing);
+    });
+
+    testWidgets('assistant consent explains web search and optional account in English',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      LegalConsent.instance.resetForTest();
+      await tester.pumpWidget(AppLanguageScope(
+        controller: AppLanguageController(AppLanguage.en),
+        child: MaterialApp(home: ConsentScreen(
+            purpose: ConsentPurpose.assistant, onAccepted: () {})),
+      ));
+      await tester.pump();
+      expect(find.textContaining('web search query'), findsOneWidget);
+      expect(find.textContaining('your account session'), findsOneWidget);
+      expect(find.textContaining('server only sees'), findsNothing);
     });
 
     testWidgets('bramka asystenta (ensureServerConsent) pokazuje wariant '
