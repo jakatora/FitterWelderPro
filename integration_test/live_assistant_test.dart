@@ -133,8 +133,17 @@ void main() {
         expect(find.textContaining('Tryb offline'), findsNothing);
         report['answerDisplayedInRealUi'] = true;
         if (followUp) {
+          // An answer can render before the original command's finally block
+          // re-enables the composer. Wait for the real interactive state.
+          await waitFor(tester, () {
+            final field = tester.widget<TextField>(input);
+            final send = tester
+                .widget<IconButton>(find.byKey(const Key('assistant-go')));
+            return field.enabled == true && send.onPressed != null;
+          });
           const question = 'Czyli to zmierzona średnica w milimetrach?';
           await tester.enterText(input, question);
+          expect(tester.widget<TextField>(input).controller!.text, question);
           await tester.tap(find.byKey(const Key('assistant-go')));
           await waitFor(tester, () => observed.answers.length == 2,
               timeout: const Duration(seconds: 75));
