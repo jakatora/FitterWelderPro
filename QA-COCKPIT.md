@@ -1,5 +1,14 @@
 # QA-COCKPIT — FitterWelderPro
 
+## AI wyjaśnia rzeczywiste wyniki masy rury — 2026-11-02
+
+- Kod `ba2e56741d0c7266ff547bf10ecca3cd20c472cd` dodaje jawny odczyt widocznych pól kalkulatora masy rury i natywnych wyników kg/m, kg/sztukę, kg łącznie. Wysyłane są wartości zaokrąglone tak jak na ekranie(3/3/2miejsca), nie ponowne obliczenia AI. Brak długości/ilości pozostaje brakiem; błędny formularz usuwa wszystkie wyniki z kontekstu. Zmiana zakładki nie udostępnia starej masy. Port nie czyta rekordów, notatek, tożsamości ani innych zakładek.
+- Backend `fe2b4f8` rozszerza ścisły kontrakt Zod o pipe_weight; odrzuca prywatne/nieznane pola, złe wybory oraz niespójne wyniki przed modelem. `60fecd15394bfac7b2131493f60a270a65bb2636` dodatkowo nakazuje używanie naturalnych nazw zamiast technicznych pól JSON. Railway `7dcd80f3-2d30-4162-9e4f-b5ff9e609bdb` SUCCESS2026-11-02T04:23:15.936Z, ten sam istniejący serwis.
+- **24 testyFlutter/4zestawy PASS**,14,653s; pełna analiza Noissuesfound21,4s. **539 testów backendu PASS**,0błędów/pominięć,8,310s. Pierwsza próba nowego testu backendu wykryła, że przypadki dopisano po teście wyczerpującym budżet; przeniesiono ten ostatni przypadek na koniec, zachowując blokadę budżetu i jej asercje.
+- Rzeczywisty test produkcyjnego HTTP/modelu użył kontekstu przechwyconego z natywnego widgetu: OD60,3/ścianka3,91/długość1000/ilość2/316L →5,541kg/m,5,541kg/sztukę,11,08kgłącznie. Pierwszy HTTP200 prawidłowo wykorzystał dane, ale pokazał nazwyJSON; po zmianie instrukcji kolejny pojedynczy HTTP200 potwierdził czytelne nazwy i zgodne liczby. Oba zwróciły calculator_context_used:true/needs_clarification:false. Dwie własne instalacje DELETE200/ok, prywatne pliki usunięte; zero ponowień.
+- Bramka budżetu przed płatnym modelem, rozliczenie rzeczywistego wejścia, limity urządzenia/IP i maxRetries0 pozostają aktywne. Nowa funkcja nie dodaje drugiego wywołania modelu do rozmowy. Dokładny koszt dostawcy nie jest udostępniony.
+- Raport `pipe-weight-context-verification.json`, dane rozmów `pipe-weight-context-live.json` i `pipe-weight-context-live-v2.json`, logi testów i analizy w katalogu artefaktów2026-11-02. **Zakres:** natywny odczyt w teścieFlutter oraz osobny rzeczywisty HTTP/model; nie jest to dowód całej ścieżki na fizycznym telefonie. Nowy klient nie został jeszcze wydany w APK/iOS0.5.19; starsze wersje działają bez zmian z nowym serwerem.
+
 ## Spójna walidacja masy rury — 2026-11-02
 
 - Naprawiono różnicę między formularzem ręcznym a asystentem. Ilość sztuk bez długości nie jest już ignorowana; formularz prosi o długość jednej sztuki albo usunięcie ilości. Po korekcie poprawny wynik wraca. Puste oba pola nadal pozwalają obliczyć wyłącznie kg/m, bez domyślnej długości lub ilości.
