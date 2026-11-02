@@ -60,9 +60,13 @@ public class Release0524AssistantOfflineTest extends Release0524SmokeTest {
    click(waitNode(n->text(n).contains("Powiedz, co zrobić")));
    set(assistantInput(),"oblicz spadek rury");
    click(waitNode(n->text(n).contains("Wykonaj") && !n.isEditable()));
-   waitNode(n->text(n).contains("Długość rury"));
-   set(assistantInput(),"spadek 1% na 6 metrow");
+   waitNode(n->text(n).contains("Jaka jest długość w rzucie poziomym"));
+   set(assistantInput(),"6 metrow");
    click(waitNode(n->text(n).contains("Wykonaj") && !n.isEditable()));
+   waitNode(n->text(n).contains("Jaki procent spadku"));
+   set(assistantInput(),"1%");
+   click(waitNode(n->text(n).contains("Wykonaj") && !n.isEditable()));
+   waitNode(n->text(n).contains("Długość rury"));
    waitNode(n->text(n).contains("60.0") || text(n).contains("60,0"));
    assertNull(manager.getActiveNetwork());
    report.put("offlineAssistantOpenedSlope",true);report.put("displayedRiseMm",60);
