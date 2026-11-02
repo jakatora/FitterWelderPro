@@ -6,6 +6,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+Future<File> createDatabase(Directory directory, String value) async {
+  final file = File(p.join(directory.path, 'cutlist.db'));
+  final factory = createDatabaseFactoryFfi(noIsolate: true);
+  final db = await factory.openDatabase(file.path);
+  await db.execute('CREATE TABLE projects (name TEXT)');
+  await db.insert('projects', {'name': value});
+  await db.close();
+  return file;
+}
+
 void main() {
   setUpAll(sqfliteFfiInit);
   late Directory temp;
@@ -128,15 +138,15 @@ void main() {
   });
   test('explicit choice is remembered and all databases stay intact', () async {
     final other = await Directory(p.join(temp.path, 'other')).create();
-    final first = File(p.join(legacy.path, 'cutlist.db'));
-    final second = File(p.join(other.path, 'cutlist.db'));
-    await first.writeAsString('first');
-    await second.writeAsString('second');
+    final first = await createDatabase(legacy, 'first');
+    final second = await createDatabase(other, 'second');
+    final originalFirst = await first.readAsBytes();
+    final originalSecond = await second.readAsBytes();
     await resolver.selectExisting(other.path, [legacy.path, other.path]);
     expect(await resolver.resolve(legacyDirectories: [legacy.path, other.path]),
         other.path);
-    expect(await first.readAsString(), 'first');
-    expect(await second.readAsString(), 'second');
+    expect(await first.readAsBytes(), originalFirst);
+    expect(await second.readAsBytes(), originalSecond);
     final third = await Directory(p.join(temp.path, 'third')).create();
     await File(p.join(third.path, 'cutlist.db')).writeAsString('third');
     await expectLater(
@@ -152,12 +162,43 @@ void main() {
         isFalse);
   });
 
+  test('an invalid cutlist.db cannot replace the remembered location',
+      () async {
+    final old = File(p.join(legacy.path, 'cutlist.db'));
+    await old.writeAsString('existing');
+    await resolver.resolve(legacyDirectories: [legacy.path]);
+    final marker = File(p.join(support.path, 'database-location.json'));
+    final before = await marker.readAsString();
+    final broken = await Directory(p.join(temp.path, 'broken')).create();
+    await File(p.join(broken.path, 'cutlist.db')).writeAsString('not SQLite');
+    await expectLater(
+      resolver.selectExisting(broken.path, [legacy.path, broken.path]),
+      throwsA(isA<Exception>()),
+    );
+    expect(await marker.readAsString(), before);
+    expect(await old.readAsString(), 'existing');
+  });
+
+  test('a forged SQLite header does not pass database validation', () async {
+    final file = File(p.join(legacy.path, 'cutlist.db'));
+    await file.writeAsBytes([
+      ...'SQLite format 3'.codeUnits,
+      0,
+      ...List<int>.filled(512, 0),
+    ]);
+    await expectLater(
+      resolver.selectExisting(legacy.path, [legacy.path]),
+      throwsFormatException,
+    );
+    expect(await File(p.join(support.path, 'database-location.json')).exists(),
+        isFalse);
+  });
+
   test('missing choice offers previously acknowledged remaining database',
       () async {
     final other = await Directory(p.join(temp.path, 'other')).create();
-    final first = File(p.join(legacy.path, 'cutlist.db'));
-    await first.writeAsString('first');
-    await File(p.join(other.path, 'cutlist.db')).writeAsString('second');
+    final first = await createDatabase(legacy, 'first');
+    await createDatabase(other, 'second');
     await resolver.selectExisting(legacy.path, [legacy.path, other.path]);
     await first.delete();
     try {
@@ -168,6 +209,24 @@ void main() {
       expect(problem.candidates, [other.path]);
       await resolver.selectExisting(other.path, problem.candidates);
       expect(await resolver.resolve(legacyDirectories: []), other.path);
+    }
+  });
+
+  test('a valid database with committed WAL data can be selected', () async {
+    final file = p.join(legacy.path, 'cutlist.db');
+    final writer = createDatabaseFactoryFfi(noIsolate: true);
+    final db = await writer.openDatabase(file);
+    try {
+      await db.rawQuery('PRAGMA journal_mode=WAL');
+      await db.execute('PRAGMA wal_autocheckpoint=0');
+      await db.execute('CREATE TABLE projects (name TEXT)');
+      await db.insert('projects', {'name': 'projekt z WAL'});
+      expect(await File('$file-wal').exists(), isTrue);
+      await resolver.selectExisting(legacy.path, [legacy.path]);
+      expect(await resolver.resolve(legacyDirectories: []), legacy.path);
+      expect((await db.query('projects')).single['name'], 'projekt z WAL');
+    } finally {
+      await db.close();
     }
   });
 }

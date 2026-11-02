@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'database_location_problem.dart';
 
@@ -48,12 +49,61 @@ class WindowsDatabaseLocation {
         throw StateError(
             'The selected database is no longer available: $chosen');
       }
+      await _validateDatabase(File(p.join(chosen, _databaseName)));
       await File(p.join(supportDirectory.path, _markerName)).writeAsString(
         jsonEncode({'version': 2, 'directory': chosen, 'acknowledged': known}),
         flush: true,
       );
     } finally {
       await lock.close();
+    }
+  }
+
+  /// Check the selected file before replacing an existing location marker.
+  /// SQLite reads include committed WAL data; this does not rewrite the DB.
+  Future<void> _validateDatabase(File file) async {
+    RandomAccessFile? input;
+    Database? db;
+    try {
+      input = await file.open();
+      final signature = await input.read(16);
+      if (signature.length != 16 ||
+          !const [
+            83,
+            81,
+            76,
+            105,
+            116,
+            101,
+            32,
+            102,
+            111,
+            114,
+            109,
+            97,
+            116,
+            32,
+            51,
+            0
+          ]
+              .asMap()
+              .entries
+              .every((entry) => signature[entry.key] == entry.value)) {
+        throw const FormatException('Not a SQLite database');
+      }
+      await input.close();
+      input = null;
+      db = await databaseFactoryFfi.openDatabase(file.path,
+          options: OpenDatabaseOptions(readOnly: true, singleInstance: false));
+      await db.rawQuery('SELECT name FROM sqlite_master LIMIT 1');
+    } catch (_) {
+      throw const FormatException(
+        'Nie można odczytać wybranej bazy SQLite. Sprawdź plik i spróbuj ponownie. '
+        '/ The selected SQLite database could not be read. Check the file and retry.',
+      );
+    } finally {
+      await input?.close();
+      await db?.close();
     }
   }
 
