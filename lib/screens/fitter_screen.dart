@@ -144,6 +144,7 @@ class _FitterScreenState extends State<_FitterBody> {
   List<Segment> _segments = [];
   RoutePosition? _route;
   bool _loading = true;
+  bool _segmentEditorOpen = false;
 
   /// Library entries the segments use (id → entry, null = deleted), read
   /// once per load — every row used to fire two queries on every rebuild,
@@ -247,6 +248,16 @@ class _FitterScreenState extends State<_FitterBody> {
   }
 
   Future<void> _addSegment() async {
+    if (_segmentEditorOpen) return;
+    _segmentEditorOpen = true;
+    try {
+      await _addSegmentOnce();
+    } finally {
+      _segmentEditorOpen = false;
+    }
+  }
+
+  Future<void> _addSegmentOnce() async {
     final p = _project;
     final route = _route;
     if (p == null || route == null) return;
@@ -322,6 +333,16 @@ class _FitterScreenState extends State<_FitterBody> {
   /// the row's id and seq_no, so the segment holds its place in the cut list
   /// and in the PDF; only what the fitter re-measured changes.
   Future<void> _editSegment(Segment s) async {
+    if (_segmentEditorOpen) return;
+    _segmentEditorOpen = true;
+    try {
+      await _editSegmentOnce(s);
+    } finally {
+      _segmentEditorOpen = false;
+    }
+  }
+
+  Future<void> _editSegmentOnce(Segment s) async {
     final p = _project;
     if (p == null) return;
 

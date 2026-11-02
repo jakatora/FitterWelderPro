@@ -20,6 +20,46 @@ Future<void> waitFor(WidgetTester t, bool Function() ready) async {
 
 void main() {
   useTestDatabase();
+  testWidgets('rapidly opening a segment editor opens only one route',
+      (t) async {
+    t.view.physicalSize = const Size(1200, 2400);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    await t.runAsync(() => ProjectDao().insert(Project(
+          id: 'rapid-open',
+          name: 'Rapid open',
+          materialGroup: 'SS',
+          diameterMm: 60.3,
+          wallThicknessMm: 2.77,
+          currentDiameterMm: 60.3,
+          stockLengthMm: 6000,
+          sawKerfMm: 1,
+          gapMm: 0,
+          createdAt: 1,
+          updatedAt: 1,
+        )));
+    await t.pumpWidget(AppLanguageScope(
+      controller: AppLanguageController(AppLanguage.en),
+      child: const MaterialApp(home: FitterScreen(projectId: 'rapid-open')),
+    ));
+    await waitFor(
+        t, () => find.textContaining('Current route').evaluate().isNotEmpty);
+    final button = find.byType(FloatingActionButton);
+    final open = t.widget<FloatingActionButton>(button).onPressed!;
+    open();
+    open();
+    await t.pumpAndSettle();
+    await t.binding.handlePopRoute();
+    await t.pumpAndSettle();
+    expect(find.byType(SegmentBuilderScreen), findsNothing);
+    expect(find.text('Add segment'), findsOneWidget);
+    expect(t.takeException(), isNull);
+    await t.tap(find.text('Add segment'));
+    await t.pumpAndSettle();
+    expect(find.byType(SegmentBuilderScreen), findsOneWidget);
+    await t.binding.handlePopRoute();
+    await t.pumpAndSettle();
+  });
   for (final edit in [false, true]) {
     for (final failTouch in [false, true]) {
       testWidgets('failed save retains data: edit=$edit touch=$failTouch',
