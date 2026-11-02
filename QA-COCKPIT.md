@@ -2,15 +2,16 @@
 
 ## Aktualna weryfikacja — 2026-11-02
 
-Kod aplikacji: `ccd6d594eb7a479ff2a4f2786ba05df379fbf765`.
+Kod aplikacji: `f0c8b8376d3dd6b0c613d504470bde6a93b7f641`.
 
-- Pełne `flutter test --no-pub --reporter json`: **10 241 testów zaliczonych, 657 zestawów, 0 błędów**, zakończenie `success: true`, 277,963 s.
-- Pełne `flutter analyze --no-pub`: **No issues found**, 79,6 s. Log: `full-analyze-ccd6d59.log` w katalogu artefaktów poniżej.
-- Przebieg obejmuje również ostatnie poprawki anulowania oczekującego odczytu głosowego oraz lokalnych obliczeń po błędzie rozmowy AI.
-- Raport maszynowy: `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/full-suite-ccd6d59-summary.json`; surowy zapis: `full-suite-ccd6d59.jsonl` w tym samym katalogu.
+- Pełne `flutter test --no-pub --reporter json`: **10 267 testów zaliczonych, 660 zestawów, 0 błędów**, zakończenie `success: true`, 298,083 s.
+- Pełne `flutter analyze --no-pub`: **No issues found**, 35,0 s. Log: `full-analyze-f0c8b83.log` w katalogu artefaktów poniżej.
+- Przebieg obejmuje poprawki głosu i lokalnych obliczeń, zachowania kontekstu po błędach AI, treści pomocy oraz trafności wyszukiwania offline i rozróżnienia DN/NPS/NPSH.
+- Raport maszynowy: `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/full-suite-f0c8b83-summary.json`; surowy zapis: `full-suite-f0c8b83.jsonl` w tym samym katalogu.
 - Testy uruchomiono na Windows, z atrapami wywołań platformowych i sieciowych. Wynik nie dowodzi poprawności dowolnej odpowiedzi AI, aktualności całej wiedzy technicznej ani działania mikrofonu na fizycznym telefonie.
 - Osobny automatyczny test uruchomienia i nawigacji APK **0.5.14** na fizycznym Pixelu 8 zakończył się powodzeniem. Ta starsza binarka nie zawiera jeszcze późniejszych poprawek `aa1b253` i `ccd6d59`.
-- iOS **0.5.14 (1081)**: ostatnia potwierdzona kontrola Apple z 2026-11-01T23:23:59Z wykazała `VALID`, wewnętrznie `IN_BETA_TESTING`, zewnętrznie `WAITING_FOR_BETA_REVIEW`.
+- iOS **0.5.15 (1082)**: ostatnia potwierdzona kontrola Apple z 2026-11-01T23:54:24Z wykazała `VALID`, wewnętrznie `IN_BETA_TESTING`, zewnętrznie `READY_FOR_BETA_SUBMISSION`. Zgłoszenie zewnętrznej bety odrzucono limitem zgłoszeń (422). Ta binarka nie zawiera późniejszych zmian kontekstu/pomocy/offline.
+- Osobny [raport rzeczywistych zapytań backendu](docs/audits/2026-11-02-live-assistant.md) opisuje trzy odpowiedzi AI, ich ograniczenia i kolejne poprawki wyszukiwania.
 
 Poniższy raport z 2026-06-16 jest archiwalny. Jego liczby, lista brakujących testów i wersje narzędzi opisują ówczesny stan; nie stanowią oceny aktualnego kodu.
 
