@@ -12,7 +12,10 @@ import 'package:cut_list_app/services/premium_service.dart';
 
 // Real network pass-through: no response, provider or platform mocking.
 class ObservedClient extends http.BaseClient {
-  ObservedClient(this.delegate, this.report);
+  ObservedClient(this.delegate, this.report, {this.maxRequests = 1});
+  final int maxRequests;
+  final requests = <Map<String, dynamic>>[];
+  final answers = <Map<String, dynamic>>[];
   final http.Client delegate;
   final Map<String, dynamic> report;
   int paidRequests = 0;
@@ -24,10 +27,19 @@ class ObservedClient extends http.BaseClient {
             request.url.path.contains('/assistant/'));
     if (ai) {
       paidRequests++;
-      if (paidRequests > 1 || request.url.path != BackendConfig.aiChat) {
-        throw StateError('One explicit knowledge request only; no retries');
+      if (paidRequests > maxRequests ||
+          request.url.path != BackendConfig.aiChat) {
+        throw StateError(
+            'Explicit knowledge request budget exceeded; no retries');
       }
       report['aiRequestPath'] = request.url.path;
+      if (request is! http.Request) {
+        throw StateError('Expected the real chat JSON request');
+      }
+      final body = jsonDecode(request.body) as Map;
+      // Keep conversation evidence only; never identity or request headers.
+      requests.add({'message': body['message'], 'history': body['history']});
+      report['conversationRequests'] = requests;
     }
     final response =
         await http.Response.fromStream(await delegate.send(request));
@@ -36,6 +48,8 @@ class ObservedClient extends http.BaseClient {
       final decoded = jsonDecode(response.body);
       answer = Map<String, dynamic>.from(decoded as Map);
       report['aiAnswer'] = answer;
+      answers.add(answer!);
+      report['conversationAnswers'] = answers;
     }
     return http.StreamedResponse(
         Stream.value(response.bodyBytes), response.statusCode,
@@ -60,13 +74,16 @@ void main() {
     throw StateError(
         'Explicit FWP_LIVE_AI_QA=true is required; never silently skip');
   }
+  const followUp = bool.fromEnvironment('FWP_QA_FOLLOWUP');
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   testWidgets(
-      'fresh installation displays a real AI answer through the assistant UI',
+      followUp
+          ? 'real assistant UI preserves conversation context across two turns'
+          : 'fresh installation displays a real AI answer through the assistant UI',
       (tester) async {
     final report = <String, dynamic>{
       'scope': 'real app UI and backend; no microphone',
-      'maxAiRequests': 1,
+      'maxAiRequests': followUp ? 2 : 1,
       'startedAt': DateTime.now().toUtc().toIso8601String()
     };
     binding.reportData = report;
@@ -82,7 +99,8 @@ void main() {
     await prefs.setString('fitter_device_id', fixtureId);
     await prefs.setString('fitter_install_secret', fixtureSecret);
     final transport = http.Client();
-    final observed = ObservedClient(transport, report);
+    final observed =
+        ObservedClient(transport, report, maxRequests: followUp ? 2 : 1);
     try {
       await http.runWithClient(() async {
         await app.main();
@@ -114,6 +132,34 @@ void main() {
             tester, () => find.textContaining(excerpt).evaluate().isNotEmpty);
         expect(find.textContaining('Tryb offline'), findsNothing);
         report['answerDisplayedInRealUi'] = true;
+        if (followUp) {
+          const question = 'Czyli to zmierzona średnica w milimetrach?';
+          await tester.enterText(input, question);
+          await tester.tap(find.byKey(const Key('assistant-go')));
+          await waitFor(tester, () => observed.answers.length == 2,
+              timeout: const Duration(seconds: 75));
+          expect(report['aiStatus'], 200);
+          expect(observed.paidRequests, 2);
+          expect(observed.requests[1]['message'], question);
+          expect(
+              observed.requests[1]['history'],
+              [
+                {'role': 'user', 'text': 'Co oznacza DN na rurze?'},
+                {'role': 'assistant', 'text': text},
+              ],
+              reason:
+                  'The actual second request must carry the first exchange');
+          expect(observed.answer!['needs_clarification'], isFalse);
+          final followUpText = observed.answer!['text'] as String;
+          expect(followUpText.toLowerCase(), contains('nominal'));
+          final followUpExcerpt = followUpText.substring(
+              0, followUpText.length < 70 ? followUpText.length : 70);
+          await waitFor(tester,
+              () => find.textContaining(followUpExcerpt).evaluate().isNotEmpty);
+          expect(find.textContaining('Tryb offline'), findsNothing);
+          report['followUpDisplayedInRealUi'] = true;
+          report['previousExchangeSentAsContext'] = true;
+        }
         await tester.pump(const Duration(seconds: 2));
         expect(tester.takeException(), isNull);
       }, () => observed);
@@ -144,5 +190,5 @@ void main() {
             '${encodedReport.substring(i * 900, end)}');
       }
     }
-  }, timeout: const Timeout(Duration(minutes: 3)));
+  }, timeout: const Timeout(Duration(minutes: 4)));
 }

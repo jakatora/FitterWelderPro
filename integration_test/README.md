@@ -11,3 +11,9 @@ Android instrumentation follows the installed Flutter SDK integration_test examp
 A real Test Lab run on physical Pixel 8 / API35 / pl_PL succeeded on 2026-11-02: matrix `matrix-1if37wiuxrmr7`, one native testcase, zero failures/skips, one real `/api/fitter/ai/chat` HTTP200 response displayed in the UI, cleanup HTTP200/ok. The test logs base64 chunks prefixed `FWP_DEVICE_QA_REPORT`; they contain only the response and non-secret outcome metadata. Independently inspected video shows the response in the assistant panel. This does not prove release-AOT behavior, voice recognition, all conversational flows or arbitrary technical correctness.
 
 Artifacts and build history are in the local `G:/Projekty/FitterWelderPro-artifacts/2026-11-02` directory. Test Lab: https://console.firebase.google.com/project/fitter-welder-pro/testlab/histories/bh.b011b172b6d018b9/matrices/7979772547584698356
+
+## Two-turn conversation scenario (not yet device-verified)
+
+Set `FWP_QA_FOLLOWUP=true` in addition to the existing explicit QA opt-in. This scenario permits at most two real chat requests with no retry. After the DN question it asks a contextual follow-up without repeating DN. It asserts the actual outgoing second JSON request contains the exact previous user/assistant exchange, the backend returns a direct answer, and both answers appear in the real UI. Request evidence records only message/history, never identity or headers. Each response is recorded for independent semantic review. The same fresh-install and owned-fixture cleanup protections apply.
+
+Use new guarded build, upload and matrix intents for this changed test; previous single-turn success does not prove this scenario. This scenario does not test microphone or app navigation.
