@@ -142,6 +142,11 @@ void main() {
             return field.enabled == true && send.onPressed != null;
           });
           const question = 'Czyli to zmierzona średnica w milimetrach?';
+          // Consent navigation can close the IME while WidgetTester still
+          // caches this EditableText as focused. Tap as a user would so the
+          // real input connection is reopened before injecting keyboard text.
+          await tester.tap(input);
+          await tester.pump();
           await tester.enterText(input, question);
           expect(tester.widget<TextField>(input).controller!.text, question);
           await tester.tap(find.byKey(const Key('assistant-go')));
