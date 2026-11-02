@@ -4369,6 +4369,59 @@ class _ConversationPage extends StatelessWidget {
   );
 }
 
+class _CopyAnswerButton extends StatefulWidget {
+  const _CopyAnswerButton({super.key, required this.message});
+  final ChatMessage message;
+
+  @override
+  State<_CopyAnswerButton> createState() => _CopyAnswerButtonState();
+}
+
+class _CopyAnswerButtonState extends State<_CopyAnswerButton> {
+  bool _copying = false;
+
+  Future<void> _copy() async {
+    if (_copying) return;
+    final message = widget.message;
+    final label = context.tr(pl: 'Kontekst i źródła', en: 'Context and sources');
+    final offline = message.kind == AiReplyKind.offlineHelp
+        ? '${context.tr(pl: 'Pomoc offline z aplikacji', en: 'Offline in-app help')}\n\n'
+        : '';
+    final citations = message.citations.where((s) => s.trim().isNotEmpty).toSet();
+    final text = '$offline${message.text}${citations.isEmpty ? '' : '\n\n$label:\n${citations.join('\n\n')}'}';
+    setState(() => _copying = true);
+    var success = false;
+    try {
+      await Clipboard.setData(ClipboardData(text: text));
+      success = true;
+    } catch (_) {
+      // Clipboard may be unavailable; keep the selectable answer on screen.
+    }
+    if (!mounted || !identical(widget.message, message)) return;
+    setState(() => _copying = false);
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(success
+          ? context.tr(pl: 'Skopiowano odpowiedź.', en: 'Answer copied.')
+          : context.tr(
+              pl: 'Nie udało się skopiować. Możesz zaznaczyć tekst odpowiedzi.',
+              en: 'Could not copy. You can select the answer text.')),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) => TextButton.icon(
+    key: const Key('assistant-copy-answer'),
+    onPressed: _copying ? null : _copy,
+    style: TextButton.styleFrom(
+      foregroundColor: _kTextSec,
+      minimumSize: const Size(48, 48),
+    ),
+    icon: const Icon(Icons.copy_outlined, size: 18),
+    label: Text(context.tr(pl: 'Kopiuj odpowiedź', en: 'Copy answer')),
+  );
+}
+
 class _MessageBubble extends StatelessWidget {
   final ChatMessage message;
   final ValueChanged<String> onCitation;
@@ -4467,6 +4520,8 @@ class _MessageBubble extends StatelessWidget {
                           .toList(),
                     ),
                   ],
+                  if (!isUser && !isNotice && message.text.trim().isNotEmpty)
+                    _CopyAnswerButton(key: ObjectKey(message), message: message),
                 ],
               ),
             ),

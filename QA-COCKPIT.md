@@ -1,5 +1,13 @@
 # QA-COCKPIT — FitterWelderPro
 
+## Kopiowanie odpowiedzi z kontekstem i źródłami — 2026-11-02
+
+- W bieżącej rozmowie i pełnym widoku czatu odpowiedzi mają przycisk **Kopiuj odpowiedź / Copy answer**. Kopiowany jest pełny tekst, kontekst i odnośniki ze źródeł; powtórzone odnośniki są pomijane. Pomoc offline zachowuje swoje oznaczenie również po skopiowaniu. Kopiowanie następuje wyłącznie po naciśnięciu przycisku, bez wysyłania wiadomości lub wywołania AI.
+- Pole dotyku ma minimum48dp; przycisk jest zablokowany na czas obsługi schowka. Błąd schowka pozostawia zaznaczalny tekst i podaje sposób kontynuowania. Spóźniony wynik po wylogowaniu lub zamknięciu widoku nie pokazuje komunikatu w nowej sesji.
+- **65 testów /3 zestawy PASS**, 0 błędów/pominięć, 23.716s: rozmowa, obsługa głosu i podstawowe przepływy asystenta. Raport `answer-copy-test-summary.json`, surowy `answer-copy-final-tests.jsonl` w katalogu artefaktów2026-11-02. Testy schowka używają platformowego handlera testowego; nie są dowodem schowka na fizycznym telefonie.
+- Pełna analiza `flutter analyze --no-pub`: **No issues found**,25,7s; log `answer-copy-analyze.log`.
+- Nowy przycisk nie wymaga uprawnień, dodatkowego pakietu ani backendu. Zmiana źródłowa po0.5.18; wcześniejsze APK0.5.18/iOS1083 jej nie zawierają.
+
 ## Obsługa błędów głosu — 2026-11-02
 
 - Asystent rozróżnia teraz ciszę/brak rozpoznanej wypowiedzi, problem połączenia, brak uprawnień, niedostępny język i zajętą usługę. Zamiast jednego ogólnego komunikatu podaje właściwy następny krok po polsku i angielsku. Kody potwierdzono w zainstalowanym speech_to_text7.5.0 (Android/iOS).

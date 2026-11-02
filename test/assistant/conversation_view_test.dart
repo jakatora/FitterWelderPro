@@ -52,6 +52,102 @@ void main() {
   });
   tearDown(() => AccountService.instance = previous);
 
+  for (final kind in [AiReplyKind.live, AiReplyKind.offlineHelp]) {
+    testWidgets('copy answer preserves text and sources for $kind', (tester) async {
+      final copied = <String>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied.add((call.arguments as Map)['text'] as String);
+        }
+        return null;
+      });
+      addTearDown(() => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+      const text = 'Odpowiedź techniczna. Sprawdź WPS przed pracą.';
+      const source = '[1] Źródło\nhttps://example.test/material';
+      await mount(tester,
+          speech: FixtureSpeech(),
+          interpret: (_) async => throw StateError('No command expected'),
+          chatSender: (_, __) async => ChatMessage(
+              role: ChatRole.assistant, text: text,
+              citations: [source, source], kind: kind));
+      await say(tester, 'Wyjaśnij spawanie TIG');
+      await openConversation(tester);
+      final copy = find.byKey(const Key('assistant-copy-answer')).first;
+      await tester.ensureVisible(copy);
+      await tester.tap(copy);
+      await settle(tester);
+      expect(copied, [
+        '${kind == AiReplyKind.offlineHelp ? 'Pomoc offline z aplikacji\n\n' : ''}$text\n\nKontekst i źródła:\n$source'
+      ]);
+      expect(find.text('Skopiowano odpowiedź.'), findsOneWidget);
+      expect(message(text), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('copy failure keeps answer selectable and gives recovery', (tester) async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') throw PlatformException(code: 'unavailable');
+      return null;
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+    const text = 'Odpowiedź pozostaje dostępna.';
+    await mount(tester,
+        speech: FixtureSpeech(),
+        interpret: (_) async => throw StateError('No command expected'),
+        chatSender: (_, __) async => ChatMessage(
+            role: ChatRole.assistant, text: text, kind: AiReplyKind.live));
+    await say(tester, 'Wyjaśnij spawanie TIG');
+    await openConversation(tester);
+    final copy = find.byKey(const Key('assistant-copy-answer')).first;
+    await tester.ensureVisible(copy);
+    await tester.tap(copy);
+    await settle(tester);
+    expect(find.text('Nie udało się skopiować. Możesz zaznaczyć tekst odpowiedzi.'), findsOneWidget);
+    expect(message(text), findsOneWidget);
+    expect(tester.widget<TextButton>(copy).onPressed, isNotNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('pending copy is single and cannot show feedback after logout', (tester) async {
+    final pending = Completer<Object?>();
+    var calls = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) {
+      if (call.method == 'Clipboard.setData') {
+        calls++;
+        return pending.future;
+      }
+      return Future.value(null);
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+    await mount(tester,
+        speech: FixtureSpeech(),
+        interpret: (_) async => throw StateError('No command expected'),
+        chatSender: (_, __) async => ChatMessage(
+            role: ChatRole.assistant, text: 'Prywatna odpowiedź.', kind: AiReplyKind.live));
+    await say(tester, 'Wyjaśnij spawanie TIG');
+    await openConversation(tester);
+    final copy = find.byKey(const Key('assistant-copy-answer')).first;
+    await tester.ensureVisible(copy);
+    await tester.tap(copy);
+    await tester.pump();
+    expect(tester.widget<TextButton>(copy).onPressed, isNull);
+    expect(calls, 1);
+    await tester.runAsync(account.forgetSession);
+    await settle(tester);
+    pending.complete(null);
+    await settle(tester);
+    expect(page, findsNothing);
+    expect(find.text('Skopiowano odpowiedź.'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final outcome in ['success', 'false', 'throw']) {
     testWidgets('research source opens from conversation and handles $outcome',
         (tester) async {
