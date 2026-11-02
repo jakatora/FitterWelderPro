@@ -63,6 +63,7 @@ android {
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.startklaar.fitterwelder"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -130,4 +131,11 @@ dependencies {
     implementation("androidx.core:core-ktx:1.17.0")
     // Desugaring dla flutter_local_notifications (patrz compileOptions).
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+}
+
+dependencies {
+    debugImplementation("androidx.test:runner:1.6.2")
+    debugImplementation("androidx.test.espresso:espresso-core:3.6.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
 }
