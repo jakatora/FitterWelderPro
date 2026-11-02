@@ -14,6 +14,6 @@ import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 ///
 /// `web/sqlite3.wasm` musi odpowiadać wersji pakietu `sqlite3` z `pubspec.lock`
 /// (obecnie 2.4.5), inaczej ładowanie modułu padnie w czasie działania.
-void initDatabaseFactory() {
+Future<void> initDatabaseFactory() async {
   databaseFactory = databaseFactoryFfiWebNoWebWorker;
 }

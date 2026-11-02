@@ -24,7 +24,33 @@ Future<void> main() async {
   // i `dart:js_interop` wykluczają się nawzajem. Nie pytamy tu o platformę
   // przez `dart:io Platform` — to rzucało `Unsupported operation:
   // Platform._operatingSystem` i wywracało aplikację w przeglądarce.
-  initDatabaseFactory();
+  try {
+    await initDatabaseFactory();
+  } catch (error) {
+    // Never start with an empty database when the previous one cannot be
+    // identified. The error is selectable to support recovery without moving
+    // or deleting any of the user's files.
+    runApp(MaterialApp(
+      home: Scaffold(
+        appBar: AppBar(title: const Text('FitterWelder Pro')),
+        body: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: SelectableText(
+              'Nie można bezpiecznie otworzyć danych aplikacji. '
+              'Sprawdź, czy wcześniejszy folder z danymi jest dostępny. '
+              'Jeśli istnieje kilka baz, zachowaj je i skontaktuj się z pomocą.\n\n'
+              'The application data could not be opened safely. '
+              'Check that the previous data folder is available. '
+              'If several databases exist, keep them and contact support.\n\n'
+              '$error',
+            ),
+          ),
+        ),
+      ),
+    ));
+    return;
+  }
 
   // Fire-and-forget: hydrate Premium status from backend so the gate is open
   // immediately if the user already paid. Failure leaves the cached state
