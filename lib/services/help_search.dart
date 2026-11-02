@@ -104,7 +104,8 @@ List<HelpSearchResult> searchHelp(
   String? categoryFilter,
   int limit = 80,
 }) {
-  final query = normalizeForSearch(rawQuery);
+  final query = normalizeForSearch(rawQuery).replaceAllMapped(
+      RegExp(r'\b(dn|nps)(\d+)\b'), (m) => '${m[1]} ${m[2]}');
   if (query.isEmpty) return const [];
 
   final terms = query.split(' ').where((t) => t.length >= 2).toList();
@@ -134,6 +135,12 @@ List<HelpSearchResult> searchHelp(
       for (final ts in termStems) {
         final term = ts.term;
         final stem = ts.stem;
+        final wholeTerm = const {'dn', 'nps', 'od', 'id', 'ce'}.contains(term) ||
+            RegExp(r'^\d+$').hasMatch(term);
+        bool containsTerm(String text) => wholeTerm
+            ? ' $text '.contains(' $term ')
+            : text.contains(term);
+
         // Tag matches — strongest signal. Exact > prefix > contains > stem.
         var tagHit = false;
         for (final tag in tagsN) {
@@ -142,12 +149,12 @@ List<HelpSearchResult> searchHelp(
             tagHit = true;
             break;
           }
-          if (tag.startsWith(term)) {
+          if (!wholeTerm && tag.startsWith(term)) {
             score += 8;
             tagHit = true;
             break;
           }
-          if (tag.contains(term)) {
+          if (!wholeTerm && tag.contains(term)) {
             score += 5;
             tagHit = true;
             break;
@@ -163,7 +170,7 @@ List<HelpSearchResult> searchHelp(
         if (tagHit) matched.add(term);
 
         // Question — strong signal as it's what the user is "asking".
-        if (qN.contains(term)) {
+        if (containsTerm(qN)) {
           score += 10;
           matched.add(term);
         } else if (stem.length >= 4 && stem != term && qN.contains(stem)) {
@@ -173,10 +180,10 @@ List<HelpSearchResult> searchHelp(
         }
 
         // Category title — context boost.
-        if (catTitleN.contains(term)) score += 2;
+        if (containsTerm(catTitleN)) score += 2;
 
         // Answer — weakest, but useful for buried technical terms.
-        if (aN.contains(term)) {
+        if (containsTerm(aN)) {
           score += 3;
           matched.add(term);
         } else if (stem.length >= 4 && stem != term && aN.contains(stem)) {

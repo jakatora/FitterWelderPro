@@ -6,6 +6,27 @@ void main() {
   final original = AppLanguageController.current;
   tearDown(() => AppLanguageController.current = original);
   for (final language in AppLanguage.values) {
+    test('pump NPSH keeps its own offline entry: $language', () {
+      AppLanguageController.current = language;
+      final reply = AiChatService.instance.offlineReply('NPSH');
+      expect(reply.text,
+          contains(language == AppLanguage.pl ? 'Co to NPSH' : 'What is NPSH'));
+    });
+
+    for (final query in ['DN', 'DN25', 'NPS', 'NPS1']) {
+      test('nominal pipe size offline help is not pump NPSH: $language $query',
+          () {
+        AppLanguageController.current = language;
+        final reply = AiChatService.instance.offlineReply(query);
+        expect(reply.citations, isNotEmpty);
+        expect(
+            reply.text,
+            contains(language == AppLanguage.pl
+                ? 'Co oznaczają DN i NPS?'
+                : 'What do DN and NPS mean?'));
+      });
+    }
+
     test('offline help does not match only question words: $language', () {
       AppLanguageController.current = language;
       final reply = AiChatService.instance.offlineReply(

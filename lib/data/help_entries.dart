@@ -1543,6 +1543,29 @@ List<HelpCategory> kHelpCategories = [
         ),
         tags: ['hydrotest', 'pressure-test', 'asme-b31', 'leak-test'],
       ),
+      // Nominal size terminology: KSB DN lexicon (ISO 6708).
+      // https://www.ksb.com/en-global/centrifugal-pump-lexicon/article/dn-1118476
+      // NPS 1 OD: Penn Stainless ANSI pipe chart, 1.315 in (33.4 mm rounded).
+      // https://www.pennstainless.com/resources/product-resources/ansi-pipe-chart/
+      HelpEntry(
+        id: 'dn-nps-nominal-size',
+        question: _bi('Co oznaczają DN i NPS?', 'What do DN and NPS mean?'),
+        answer: _bi(
+          'DN i NPS oznaczają rozmiar nominalny, a nie zmierzoną średnicę. '
+          'Liczba w DN 25 nie oznacza automatycznie średnicy 25 mm. '
+          'Przykład z tabeli rur Penn Stainless: NPS 1 ma średnicę zewnętrzną '
+          'OD 1,315 cala, czyli około 33,4 mm. Średnica wewnętrzna ID zależy '
+          'od grubości ścianki, np. Schedule. Wymiary odczytaj z normy lub '
+          'tabeli właściwej dla danej rury. NPSH to inny parametr, dotyczący pomp.',
+          'DN and NPS designate nominal size, not a measured diameter. '
+          'The number in DN 25 does not automatically mean a diameter of 25 mm. '
+          'Penn Stainless pipe-table example: NPS 1 has an outside diameter '
+          'OD of 1.315 inches, about 33.4 mm. Inside diameter ID depends on '
+          'wall thickness, e.g. Schedule. Read dimensions from the standard '
+          'or table applicable to the pipe. NPSH is a separate pump parameter.',
+        ),
+        tags: ['dn', 'nps', 'nominal', 'rozmiar', 'srednica', 'diameter', 'pipe', 'rura'],
+      ),
       HelpEntry(
         id: 'npsh',
         question: _bi(
