@@ -416,6 +416,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       now: widget.now);
   SkillResult? _localResult;
   String? _pendingKnowledgeAnswer;
+  List<String> _visibleKnowledgeSources = const [];
   UndoAction? _localUndo;
   bool _localCommitting = false;
   final _feedback = AssistantFeedbackRecorder();
@@ -795,6 +796,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     _aiClarification = null;
     _knowledgeClarification = null;
     _pendingKnowledgeAnswer = null;
+    _visibleKnowledgeSources = const [];
     _pendingIntent = null;
     _pendingField = null;
     _carried = const {};
@@ -1404,6 +1406,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     setState(() {
       _busy = true;
       _pendingKnowledgeAnswer = null;
+      _visibleKnowledgeSources = const [];
       _notice = null;
       _aiUnavailable = null;
       _offerServer = false;
@@ -2063,6 +2066,7 @@ class _AiChatScreenState extends State<AiChatScreen>
           (widget.embedded && result is AnswerResult && result.show != null);
       _localResult = result;
       _pendingKnowledgeAnswer = null;
+      _visibleKnowledgeSources = const [];
       _aiClarification = null;
       _question = null;
       _notice = null;
@@ -2973,6 +2977,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   void _appendKnowledgeReply(ChatMessage reply) {
     _messages.add(reply);
     if (!widget.embedded) return;
+    _visibleKnowledgeSources = List.unmodifiable(reply.citations);
     if (_awaitingNativeInput) {
       _pendingKnowledgeAnswer = reply.text;
     } else {
@@ -3326,14 +3331,32 @@ class _AiChatScreenState extends State<AiChatScreen>
     );
   }
 
+  Widget _visibleSourceButtons() => Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          for (var i = 0; i < _visibleKnowledgeSources.length; i++)
+            OutlinedButton.icon(
+              key: Key('assistant-visible-source-$i'),
+              onPressed: () => _openCitation(_visibleKnowledgeSources[i]),
+              icon: const Icon(Icons.source_outlined),
+              label: Text(_visibleKnowledgeSources[i].split('\n').first,
+                  maxLines: 2, overflow: TextOverflow.ellipsis),
+            ),
+        ],
+      );
+
   Widget _buildEmbedded() => Column(children: [
         Expanded(
             child: ListView(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 children: [
-              if (_pendingKnowledgeAnswer != null)
+              if (_pendingKnowledgeAnswer != null) ...[
                 Text(_pendingKnowledgeAnswer!, key: const Key('assistant-side-answer')),
+                _visibleSourceButtons(),
+              ],
               if (_localResult case final result?) _localAnswerCard(result),
+              if (_pendingKnowledgeAnswer == null) _visibleSourceButtons(),
               if (_question != null) Text(_question!),
               if (_notice != null) ...[
                 Text(_notice!),

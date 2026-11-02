@@ -238,4 +238,53 @@ void main() {
                   headers: {'content-type': 'application/json; charset=utf-8'});
             }));
   });
+  testWidgets(
+      'a side answer exposes its source without losing the pending calculation',
+      (t) async {
+    const citation = '[1] TWI guidance\nhttps://www.twi-global.com/paper';
+    await mount(t,
+        interpret: (_) async => const AiCommandPlan('answer', [], ''),
+        chatSender: (_, __) async => ChatMessage(
+            role: ChatRole.assistant,
+            text: 'Wyjaśnienie [1].',
+            citations: [citation],
+            kind: AiReplyKind.live));
+    await say(t, 'Oblicz heat input 24 V 230 A 150 mm/min');
+    await say(t, question);
+    expect(find.textContaining('Jaki proces spawania?'), findsWidgets);
+    final source = find.byKey(const Key('assistant-visible-source-0'));
+    expect(source, findsOneWidget);
+    await t.ensureVisible(source);
+    await t.tap(source);
+    await settle(t);
+    expect(find.text('Źródło internetowe'), findsOneWidget);
+    expect(find.text('Otwórz źródło'), findsOneWidget);
+    await t.tap(find.text('OK'));
+    await settle(t);
+    await say(t, 'TIG');
+    expect(find.textContaining('Liczyć wg EN 1011-1'), findsWidgets);
+    expect(source, findsNothing);
+    expect(t.takeException(), isNull);
+  });
+  testWidgets('a normal answer exposes its sources directly in the panel',
+      (t) async {
+    final title = 'Techniczne źródło ${'bardzo długi tytuł ' * 12}';
+    final citation = '$title\nhttps://www.twi-global.com/paper';
+    await mount(t,
+        interpret: (_) async => const AiCommandPlan('answer', [], ''),
+        chatSender: (_, __) async => ChatMessage(
+            role: ChatRole.assistant,
+            text: 'Wyjaśnienie.',
+            citations: [citation, 'Tabela z aplikacji'],
+            kind: AiReplyKind.live));
+    await say(t, 'Wyjaśnij spawanie TIG');
+    final source = find.byKey(const Key('assistant-visible-source-0'));
+    await t.scrollUntilVisible(source, 150,
+        scrollable: find.byType(Scrollable).first);
+    await t.tap(source);
+    await settle(t);
+    expect(find.text('Źródło internetowe'), findsOneWidget);
+    expect(find.text('Otwórz źródło'), findsOneWidget);
+    expect(t.takeException(), isNull);
+  });
 }
