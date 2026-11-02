@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 
 import '../data/nps_dn_od_r.dart';
 import '../domain/fitter/fitter_calcs.dart';
+import '../domain/fitter/pipe_weight.dart';
 import '../i18n/app_language.dart';
 import '../services/takeout_catalog.dart';
 import '../utils/clipboard_helper.dart';
@@ -2081,9 +2082,11 @@ class _PipeWeightTabState extends State<_PipeWeightTab>
             qty > 2147483647)) {
       return {'quantity'};
     }
-    final kgm = pipeMassKgPerM(od, wall, kPipeDensityKgM3[mat]!);
-    final total = kgm * (length ?? 1000) / 1000 * (qty ?? 1);
-    if (!kgm.isFinite || !total.isFinite) return f.keys.toSet();
+    if (pipeWeight(
+            odMm: od, wallMm: wall, material: mat,
+            lengthMm: length, quantity: qty) == null) {
+      return f.keys.toSet();
+    }
     _mat = mat;
     _od.text = od.toString();
     _t.text = wall.toString();
@@ -2137,30 +2140,37 @@ class _PipeWeightTabState extends State<_PipeWeightTab>
             _tr('Podaj poprawną grubość ścianki', 'Enter valid wall thickness');
         return;
       }
-      _kgm = pipeMassKgPerM(od, t, kPipeDensityKgM3[_mat]!);
-
-      // No silent defaults: an empty length / quantity just hides that line.
-      final lText = _l.text.trim();
-      if (lText.isNotEmpty) {
-        final l = parseDecimal(lText);
-        if (l == null || l <= 0) {
-          _error = _tr('Długość: wpisz > 0 mm', 'Length: enter > 0 mm');
-          return;
-        }
-        _lengthMm = l;
-        _kgPiece = _kgm! * l / 1000.0;
+      final lengthText = _l.text.trim();
+      final length = parseDecimal(lengthText);
+      if (lengthText.isNotEmpty && (length == null || length <= 0)) {
+        _error = _tr('Długość: wpisz > 0 mm', 'Length: enter > 0 mm');
+        return;
       }
-      final qText = _qty.text.trim();
-      if (qText.isNotEmpty && _kgPiece != null) {
-        final q = parseDecimal(qText);
-        if (q == null || q <= 0 || q != q.roundToDouble()) {
-          _error = _tr('Ilość: wpisz całkowitą liczbę sztuk ≥ 1',
-              'Qty: enter a whole number ≥ 1');
-          return;
-        }
-        _qtyPcs = q.round();
-        _kgTotal = _kgPiece! * _qtyPcs!;
+      final quantityText = _qty.text.trim();
+      final quantity = parseDecimal(quantityText);
+      if (quantityText.isNotEmpty && (quantity == null || quantity <= 0 ||
+          quantity != quantity.roundToDouble() || quantity > 2147483647)) {
+        _error = _tr('Ilość: wpisz całkowitą liczbę sztuk od 1 do 2147483647',
+            'Qty: enter a whole number of pieces from 1 to 2147483647');
+        return;
       }
+      if (quantity != null && length == null) {
+        _error = _tr('Podaj długość jednej sztuki albo usuń ilość sztuk.',
+            'Enter the length of one piece or clear the piece count.');
+        return;
+      }
+      final result = pipeWeight(odMm: od, wallMm: t, material: _mat,
+          lengthMm: length, quantity: quantity);
+      if (result == null) {
+        _error = _tr('Wynik poza zakresem. Sprawdź wymiary, długość i ilość.',
+            'Result out of range. Check dimensions, length and quantity.');
+        return;
+      }
+      _kgm = result.kgPerM;
+      _kgPiece = result.kgPerPiece;
+      _kgTotal = result.kgTotal;
+      _lengthMm = length;
+      _qtyPcs = quantity?.toInt();
     });
   }
 

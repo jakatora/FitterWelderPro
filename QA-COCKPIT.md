@@ -1,5 +1,14 @@
 # QA-COCKPIT — FitterWelderPro
 
+## Spójna walidacja masy rury — 2026-11-02
+
+- Naprawiono różnicę między formularzem ręcznym a asystentem. Ilość sztuk bez długości nie jest już ignorowana; formularz prosi o długość jednej sztuki albo usunięcie ilości. Po korekcie poprawny wynik wraca. Puste oba pola nadal pozwalają obliczyć wyłącznie kg/m, bez domyślnej długości lub ilości.
+- Formularz przestrzega tego samego limitu całkowitej ilości co domena/asystent. Bardzo duże, ale skończone wymiary, których iloczyn przekracza zakres liczbowy, dają komunikat zamiast Infinity. Nie zostaje widoczny częściowy lub poprzedni wynik.
+- Ręczne obliczenia i zastosowanie pól przez asystenta korzystają teraz z `domain/fitter/pipe_weight.dart`, zamiast utrzymywać osobną kopię wzoru w ekranie. Ceny/płatności i backend nie są zmieniane.
+- Przed poprawką3nowe testy formularza FAILED; po poprawce **64 testy/6 zestawów PASS**,0błędów/pominięć,31,167s. Zakres: domena, formularz, umiejętność asystenta, interpretacja pól, kalkulatory montera i natywne kopiowanie/czyszczenie. Raport `pipe-weight-validation-summary.json`, surowe `pipe-weight-validation-before/after.jsonl` w katalogu artefaktów2026-11-02. To testyFlutter, bez dowodu runtime telefonu.
+- Pełna analiza `flutter analyze --no-pub`: **No issues found**,26,5s; log `pipe-weight-validation-analyze-final.log`.
+- Zmiana źródłowa po0.5.19; udostępnione APK0.5.19/iOS1084 jej jeszcze nie zawierają.
+
 ## iOS 0.5.19 (1084) — gotowe w wewnętrznym TestFlight, 2026-11-02
 
 - **Apple VALID / IN_BETA_TESTING**, potwierdzone API2026-11-02T04:09:43.789245Z. Train0.5.19, build1084, ID `9608aab4-f0b9-4744-9a0b-cff0dfca67cf`, nie wygasł. Zewnętrzny stan READY_FOR_BETA_SUBMISSION; recenzji zewnętrznej bety nie zgłaszano.
