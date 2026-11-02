@@ -2,6 +2,13 @@
 
 All notable changes per AGENTS.md directive. Newest first.
 
+## 0.5.22 — 2026-11-02
+
+- Rapid repeated creation clicks save one project and open it once.
+- CSV and PDF attachments use bounded filenames while retaining the complete project title in their contents.
+- Cut plans reject expansion beyond 10,000 pieces and impossible joining-gap splits instead of producing negative pieces or allocating millions of entries. Correctable legacy settings remain repairable, with invalid saw ticks retired only after a successful settings transaction.
+- Split metadata is shared immutably, avoiding a full copy for every piece. Settings and plan errors explain how to correct stock length and joining gap; invalid splits cannot enter quote import as partial results.
+
 ## 0.5.21 — 2026-11-02
 
 - Home search accepts catalogued DN designations such as DN50 and DN 100, opening the sizing table at the requested row by tap or keyboard submission. Unsupported sizes are not substituted.
