@@ -12,7 +12,7 @@ A real Test Lab run on physical Pixel 8 / API35 / pl_PL succeeded on 2026-11-02:
 
 Artifacts and build history are in the local `G:/Projekty/FitterWelderPro-artifacts/2026-11-02` directory. Test Lab: https://console.firebase.google.com/project/fitter-welder-pro/testlab/histories/bh.b011b172b6d018b9/matrices/7979772547584698356
 
-## Two-turn conversation scenario (not yet device-verified)
+## Two-turn conversation scenario
 
 Set `FWP_QA_FOLLOWUP=true` in addition to the existing explicit QA opt-in. This scenario permits at most two real chat requests with no retry. After the DN question it asks a contextual follow-up without repeating DN. It asserts the actual outgoing second JSON request contains the exact previous user/assistant exchange, the backend returns a direct answer, and both answers appear in the real UI. Request evidence records only message/history, never identity or headers. Each response is recorded for independent semantic review. The same fresh-install and owned-fixture cleanup protections apply.
 
@@ -27,3 +27,9 @@ The tap-before-typing run (`matrix-1movuy01l05am`, 2026-11-02) passed the entere
 ## Post-fix verification target
 
 Production `lib/` matches `8841175`; the same regression tests were copied unchanged. Diagnostic reporting distinguishes AI attempts, actual transport sends and blocked endpoint paths. No headers or identity are recorded. The next physical run must prove two successful chat transports, exact conversation history, both answers in UI and cleanup; the earlier failed matrices do not prove this corrected code.
+
+## Physical post-fix PASS — 2026-11-02
+
+Matrix `matrix-3ok1lk295wgnx` finished SUCCESS on physical Pixel8 / API35 / pl_PL. Production lib matches `8841175`, QA source `aee1118`. One native testcase, zero failures/skips, 12 seconds of device test. Two attempts and exactly two real chat transports, both asserted HTTP200; zero blocked AI endpoint paths. The second request includes the exact first exchange. Both responses rendered in the real assistant UI; frame14 independently shows the contextual answer saying DN is not a measured diameter in millimetres. Cleanup HTTP200/ok and the private recovery file was removed after verification. Logs contain no FATAL EXCEPTION, E/flutter or app ANR. No model/platform/network mocking, no retry. Backend budget and rate guards unchanged; exact monetary charge not exposed.
+
+This proves the concrete two-turn typed interaction in a diagnostic debug build. It does not establish microphone input, arbitrary conversation, app actions via a real model or release AOT/R8 behavior. Artifacts: `conversation-fixed-qa-*` in the 2026-11-02 artifact directory. Test Lab: https://console.firebase.google.com/project/fitter-welder-pro/testlab/histories/bh.b011b172b6d018b9/matrices/6635781266232247469
