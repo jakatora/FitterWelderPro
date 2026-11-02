@@ -259,6 +259,7 @@ class _FitterScreenState extends State<_FitterBody> {
       if (wall == null || !mounted) return;
     }
 
+    final segId = const Uuid().v4();
     final result = await Navigator.push<Map<String, dynamic>>(
       context,
       MaterialPageRoute(
@@ -269,27 +270,20 @@ class _FitterScreenState extends State<_FitterBody> {
           gapMm: p.gapMm,
           // SP02-03 → SP02-04: the next mark of the spool being numbered.
           suggestedLabel: suggestNextSegmentLabel(_segments),
+          onSave: (result) async {
+            final now = DateTime.now().millisecondsSinceEpoch;
+            final seq = await _segmentDao.nextSeqNo(p.id);
+            await _segmentDao.insert({
+              'id': segId, 'project_id': p.id, 'seq_no': seq,
+              'diameter_mm': route.diameterMm, 'wall_thickness_mm': wall,
+              ..._measuredColumns(result), 'created_at': now, 'updated_at': now,
+            }, touchProject: true);
+          },
         ),
       ),
     );
 
     if (result == null) return;
-
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final seq = await _segmentDao.nextSeqNo(p.id);
-    final segId = const Uuid().v4();
-
-    await _segmentDao.insert({
-      'id': segId,
-      'project_id': p.id,
-      'seq_no': seq,
-      'diameter_mm': route.diameterMm,
-      'wall_thickness_mm': wall,
-      ..._measuredColumns(result),
-      'created_at': now,
-      'updated_at': now,
-    });
-    await _projectDao.touch(p.id);
 
     // No separate "reducer moves the route" step any more: _load derives the
     // route from the segments, so a reducer END moves it, and deleting that
@@ -344,37 +338,19 @@ class _FitterScreenState extends State<_FitterBody> {
           wallThickness: s.wallThicknessMm,
           gapMm: p.gapMm,
           existing: s,
+          onSave: (result) async {
+            final changed = await _segmentDao.update({
+              'id': s.id, 'diameter_mm': s.diameterMm, 'wall_thickness_mm': s.wallThicknessMm,
+              ..._measuredColumns(result), 'updated_at': DateTime.now().millisecondsSinceEpoch,
+            }, touchProject: true);
+            if (changed == 0) throw StateError('Segment no longer exists');
+          },
         ),
       ),
     );
 
     if (result == null) return;
 
-    final changed = await _segmentDao.update({
-      'id': s.id,
-      // seq_no is passed for completeness; SegmentDao.update drops it, along
-      // with id/project_id/created_at, so an edit can never renumber the
-      // sheet the fitter is cutting from.
-      'seq_no': s.seqNo,
-      'diameter_mm': s.diameterMm,
-      'wall_thickness_mm': s.wallThicknessMm,
-      ..._measuredColumns(result),
-      'updated_at': DateTime.now().millisecondsSinceEpoch,
-    });
-    if (changed > 0) await _projectDao.touch(p.id);
-
-    // No route bookkeeping here either: _load derives it from the segments,
-    // so re-saving a segment can never shift the route twice.
-
-    if (!mounted) return;
-    if (changed == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(context.tr(
-          pl: 'Tego segmentu już nie ma — poprawki nie zostały zapisane.',
-          en: 'This segment no longer exists — changes were not saved.',
-        )),
-      ));
-    }
     await _load();
   }
 

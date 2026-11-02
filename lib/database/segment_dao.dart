@@ -25,12 +25,16 @@ class SegmentDao {
     return m + 1;
   }
 
-  Future<void> insert(Map<String, Object?> row) async {
+  Future<void> insert(Map<String, Object?> row, {bool touchProject = false}) async {
     final (owner, db) = await _projects.ownerAndDb();
     await db.transaction((txn) async {
       owner.requireCurrent();
       await _projects.requireProject(txn, row['project_id'] as String, owner);
       await txn.insert('segments', normalizeIdentity(row));
+      if (touchProject) {
+        await txn.update('projects', {'updated_at': row['updated_at'] ?? DateTime.now().millisecondsSinceEpoch},
+            where: 'id = ?', whereArgs: [row['project_id']]);
+      }
       owner.requireCurrent();
     });
   }
@@ -68,7 +72,7 @@ class SegmentDao {
   /// Returns the number of rows changed — 0 means the segment is no longer
   /// there (deleted on another screen in the meantime) or belongs to another
   /// account, which the caller must not report as a successful save.
-  Future<int> update(Map<String, Object?> row) async {
+  Future<int> update(Map<String, Object?> row, {bool touchProject = false}) async {
     final (owner, db) = await _projects.ownerAndDb();
     final id = row['id'] as String;
     final values = Map<String, Object?>.from(normalizeIdentity(row))
@@ -76,10 +80,19 @@ class SegmentDao {
       ..remove('project_id')
       ..remove('seq_no')
       ..remove('created_at');
-    final n = await db.update('segments', values,
-        where: 'id = ? AND $_owned', whereArgs: [id, owner.key]);
-    owner.requireCurrent();
-    return n;
+    return db.transaction((txn) async {
+      owner.requireCurrent();
+      final rows = touchProject ? await txn.query('segments', columns: ['project_id'],
+          where: 'id = ? AND $_owned', whereArgs: [id, owner.key]) : const <Map<String, Object?>>[];
+      final n = await txn.update('segments', values,
+          where: 'id = ? AND $_owned', whereArgs: [id, owner.key]);
+      if (touchProject && n > 0) {
+        await txn.update('projects', {'updated_at': row['updated_at'] ?? DateTime.now().millisecondsSinceEpoch},
+            where: 'id = ?', whereArgs: [rows.single['project_id']]);
+      }
+      owner.requireCurrent();
+      return n;
+    });
   }
 
   Future<List<Segment>> listForProject(String projectId) async {

@@ -376,6 +376,9 @@ class SegmentBuilderScreen extends StatefulWidget {
   /// Ignored when [existing] is set: a correction keeps the segment's own.
   final String? suggestedLabel;
 
+  /// When provided, persist before closing; a failure keeps the editor intact.
+  final Future<void> Function(Map<String, dynamic> result)? onSave;
+
   const SegmentBuilderScreen({
     super.key,
     required this.materialGroup,
@@ -384,6 +387,7 @@ class SegmentBuilderScreen extends StatefulWidget {
     required this.gapMm,
     this.existing,
     this.suggestedLabel,
+    this.onSave,
   });
 
   @override
@@ -913,15 +917,44 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
     );
   }
 
+  Future<void> _save() async {
+    if (_saving) return;
+    final result = <String, dynamic>{
+      'startKind': _startPicked!.kindCode, 'endKind': _endPicked!.kindCode,
+      'startValue': _startPicked!.offsetMm, 'endValue': _endPicked!.offsetMm,
+      'isoRef': '${_startPicked!.refPoint.code}|${_endPicked!.refPoint.code}',
+      'isoExpr': _isoController.text.trim(), 'isoMm': _isoMm, 'cutMm': _cutMm,
+      'startLibraryId': _startPicked!.component?.id,
+      'endLibraryId': _endPicked!.component?.id,
+      'label': _label.isEmpty ? null : _label,
+    };
+    setState(() => _saving = true);
+    try {
+      await widget.onSave?.call(result);
+    } catch (error) {
+      debugPrint('SegmentBuilder.save failed (${error.runtimeType})');
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = _tr('Nie udało się zapisać odcinka. Twoje pomiary pozostają tutaj. Spróbuj ponownie.',
+            'Could not save the segment. Your measurements are still here. Try again.');
+      });
+      return;
+    }
+    if (!mounted) return;
+    Haptic.saved();
+    Navigator.pop(context, result);
+  }
+
   // ── BUILD ──────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     final canSave = !_saving && (_cutMm != null && _cutMm! > 0);
 
     return PopScope(
-      canPop: !_isDirty,
+      canPop: !_saving && !_isDirty,
       onPopInvokedWithResult: (didPop, result) async {
-        if (didPop) return;
+        if (didPop || _saving) return;
         final nav = Navigator.of(context);
         final discard = await _confirmDiscard();
         if (discard && mounted) nav.pop();
@@ -937,7 +970,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
             : _tr('Nowy segment', 'New segment')),
         actions: [HelpButton(help: kHelpSegmentBuilder)],
       ),
-      body: SingleChildScrollView(
+      body: AbsorbPointer(absorbing: _saving, child: SingleChildScrollView(
         padding: EdgeInsets.fromLTRB(12, 12, 12, 24 + MediaQuery.viewPaddingOf(context).bottom),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1077,6 +1110,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
                       ),
                       const SizedBox(height: 10),
                       TextField(
+                        enabled: !_saving,
                         controller: _isoController,
                         // Decimal pad (with the comma) for the numbers; the
                         // operators come from the key bar right below. The
@@ -1167,33 +1201,16 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
             const SizedBox(height: 12),
             ElevatedButton.icon(
               onPressed: canSave
-                  ? () {
-                      if (_saving) return;
-                      _saving = true;
-                      Haptic.saved();
-                      Navigator.pop(context, {
-                        'startKind':     _startPicked!.kindCode,
-                        'endKind':       _endPicked!.kindCode,
-                        'startValue':    _startPicked!.offsetMm,
-                        'endValue':      _endPicked!.offsetMm,
-                        'isoRef':        '${_startPicked!.refPoint.code}|${_endPicked!.refPoint.code}',
-                        'isoExpr':       _isoController.text.trim(),
-                        'isoMm':         _isoMm,
-                        'cutMm':         _cutMm,
-                        'startLibraryId': _startPicked!.component?.id,
-                        'endLibraryId':   _endPicked!.component?.id,
-                        // Blank → null: no mark rather than an empty one.
-                        'label': _label.isEmpty ? null : _label,
-                      });
-                    }
+                  ? _save
                   : null,
               icon: const Icon(Icons.check),
-              label: Text(_isEditing
+              label: Text(_saving ? _tr('Zapisywanie…', 'Saving…') : _isEditing
                   ? _tr('Zapisz zmiany', 'Save changes')
                   : _tr('Zapisz segment', 'Save segment')),
             ),
           ],
         ),
+      ),
       ),
       ),
     );
