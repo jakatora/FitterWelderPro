@@ -1,5 +1,14 @@
 # QA-COCKPIT — FitterWelderPro
 
+## Krótsze wyjaśnienia wyników kalkulatora — 2026-11-02
+
+- Backend `3b9ae09b9a516893dc69f5ae97cfd437c1c07f81`: rozmowa oparta wyłącznie na jawnym odczycie wyników masy rury, odsadzki lub spadku nie otrzymuje automatycznej stopki oWPS. Stopka pozostaje dla energii spawania, odpowiedzi przypisujących sobie fragmenty bazy technicznej, wyszukiwania zewnętrznego i starszego trybu odpowiedzi. Bez zmian publicznego kontraktu lub źródeł danych.
+- Instrukcja modelu rozróżnia wewnętrzne ograniczenia od tekstu dla użytkownika: przy pytaniu o znaczenie wyświetlonych wartości podaje krótkie zdanie dla każdej wartości i kończy. Nie dopisuje rutynowej oceny udźwigu, certyfikatów ani ważenia. Pytania o te zagadnienia nadal wymagają odpowiedzi z brakującymi dowodami; ostrzeżenie o nakładających się kolanach i nieużytecznym CUT zachowano.
+- **564 testy backendu PASS**,0błędów/pominięć,5,095s.9nowych przypadków sprawdza sześć odczytówPL/EN bez stopki oraz jej zachowanie dla energii, wiedzy technicznej i zwykłej rozmowy. Jedno wywołanie modelu, aktywna rezerwacja budżetu i brak automatycznych ponowień; większa instrukcja nadal jest objęta naliczaniem bajtówUTF8.
+- Wdrożenie `9813478b-c197-4e82-8198-6930e0d7e455` SUCCESS2026-11-02T05:53:39.222Z. Dwa rzeczywiste zapytania po wdrożeniu:PL trzy masy → trzy zdania,5.541kg/m/5.541kg/szt./11.08kg, bez nieproszonych dopisków;EN energia →1.325kJ/mm z1.3248, współczynnik0.6 jako ustawienie kalkulatora, stopkaWPS zachowana. ObaHTTP200, citations[],calculator_context_usedtrue, cleanup200/ok i prywatne pliki usunięte.
+- Pierwsza wersja usunęła stopkę deterministycznie, ale model nadal dodał uwagę o podnoszeniu; zachowano jako wynik częściowy, potem doprecyzowano instrukcję i wykonano nowy ograniczony test. Dowody `G:/Projekty/FitterWelderPro-artifacts/2026-11-02/answer-relevance-verification.json`, `answer-relevance-v2-live-native.json`, `answer-relevance-v2-live-heat.json`, log pełnych testów w tym samym katalogu.
+- Zmiana serwera działa z APK0.5.20 bez nowego wydania. To rzeczywisty testHTTP/modelu, nie nowy test mikrofonu lub iPhone'a. Dwa przykłady nie stanowią gwarancji jakości każdej przyszłej odpowiedziAI.
+
 ## Podpisany APK 0.5.20 — rzeczywisty kalkulator offline, 2026-11-02
 
 - **PASS: dokładnie udostępniony APK 0.5.20/2039**, bez przebudowania aplikacji lub dodawania kodu diagnostycznego. Zainstalowany SHA256 `3ff4675c87617ea5d4c6d4fd2e379335ac8314c3c28796d752b1c2fba3a22e6d`; test sprawdza brak flagi debug. Osobny natywny APK instrumentacji podpisano tym samym certyfikatem wydania; pomocniczego host APK nie używano do uruchomienia.
