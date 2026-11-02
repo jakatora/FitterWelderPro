@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "cut_list_app" "\0"
+            VALUE "CompanyName", "Startklaar" "\0"
+            VALUE "FileDescription", "FitterWelder Pro" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "cut_list_app" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "cut_list_app.exe" "\0"
-            VALUE "ProductName", "cut_list_app" "\0"
+            VALUE "InternalName", "FitterWelderPro" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Startklaar. All rights reserved." "\0"
+            VALUE "OriginalFilename", "FitterWelderPro.exe" "\0"
+            VALUE "ProductName", "FitterWelder Pro" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
