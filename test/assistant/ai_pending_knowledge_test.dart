@@ -5,10 +5,13 @@ import 'package:cut_list_app/services/account_service.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:cut_list_app/assistant/assistant_ai_client.dart';
 import 'package:cut_list_app/database/db.dart';
 import 'package:cut_list_app/screens/iso_notebook_screen.dart';
 import 'package:cut_list_app/services/ai_chat_service.dart';
+import 'package:cut_list_app/services/premium_service.dart';
 import '../support/test_account.dart';
 import '../support/test_database.dart';
 import 'ai_chat_execution_test.dart' show mount, FixtureSpeech;
@@ -184,5 +187,55 @@ void main() {
     expect(interpretations, 1);
     expect(answers, 1);
     expect(t.takeException(), isNull);
+  });
+  testWidgets(
+      'answer to a side knowledge clarification keeps the pending calculation',
+      (t) async {
+    var interpretations = 0;
+    final requests = <http.Request>[];
+    await http.runWithClient(() async {
+      await mount(t, interpret: (_) async {
+        interpretations++;
+        return const AiCommandPlan('answer', [], '');
+      });
+      PremiumService.instance.resetForTest();
+      await say(t, 'Oblicz heat input 24 V 230 A 150 mm/min');
+      expect(find.textContaining('Jaki proces spawania?'), findsWidgets);
+      await say(t, 'Czy możesz mi wyjaśnić dobór gazu?');
+      expect(find.textContaining('Jaki materiał?'), findsWidgets);
+      await say(t, '316L');
+      expect(requests, hasLength(2));
+      final second = jsonDecode(requests.last.body) as Map;
+      expect(second['message'], '316L');
+      expect(second['question_clarification'], {
+        'user_turns': ['Czy możesz mi wyjaśnić dobór gazu?']
+      });
+      expect(find.textContaining('Wyjaśnienie dla 316L.'), findsWidgets);
+      expect(find.textContaining('Jaki proces spawania?'), findsWidgets);
+      await say(t, 'TIG');
+      expect(find.textContaining('Liczyć wg EN 1011-1'), findsWidgets);
+      expect(interpretations, 2,
+          reason:
+              'Both side turns are classified while a native value is pending');
+      expect(requests, hasLength(2));
+      expect(t.takeException(), isNull);
+    },
+        () => MockClient((r) async {
+              if (r.url.path != '/api/fitter/ai/chat') {
+                return http.Response('{}', 200);
+              }
+              requests.add(r);
+              return http.Response(
+                  jsonEncode({
+                    'text': requests.length == 1
+                        ? 'Jaki materiał?'
+                        : 'Wyjaśnienie dla 316L.',
+                    'needs_clarification': requests.length == 1,
+                    'question_clarification_used': true,
+                    'calculator_context_used': true,
+                  }),
+                  200,
+                  headers: {'content-type': 'application/json; charset=utf-8'});
+            }));
   });
 }
