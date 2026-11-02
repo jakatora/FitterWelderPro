@@ -2,6 +2,13 @@
 
 All notable changes per AGENTS.md directive. Newest first.
 
+## 0.5.16 — 2026-11-02
+
+- Short follow-ups retain the initiating knowledge question after a failed AI reply, including consecutive failures. Cancellation and explicit topic changes still end the old context.
+- Offline answers label the closest help entry and reject weak matches based only on generic question words. Local help now explains DN/NPS separately from pump NPSH; attached designators and short acronym/numeric boundaries are recognized.
+- The welcome explains questions, app actions, clarification and possible source research. Preheat/P91 help distinguishes scoped manufacturer guidance and PWHT procedure excursions from automatic weld rejection.
+- Full source baseline: 10,267 Flutter tests across 660 suites passed and full analysis was clean. This does not establish full technical-knowledge correctness or physical microphone/AI-conversation validation.
+
 ## 0.5.15 — 2026-11-02
 
 - Stopping read-aloud while the platform prepares its language prevents the delayed reply from starting. A newer pending reply supersedes an older one.
