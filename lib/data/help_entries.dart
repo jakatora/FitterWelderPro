@@ -240,12 +240,14 @@ List<HelpCategory> kHelpCategories = [
         answer: _bi(
           'Dobór zależy od procesu i materiałów łączonych w złączu. '
           'Sprawdź metodę spawania oraz dokładne gatunki obu materiałów. '
+          'Wpisz lub powiedz asystentowi „Otwórz dobór spoiwa”. '
           'W narzędziu „Dobór spoiwa” wybierz oba materiały i proces, aby '
           'sprawdzić typową propozycję gazu. Wiążący dobór sprawdź w WPS '
           'i dokumentacji producenta; bez tych danych nie wybieraj mieszanki '
           'wyłącznie na podstawie ogólnego określenia „nierdzewka”.',
           'Selection depends on the process and the materials in the joint. '
           'Check the welding process and the exact grades of both materials. '
+          'Type or tell the assistant “Open filler metal selector”. '
           'In the “Filler metal selector”, select both materials and the '
           'process to see the typical gas suggestion. Check the binding '
           'selection against the WPS and manufacturer documentation; do not '

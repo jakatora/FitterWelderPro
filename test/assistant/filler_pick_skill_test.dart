@@ -9,6 +9,12 @@ import 'package:cut_list_app/i18n/app_language.dart';
 import 'support/assistant_test_support.dart';
 
 void main() {
+  test('English offline guidance command opens the filler selector', () async {
+    final reply = await BrainHarness(lang: AppLanguage.en)
+        .say('Open filler metal selector');
+    final result = reply.result as AnswerResult;
+    expect(result.show?.toolId, 'filler_selector');
+  });
   test('one grade asks other side then process without silently copying',
       () async {
     final h = BrainHarness();

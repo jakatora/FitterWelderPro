@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cut_list_app/services/premium_service.dart';
 import 'package:cut_list_app/services/ai_chat_service.dart';
+import 'package:cut_list_app/assistant/core/tool_bridge.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -13,6 +14,20 @@ import 'global_pipe_slope_flow_test.dart' show say, settle;
 void main() {
   useGuestAccount();
   useTestDatabase();
+  testWidgets('offline gas advice gives a command that opens the selector',
+      (t) async {
+    await http.runWithClient(() async {
+      await mount(t, interpret: (_) async =>
+          throw StateError('Both steps should stay out of command AI'));
+      PremiumService.instance.resetForTest();
+      await say(t, 'Pomóż mi dobrać gaz osłonowy do nierdzewki');
+      expect(find.textContaining('Otwórz dobór spoiwa'), findsWidgets);
+      await say(t, 'Otwórz dobór spoiwa');
+      expect(ToolBridge.instance.activeToolId, 'filler_selector');
+      expect(find.byKey(const ValueKey('filler-material-a')), findsOneWidget);
+      expect(t.takeException(), isNull);
+    }, () => MockClient((_) async => throw http.ClientException('Offline test')));
+  });
   testWidgets('offline gas advice reaches the user and offers a retry',
       (t) async {
     var chatRequests = 0;
