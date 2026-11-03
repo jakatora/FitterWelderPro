@@ -130,12 +130,14 @@ Set<String> _correctionTechnicalTopics(Set<String> words) => words
 const _qualifierGroups = [
   {'tig', 'mig', 'mag', 'mma'},
   {'aluminium', 'nierdzewna'},
+  {'argon', 'hel'},
 ];
 
 final _explicitReplacement = RegExp(
-    r'\b(?:nie|not)\s+(tig|mig|mag|mma|alumini\w*|nierdzew\w*)\s+'
-    r'(?:tylko|lecz|but)\s+(?:stal\w*\s+)?'
-    r'(tig|mig|mag|mma|alumini\w*|nierdzew\w*)\b');
+    r'\b(?:nie|not)\s+(?:gaz\w*\s+)?'
+    r'(tig|mig|mag|mma|alumini\w*|nierdzew\w*|argon\w*|hel\w*)\s+'
+    r'(?:tylko|lecz|but)\s+(?:(?:stal|gaz)\w*\s+)?'
+    r'(tig|mig|mag|mma|alumini\w*|nierdzew\w*|argon\w*|hel\w*)\b');
 
 Set<String> _effectiveCorrectionWords(String text) {
   final words = _topicWords(text);
@@ -168,15 +170,27 @@ bool _hasConflictingQualifier(
 /// Only attach memories sharing a topic with the current question. These are
 /// unverified user statements, never a replacement for current input or WPS.
 List<RememberedCorrection> relevantCorrections(
-    String question, List<RememberedCorrection> records) {
-  final words = _topicWords(question);
+    String question, List<RememberedCorrection> records,
+    {List<String> priorUserTurns = const []}) {
+  final turns = [...priorUserTurns, question];
+  final words = turns.expand(_topicWords).toSet();
   if (words.isEmpty) return const [];
+  final qualifiers = <String>{};
+  for (final group in _qualifierGroups) {
+    for (final turn in turns.reversed) {
+      final found = _effectiveCorrectionWords(turn).intersection(group);
+      if (found.isNotEmpty) {
+        qualifiers.addAll(found);
+        break;
+      }
+    }
+  }
   final ranked = <({RememberedCorrection record, int score, int order})>[];
   for (var i = 0; i < records.length; i++) {
     final record = records[i];
     final originalWords = _topicWords(record.question);
     final correctionWords = _effectiveCorrectionWords(record.correction);
-    if (_hasConflictingQualifier(words, originalWords, correctionWords)) continue;
+    if (_hasConflictingQualifier(qualifiers, originalWords, correctionWords)) continue;
     final originalMatches = originalWords.intersection(words).length;
     final correctionMatches = _correctionTechnicalTopics(correctionWords)
         .intersection(words).length;
@@ -279,9 +293,11 @@ class CorrectionMemoryStore {
 
   Future<List<RememberedCorrection>> list() => _serial(_read);
 
-  Future<CorrectionMemorySnapshot> capture(String question) =>
+  Future<CorrectionMemorySnapshot> capture(String question,
+          {List<String> priorUserTurns = const []}) =>
       _serial((owner) async {
-        final records = relevantCorrections(question, await _read(owner));
+        final records = relevantCorrections(question, await _read(owner),
+            priorUserTurns: priorUserTurns);
         if (_pendingMutations != 0) throw const CorrectionMemoryChanged();
         return CorrectionMemorySnapshot._(this, owner, _revision, records);
       });

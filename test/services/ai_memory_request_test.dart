@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cut_list_app/assistant/correction_memory.dart';
+import 'package:cut_list_app/assistant/ai_clarification.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/services/ai_chat_service.dart';
 import 'package:cut_list_app/services/ai_professional_context.dart';
@@ -41,6 +42,38 @@ void main() {
     expect(bodies, hasLength(2));
     expect(bodies.first['remembered_corrections'], [entry.toJson()]);
     expect(bodies.last.containsKey('remembered_corrections'), isFalse);
+  });
+
+  test('short clarification carries memory from the original user question', () async {
+    await CorrectionMemoryStore.instance.remember(entry);
+    late Map body;
+    await http.runWithClient(
+      () => AiChatService.instance.sendMessage('3 mm',
+          questionClarification: AiClarification(
+              question: 'Jaka grubość?', userTurns: ['Jak spawać TIG?'])),
+      () => MockClient((request) async {
+        body = jsonDecode(request.body) as Map;
+        return http.Response('{"text":"Odpowiedź","remembered_corrections_received":true,"question_clarification_used":true}', 200,
+            headers: {'content-type': 'application/json; charset=utf-8'});
+      }));
+    expect(body['remembered_corrections'], [entry.toJson()]);
+  });
+
+  test('latest clarification prevents carrying TIG memory to MAG', () async {
+    const tig = RememberedCorrection(
+        question: 'Jaki gaz do TIG?', correction: 'Chodzi o argon');
+    await CorrectionMemoryStore.instance.remember(tig);
+    late Map body;
+    await http.runWithClient(
+      () => AiChatService.instance.sendMessage('Nie TIG, tylko MAG',
+          questionClarification: AiClarification(
+              question: 'Jaki proces?', userTurns: ['Jaki gaz do TIG?'])),
+      () => MockClient((request) async {
+        body = jsonDecode(request.body) as Map;
+        return http.Response('{"text":"Odpowiedź","question_clarification_used":true}', 200,
+            headers: {'content-type': 'application/json; charset=utf-8'});
+      }));
+    expect(body.containsKey('remembered_corrections'), isFalse);
   });
 
   test('declined gas topic is supplied for a later inflected gas question', () async {
@@ -90,6 +123,25 @@ void main() {
     }));
     expect(bodies.first.containsKey('remembered_corrections'), isFalse);
     expect(bodies.last['remembered_corrections'], [tig.toJson()]);
+  });
+
+  test('gas replacement is not sent as context for a different gas', () async {
+    const correction = RememberedCorrection(
+        question: 'Jaki gaz do TIG?', correction: 'Nie argon, tylko hel');
+    await CorrectionMemoryStore.instance.remember(correction);
+    final bodies = <Map>[];
+    await http.runWithClient(() async {
+      await AiChatService.instance.sendMessage('Jaki przepływ argonu do TIG?');
+      await AiChatService.instance.sendMessage('Jaki przepływ helu do TIG?');
+      await AiChatService.instance.sendMessage('Jaki gaz do TIG?');
+    }, () => MockClient((request) async {
+      bodies.add(jsonDecode(request.body) as Map);
+      return http.Response('{"text":"Odpowiedź","remembered_corrections_received":true}', 200,
+          headers: {'content-type': 'application/json; charset=utf-8'});
+    }));
+    expect(bodies[0].containsKey('remembered_corrections'), isFalse);
+    expect(bodies[1]['remembered_corrections'], [correction.toJson()]);
+    expect(bodies[2]['remembered_corrections'], [correction.toJson()]);
   });
 
   test('a not TIG but MAG correction is not sent back with a TIG question', () async {

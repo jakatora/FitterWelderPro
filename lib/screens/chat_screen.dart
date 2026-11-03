@@ -376,10 +376,14 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
   final Set<String> _seenKeys = <String>{};
   bool _loading = true;
   bool _sending = false;
+  bool _supportsIdCursor = false;
+  int _lastFetchedId = 0;
 
   /// Treść i klucz idempotencji ostatniej NIEUDANEJ wysyłki — patrz [_send].
   String? _pendingText;
   String? _pendingKey;
+  AccountService? _pendingAccount;
+  int? _pendingRevision;
 
   /// Bramka imienia i zasad jest właśnie na ekranie — drugie stuknięcie
   /// „Wyślij" nie może otworzyć jej drugi raz.
@@ -427,14 +431,18 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
     // identyfikator — tworzymy go (jeśli trzeba) i zapisujemy od razu, żeby
     // porównanie „moje / cudze" nie trafiło na tymczasowy.
     await PremiumService.instance.ensureIdentity();
+    if (!mounted) return;
     await BlockedUsers.instance.load();
+    if (!mounted) return;
     await ReportedMessages.instance.load();
+    if (!mounted) return;
     // P1-43 — read PremiumService.deviceId (NOT nickname) so the isMine
     // check is stable across nickname edits. Guarded against empty in the
     // bubble too.
     _myDeviceId = PremiumService.instance.deviceId;
     _myAuthorId = PremiumService.instance.authorId;
     await _refresh(initial: true);
+    if (!mounted) return;
     _poller = Timer.periodic(const Duration(seconds: 8), (_) => _onTick());
   }
 
@@ -484,6 +492,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
       '${m.id}|${m.createdAt.toUtc().millisecondsSinceEpoch}';
 
   Future<void> _refresh({bool initial = false}) async {
+    final before = _messages.map(_keyOf).toSet();
     if (mounted) setState(() => _polling = true);
     try {
       final batch = await ChatService.instance
@@ -493,15 +502,27 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
           cutoff == null || !m.createdAt.toUtc().isBefore(cutoff)).toList();
       if (!mounted) return;
       setState(() {
+        final received = msgs.map(_keyOf).toSet();
+        final arrivedDuringRefresh = _messages.where((m) =>
+            !before.contains(_keyOf(m)) && !received.contains(_keyOf(m)) &&
+            (cutoff == null || !m.createdAt.toUtc().isBefore(cutoff))).toList();
         _retentionConfirmed = cutoff != null;
+        _supportsIdCursor = batch.supportsIdCursor;
+        _lastFetchedId = batch.messages.fold<int>(
+            0, (highest, message) => message.id > highest ? message.id : highest);
         _messages
           ..clear()
-          ..addAll(msgs);
+          ..addAll(msgs)
+          ..addAll(arrivedDuringRefresh)
+          ..sort((a, b) {
+            final byTime = a.createdAt.compareTo(b.createdAt);
+            return byTime != 0 ? byTime : a.id.compareTo(b.id);
+          });
         // P1-42 — rebuild the composite-key seen-set from scratch on full
         // refresh so we don't grow it unbounded across reconnects.
         _seenKeys
           ..clear()
-          ..addAll(msgs.map(_keyOf));
+          ..addAll(_messages.map(_keyOf));
         _loading = false;
         _polling = false;
         _error = null;
@@ -543,10 +564,15 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
       return;
     }
     if (mounted) setState(() => _polling = true);
-    final last = _messages.last.createdAt.toUtc().toIso8601String();
+    // The server filters with created_at > since. Re-read the last
+    // millisecond so a second message with the same timestamp is not missed;
+    // the composite seen-set below removes messages already displayed.
+    final last = _messages.last.createdAt.toUtc()
+        .subtract(const Duration(milliseconds: 1)).toIso8601String();
     try {
-      final batch = await ChatService.instance
-          .listMessageBatch(widget.room.id, sinceIso: last, limit: 50);
+      final batch = await ChatService.instance.listMessageBatch(widget.room.id,
+          sinceIso: last, afterId: _supportsIdCursor ? _lastFetchedId : null,
+          limit: 100);
       if (!mounted) return;
       final cutoff = batch.retainedSince;
       // P1-42 — dedupe on composite (id + createdAt) so identical-timestamp
@@ -561,6 +587,12 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
       final previousOffset = position?.pixels;
       setState(() {
         _retentionConfirmed = cutoff != null;
+        if (batch.supportsIdCursor) {
+          for (final message in batch.messages) {
+            if (message.id > _lastFetchedId) _lastFetchedId = message.id;
+          }
+        }
+        _supportsIdCursor = batch.supportsIdCursor;
         if (followLatest) {
           _hasNewMessages = false;
         } else if (fresh.any((m) =>
@@ -575,6 +607,10 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
             ..addAll(_messages.map(_keyOf));
         }
         _messages.addAll(fresh);
+        _messages.sort((a, b) {
+          final byTime = a.createdAt.compareTo(b.createdAt);
+          return byTime != 0 ? byTime : a.id.compareTo(b.id);
+        });
         _seenKeys.addAll(fresh.map(_keyOf));
         _polling = false;
       });
@@ -694,19 +730,30 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
     // Klucz idempotencji: ta sama treść po nieudanej próbie („Ponów" albo
     // ponowne „Wyślij") idzie z TYM SAMYM kluczem. Jeśli pierwsza próba
     // jednak doszła, serwer zwróci ją zamiast zapisać drugi raz.
-    final key = retryKey ?? (_pendingText == text ? _pendingKey : null) ??
+    final account = AccountService.instance;
+    final accountRevision = account.sessionRevision;
+    final sameSession = identical(_pendingAccount, account) &&
+        _pendingRevision == accountRevision;
+    final key = retryKey ??
+        (sameSession && _pendingText == text ? _pendingKey : null) ??
         ChatService.newIdempotencyKey();
     _pendingText = text;
     _pendingKey = key;
-    final account = AccountService.instance;
-    final accountRevision = account.sessionRevision;
+    _pendingAccount = account;
+    _pendingRevision = accountRevision;
     try {
       final msg = await ChatService.instance
           .postMessage(room: widget.room.id, text: text, idempotencyKey: key);
       if (!mounted) return;
+      if (!identical(AccountService.instance, account) ||
+          account.sessionRevision != accountRevision) {
+        throw StateError('Account changed while sending');
+      }
       if (_ctrl.text == draft) _ctrl.clear();
       _pendingText = null;
       _pendingKey = null;
+      _pendingAccount = null;
+      _pendingRevision = null;
       setState(() {
         // Po ponowieniu serwer może odesłać wiadomość, którą odpytywanie
         // zdążyło już pokazać — drugi raz jej nie dokładamy.
@@ -719,6 +766,18 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
       debugPrint('ChatRoom.send error: $e');
       if (!mounted) return;
       setState(() => _sending = false);
+      if (!identical(AccountService.instance, account) ||
+          account.sessionRevision != accountRevision) {
+        _pendingText = null;
+        _pendingKey = null;
+        _pendingAccount = null;
+        _pendingRevision = null;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(context.tr(
+          pl: 'Konto zmieniło się podczas wysyłania. Sprawdź, czy wiadomość dotarła, zanim wyślesz ją ponownie.',
+          en: 'The account changed while sending. Check whether the message arrived before sending it again.',
+        ))));
+        return;
+      }
       // Map the most common reasons (rate limit, banned text, rejected
       // install secret) to actionable messages; everything else falls
       // through to a generic retry hint.

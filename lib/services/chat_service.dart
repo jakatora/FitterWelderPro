@@ -57,7 +57,9 @@ class ChatRoom {
 class ChatMessageBatch {
   final List<ChatMessage> messages;
   final DateTime? retainedSince;
-  const ChatMessageBatch(this.messages, {this.retainedSince});
+  final bool supportsIdCursor;
+  const ChatMessageBatch(this.messages,
+      {this.retainedSince, this.supportsIdCursor = false});
 }
 
 class ChatMessage {
@@ -288,7 +290,7 @@ class ChatService {
       (await listMessageBatch(room, sinceIso: sinceIso, limit: limit)).messages;
 
   Future<ChatMessageBatch> listMessageBatch(String room,
-      {String? sinceIso, int limit = 100}) async {
+      {String? sinceIso, int? afterId, int limit = 100}) async {
     if (!BackendConfig.chatBackendLive) return const ChatMessageBatch([]);
     final account = AccountService.instance;
     final revision = account.sessionRevision;
@@ -309,6 +311,7 @@ class ChatService {
             'room': room,
             'limit': '${math.min(limit, 200)}',
             if (sinceIso != null) 'since': sinceIso,
+            if (afterId != null) 'after_id': '$afterId',
           },
           headers: headers,
           timeout: const Duration(seconds: 8),
@@ -321,7 +324,8 @@ class ChatService {
         .toList();
     final cutoff = body['retained_since'];
     return ChatMessageBatch(messages,
-        retainedSince: cutoff is String ? DateTime.tryParse(cutoff)?.toUtc() : null);
+        retainedSince: cutoff is String ? DateTime.tryParse(cutoff)?.toUtc() : null,
+        supportsIdCursor: body['cursor_version'] == 1);
   }
 
   /// Nowy klucz idempotencji (UUID v4) — jeden na wiadomość albo zgłoszenie.

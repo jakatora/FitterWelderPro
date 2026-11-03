@@ -35,9 +35,17 @@ final _correctionConnectors = RegExp(
     r'mial(?:em|am) na mysli|mam na mysli|i mean)\s*)+');
 
 String? _correctionDetail(Utterance u) {
-  final match = _answerCorrection.firstMatch(u.folded);
-  if (match == null) return null;
-  return u.folded.substring(match.end).trim().replaceFirst(_correctionConnectors, '').trim();
+  var remaining = u.folded;
+  var matched = false;
+  final discourse = RegExp(r'^(?:(?:ale|tylko|raczej|but|instead)\s+)+');
+  while (true) {
+    final match = _answerCorrection.firstMatch(remaining);
+    if (match == null) break;
+    matched = true;
+    remaining = remaining.substring(match.end).trim().replaceFirst(discourse, '').trim();
+  }
+  if (!matched) return null;
+  return remaining.replaceFirst(_correctionConnectors, '').trim();
 }
 
 bool isKnowledgeCorrection(Utterance u) {

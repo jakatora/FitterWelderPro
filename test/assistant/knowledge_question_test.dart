@@ -30,7 +30,10 @@ void main() {
     'Nie o to mi chodzi', 'źle mówisz', 'That is wrong',
     'Nie, to raczej tak nie będzie', 'Nie zgadzam się',
     'Źle mnie zrozumiałeś', 'To nieprawda', 'Nie o to pytałem',
-    'Nie pytałam o to', 'To nie jest to, o co pytałem'
+    'Nie pytałam o to', 'To nie jest to, o co pytałem',
+    'Źle mówisz, nie o to mi chodzi',
+    'Nie, to raczej tak nie będzie, źle mnie zrozumiałeś',
+    'That is wrong, that is not what I meant'
   ]) {
     test('bare correction asks for details: $phrase', () {
       final u = Utterance(phrase, lang: AppLanguage.pl);
@@ -47,6 +50,7 @@ void main() {
     'Nie, chodziło mi o średnicę zewnętrzną',
     'Nie o to pytałem, miałem na myśli stal nierdzewną',
     'Miałam na myśli gaz osłonowy',
+    'Źle mówisz, nie o to mi chodzi, chodzi mi o stal nierdzewną',
   ]) {
     test('detailed correction is a follow-up: $phrase', () {
       final u = Utterance(phrase, lang: AppLanguage.pl);
@@ -55,7 +59,7 @@ void main() {
     });
   }
   test('correction with an explicit app action is not routed as knowledge', () {
-    final u = Utterance('Nie o to mi chodzi, otwórz kalkulator', lang: AppLanguage.pl);
+    final u = Utterance('Źle mówisz, nie o to mi chodzi, otwórz kalkulator', lang: AppLanguage.pl);
     expect(isKnowledgeCorrection(u), isFalse);
     expect(isKnowledgeCorrectionWithAction(u), isTrue);
   });

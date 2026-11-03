@@ -206,7 +206,8 @@ class AiChatService {
       final profile = await AiProfessionalContext.instance.capture();
       CorrectionMemorySnapshot? memory;
       try {
-        memory = await CorrectionMemoryStore.instance.capture(trimmed);
+        memory = await CorrectionMemoryStore.instance.capture(trimmed,
+            priorUserTurns: questionClarification?.userTurns ?? const []);
       } catch (_) {
         // An unreadable memory is never sent as context or silently rewritten.
       }

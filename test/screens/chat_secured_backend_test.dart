@@ -2,6 +2,7 @@
 // `author_id`, rejestracja urządzenia przy wejściu (po zgodzie) i zrozumiały
 // komunikat, gdy serwer odrzuci sekret instalacji. Atrapa HTTP.
 
+import 'dart:async';
 import 'dart:convert';
 import '../support/test_account.dart';
 
@@ -49,11 +50,19 @@ void main() {
   final requests = <http.Request>[];
   String? retainedSince;
   List<Map<String, dynamic>>? messageBatch;
+  bool strictSince = false;
+  bool idCursor = false;
+  Map<String, dynamic>? postResult;
+  Completer<http.Response>? delayedGet;
 
   setUp(() async {
     requests.clear();
     retainedSince = null;
     messageBatch = null;
+    strictSince = false;
+    idCursor = false;
+    postResult = null;
+    delayedGet = null;
     SharedPreferences.setMockInitialValues({
       'user_profile_v1':
           jsonEncode({'firstName': 'Marek', 'lastName': 'Kowalczyk'}),
@@ -75,16 +84,27 @@ void main() {
         return _json(201, {'registered': true, 'author_id': 'a_me'});
       }
       if (r.method == 'GET' && r.url.path == '/api/fitter/chat/messages') {
+        if (delayedGet != null) return delayedGet!.future;
+        final messages = messageBatch ?? [
+          _msg(1, _otherAuthor, _otherAuthor, 'Zbigniew Hałas', 'Kto ma P91?', false),
+          _msg(2, _myDevice, 'a_me', 'Marek Kowalczyk', 'Ja mam', true),
+        ];
+        final since = r.url.queryParameters['since'];
+        final afterId = int.tryParse(r.url.queryParameters['after_id'] ?? '');
+        final limit = int.tryParse(r.url.queryParameters['limit'] ?? '') ?? 100;
         return _json(200, {
           if (retainedSince != null) 'retained_since': retainedSince,
-          'messages': messageBatch ?? [
-            _msg(1, _otherAuthor, _otherAuthor, 'Zbigniew Hałas', 'Kto ma P91?',
-                false),
-            _msg(2, _myDevice, 'a_me', 'Marek Kowalczyk', 'Ja mam', true),
-          ]
+          if (idCursor) 'cursor_version': 1,
+          'messages': idCursor && afterId != null
+              ? messages.where((m) => (m['id'] as int) > afterId).take(limit).toList()
+              : strictSince && since != null
+              ? messages.where((m) => DateTime.parse(m['created_at'] as String)
+                  .isAfter(DateTime.parse(since))).toList()
+              : messages,
         });
       }
       if (r.method == 'POST' && r.url.path == '/api/fitter/chat/messages') {
+        if (postResult != null) return _json(201, {'message': postResult});
         return _json(401, {
           'error': {
             'code': 'INSTALL_SECRET_INVALID',
@@ -152,6 +172,86 @@ void main() {
     expect(find.text('Zbigniew Hałas'), findsOneWidget);
     expect(find.text('Marek Kowalczyk'), findsNothing);
     expect(find.text('Ja mam'), findsOneWidget);
+    await close(tester);
+  });
+
+  testWidgets('nowa wiadomość z tym samym czasem nie znika przy odpytywaniu', (tester) async {
+    final first = _msg(1, _otherAuthor, _otherAuthor, 'Zbigniew Hałas', 'Pierwsza', false);
+    final second = _msg(2, _myDevice, 'a_me', 'Marek Kowalczyk', 'Druga w tym samym czasie', true)
+      ..['created_at'] = first['created_at'];
+    strictSince = true;
+    messageBatch = [first];
+    await openRoom(tester);
+    messageBatch = [first, second];
+    await tester.pump(const Duration(seconds: 8));
+    await pumpFor(tester, 8);
+    expect(find.text('Pierwsza'), findsOneWidget);
+    expect(find.text('Druga w tym samym czasie'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 8));
+    await pumpFor(tester, 4);
+    expect(find.text('Druga w tym samym czasie'), findsOneWidget);
+    await close(tester);
+  });
+
+  testWidgets('kursor pobiera ponad sto wiadomości z tym samym czasem', (tester) async {
+    final first = _msg(1, _otherAuthor, _otherAuthor, 'Zbigniew Hałas', 'Pierwsza', false);
+    idCursor = true;
+    messageBatch = [first];
+    await openRoom(tester);
+    messageBatch = [first, for (var i = 2; i <= 126; i++)
+      _msg(i, _otherAuthor, _otherAuthor, 'Zbigniew Hałas', 'Wiadomość $i', false)
+        ..['created_at'] = first['created_at']];
+    await tester.pump(const Duration(seconds: 8));
+    await pumpFor(tester, 8);
+    await tester.pump(const Duration(seconds: 8));
+    await pumpFor(tester, 8);
+    await tester.pump(const Duration(seconds: 8));
+    await pumpFor(tester, 4);
+    final cursors = requests.where((r) => r.method == 'GET' &&
+        r.url.path == '/api/fitter/chat/messages' && r.url.queryParameters.containsKey('after_id'))
+        .map((r) => r.url.queryParameters['after_id']).toList();
+    expect(cursors, ['1', '101', '126']);
+    expect(tester.takeException(), isNull);
+    await close(tester);
+  });
+
+  testWidgets('własny wpis nie przesuwa kursora przed pobraniem cudzej wiadomości', (tester) async {
+    final first = _msg(1, _otherAuthor, _otherAuthor, 'Zbigniew Hałas', 'Pierwsza', false);
+    final other = _msg(2, _otherAuthor, _otherAuthor, 'Zbigniew Hałas', 'Wiadomość innej osoby', false);
+    final own = _msg(3, _myDevice, 'a_me', 'Marek Kowalczyk', 'Moja wiadomość', true);
+    idCursor = true;
+    messageBatch = [first];
+    postResult = own;
+    await openRoom(tester);
+    await tester.enterText(find.byType(TextField), 'Moja wiadomość');
+    await tester.tap(find.byTooltip('Send'));
+    await pumpFor(tester, 5);
+    messageBatch = [first, other, own];
+    await tester.pump(const Duration(seconds: 8));
+    await pumpFor(tester, 8);
+    expect(find.text('Wiadomość innej osoby'), findsOneWidget);
+    expect(find.text('Moja wiadomość'), findsOneWidget);
+    final delta = requests.lastWhere((r) => r.method == 'GET' &&
+        r.url.path == '/api/fitter/chat/messages');
+    expect(delta.url.queryParameters['after_id'], '1');
+    await close(tester);
+  });
+
+  testWidgets('starsze odświeżenie nie usuwa wiadomości wysłanej w trakcie ładowania', (tester) async {
+    final first = _msg(1, _otherAuthor, _otherAuthor, 'Zbigniew Hałas', 'Wcześniejsza', false);
+    final own = _msg(2, _myDevice, 'a_me', 'Marek Kowalczyk', 'Nowa podczas ładowania', true);
+    idCursor = true;
+    delayedGet = Completer<http.Response>();
+    postResult = own;
+    await openRoom(tester);
+    await tester.enterText(find.byType(TextField), 'Nowa podczas ładowania');
+    await tester.tap(find.byTooltip('Send'));
+    await pumpFor(tester, 5);
+    delayedGet!.complete(_json(200, {'messages': [first], 'cursor_version': 1}));
+    await pumpFor(tester, 8);
+    expect(find.text('Wcześniejsza'), findsOneWidget);
+    expect(find.text('Nowa podczas ładowania'), findsOneWidget);
+    expect(tester.takeException(), isNull);
     await close(tester);
   });
 

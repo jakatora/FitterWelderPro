@@ -92,6 +92,5 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/tool_photos/
     - assets/fonts/Roboto-Regular.ttf
     - assets/fonts/Roboto-Bold.ttf

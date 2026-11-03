@@ -153,6 +153,66 @@ void main() {
     expect(records.single.question, 'Co to jest TIG?');
     expect(records.single.correction, 'Chodzi o stal nierdzewną');
   });
+  testWidgets('repeated disagreement asks for details before saving', (t) async {
+    var requests = 0;
+    await mount(t, interpret: (_) async => throw StateError('Not an app command'),
+      chatSender: (_, __) async {
+        requests++;
+        return ChatMessage(role: ChatRole.assistant, text: 'Odpowiedź testowa', kind: AiReplyKind.live);
+      });
+    await say(t, 'Co to jest TIG?');
+    await say(t, 'Źle mówisz, nie o to mi chodzi');
+    expect(requests, 1);
+    expect(find.textContaining('Co konkretnie mam poprawić'), findsWidgets);
+    final before = CorrectionMemoryStore.instance.list();
+    await settle(t);
+    expect(await before, isEmpty);
+    await say(t, 'Chodzi o stal nierdzewną');
+    expect(requests, 2);
+    final saved = CorrectionMemoryStore.instance.list();
+    await settle(t);
+    final records = await saved;
+    expect(records.single.question, 'Co to jest TIG?');
+    expect(records.single.correction, 'Chodzi o stal nierdzewną');
+  });
+  testWidgets('spoken repeated disagreement asks before remembering details', (t) async {
+    final speech = HeldSpeech();
+    final voice = VoiceFake();
+    var requests = 0;
+    await mount(t, speech: speech, voice: voice,
+      interpret: (_) async => throw StateError('Not an app command'),
+      chatSender: (_, __) async {
+        requests++;
+        return ChatMessage(role: ChatRole.assistant, text: 'Odpowiedź testowa', kind: AiReplyKind.live);
+      });
+    await t.tap(find.byKey(const Key('assistant-voice-session')));
+    await settle(t);
+    speech.results.last('Co to jest TIG?', true);
+    await settle(t);
+    expect(requests, 1);
+    voice.playback!.complete();
+    await settle(t);
+    speech.results.last('Źle mówisz, nie o to mi chodzi', true);
+    await settle(t);
+    expect(requests, 1);
+    expect(voice.spoken.last, contains('Co konkretnie mam poprawić'));
+    final before = CorrectionMemoryStore.instance.list();
+    await settle(t);
+    expect(await before, isEmpty);
+    voice.playback!.complete();
+    await settle(t);
+    speech.results.last('Chodzi o stal nierdzewną', true);
+    await settle(t);
+    expect(requests, 2);
+    final saved = CorrectionMemoryStore.instance.list();
+    await settle(t);
+    final records = await saved;
+    expect(records.single.question, 'Co to jest TIG?');
+    expect(records.single.correction, 'Chodzi o stal nierdzewną');
+    await t.tap(find.byKey(const Key('assistant-voice-session')));
+    await settle(t);
+    expect(t.takeException(), isNull);
+  });
   testWidgets('correction survives further questions and retains user details', (t) async {
     var requests = 0;
     await mount(t, interpret: (_) async => throw StateError('Not an app command'),

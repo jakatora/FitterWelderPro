@@ -69,7 +69,7 @@ void main() {
     await settle(tester);
 
     // Kalkulatory działają offline i bez konta — ekran główny od razu.
-    expect(find.byKey(const Key('home-section-photo-fitter')), findsOneWidget); // MONTER
+    expect(find.byKey(const Key('home-artwork-fitter')), findsOneWidget); // MONTER
     expect(find.byType(OnboardingNameScreen), findsNothing);
 
     // Dopiero czat pyta o imię, nazwisko i zasady.
@@ -108,8 +108,8 @@ void main() {
 
     // Widoczne: MONTER, SPAWACZ, CZAT (ikony są niezależne od języka).
     // Kafla POMOC nie ma — pomoc jest pod ikoną „?" w pasku.
-    expect(find.byKey(const Key('home-section-photo-fitter')), findsOneWidget); // MONTER
-    expect(find.byKey(const Key('home-section-photo-welder')), findsOneWidget); // SPAWACZ
+    expect(find.byKey(const Key('home-artwork-fitter')), findsOneWidget); // MONTER
+    expect(find.byKey(const Key('home-artwork-welder')), findsOneWidget); // SPAWACZ
     expect(find.byIcon(Icons.forum_outlined), findsOneWidget); // CZAT
 
     // Skaner działa w darmowym trybie z dziennym limitem — kafel jest.
@@ -168,7 +168,7 @@ void main() {
 
     // SPAWACZ → „Heat input i CE" — jedyne wejście do podgrzewania (dawna
     // zakładka „Temperatura" w kalkulatorach spawacza dublowała ten ekran).
-    await tester.tap(find.byKey(const Key('home-section-photo-welder')));
+    await tester.tap(find.byKey(const Key('home-artwork-welder')));
     await settle(tester);
     await tester.tap(find.byKey(const Key('tool-group-weldCalculators')));
     await settle(tester);
@@ -213,7 +213,7 @@ void main() {
       (tester) async {
     await boot(tester, withProfile: true);
 
-    await tester.tap(find.byKey(const Key('home-section-photo-fitter'))); // MONTER
+    await tester.tap(find.byKey(const Key('home-artwork-fitter'))); // MONTER
     await settle(tester);
 
     // Skaner jest w grupie cięć i projektów.

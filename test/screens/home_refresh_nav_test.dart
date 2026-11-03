@@ -62,7 +62,7 @@ void main() {
       await boot(tester);
       expect(find.text('Projekty: 0  ·  Segmenty: 0'), findsOneWidget);
 
-      await tester.tap(find.byKey(const Key('home-section-photo-fitter'))); // MONTER
+      await tester.tap(find.byKey(const Key('home-artwork-fitter'))); // MONTER
       await settle(tester);
       expect(find.byType(FitterMenuScreen), findsOneWidget);
 

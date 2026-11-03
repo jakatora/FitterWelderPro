@@ -63,6 +63,7 @@ void main() {
   var otherText = 'Kto ma P91?';
   List<Map<String, dynamic>>? customMessages;
   Completer<http.Response>? delayedSend;
+  Completer<http.Response>? delayedInitial;
   List<http.Response>? sendResponses;
 
   setUp(() async {
@@ -70,6 +71,7 @@ void main() {
     otherText = 'Kto ma P91?';
     customMessages = null;
     delayedSend = null;
+    delayedInitial = null;
     sendResponses = null;
     SharedPreferences.setMockInitialValues({
       'user_profile_v1':
@@ -93,6 +95,7 @@ void main() {
         return _json(201, {'registered': true, 'author_id': 'a_me'});
       }
       if (r.method == 'GET' && r.url.path == '/api/fitter/chat/messages') {
+        if (delayedInitial != null) return delayedInitial!.future;
         return _json(200, {
           'messages': customMessages ?? [
             _msg(1, _otherAuthor, _otherAuthor, 'Zbigniew Hałas', otherText,
@@ -219,6 +222,16 @@ void main() {
     await close(tester);
   });
 
+  testWidgets('zamknięcie pokoju podczas ładowania nie zostawia odpytywania', (tester) async {
+    delayedInitial = Completer<http.Response>();
+    await openRoom(tester);
+    expect(find.byType(CircularProgressIndicator), findsWidgets);
+    await close(tester);
+    delayedInitial!.complete(_json(200, {'messages': <Object>[]}));
+    await pumpFor(tester, 3);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('ponów wysyła pierwotną wiadomość i zachowuje nowy szkic', (tester) async {
     sendResponses = [
       _json(500, {'error': {'code': 'SERVER_ERROR', 'message': 'temporary'}}),
@@ -258,6 +271,51 @@ void main() {
     await pumpFor(tester, 4);
     expect(requests.where((r) => r.method == 'POST' && r.url.path == '/api/fitter/chat/messages'), hasLength(1));
     expect(find.textContaining('account or pending message changed'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await close(tester);
+  });
+
+  testWidgets('ręczne wysłanie po zmianie konta dostaje nowy klucz', (tester) async {
+    sendResponses = [
+      _json(500, {'error': {'code': 'SERVER_ERROR', 'message': 'temporary'}}),
+      _json(201, {'message': _msg(3, _myDevice, 'a_me', 'Marek Kowalczyk', 'Pierwsza wiadomość', true)}),
+    ];
+    await openRoom(tester);
+    await tester.enterText(find.byType(TextField), 'Pierwsza wiadomość');
+    await tester.tap(find.byTooltip('Send'));
+    await pumpFor(tester, 4);
+    final previous = AccountService.instance;
+    await seedSignedInAccount();
+    final other = AccountService.instance;
+    addTearDown(() { AccountService.instance = previous; other.dispose(); });
+    ScaffoldMessenger.of(tester.element(find.byType(TextField))).hideCurrentSnackBar();
+    await pumpFor(tester, 4);
+    await tester.tap(find.byTooltip('Send'));
+    await pumpFor(tester, 6);
+    final sent = requests.where((r) => r.method == 'POST' && r.url.path == '/api/fitter/chat/messages').toList();
+    expect(sent, hasLength(2));
+    expect(sent.first.headers[kIdempotencyKeyHeader], isNotNull);
+    expect(sent.last.headers[kIdempotencyKeyHeader], isNot(sent.first.headers[kIdempotencyKeyHeader]));
+    expect(tester.takeException(), isNull);
+    await close(tester);
+  });
+
+  testWidgets('zmiana konta podczas wysyłki zachowuje szkic i nie oferuje starego ponowienia', (tester) async {
+    delayedSend = Completer<http.Response>();
+    await openRoom(tester);
+    await tester.enterText(find.byType(TextField), 'Pierwsza wiadomość');
+    await tester.tap(find.byTooltip('Send'));
+    await pumpFor(tester, 3);
+    final previous = AccountService.instance;
+    await seedSignedInAccount();
+    final other = AccountService.instance;
+    addTearDown(() { AccountService.instance = previous; other.dispose(); });
+    delayedSend!.complete(_json(201, {'message': _msg(3, _myDevice, 'a_me', 'Marek Kowalczyk', 'Pierwsza wiadomość', true)}));
+    await pumpFor(tester, 5);
+    expect(tester.widget<TextField>(find.byType(TextField)).controller!.text, 'Pierwsza wiadomość');
+    expect(find.textContaining('account changed while sending'), findsOneWidget);
+    expect(find.widgetWithText(SnackBarAction, 'Retry'), findsNothing);
+    expect(find.byKey(const ValueKey('chat-bubble-3')), findsNothing);
     expect(tester.takeException(), isNull);
     await close(tester);
   });

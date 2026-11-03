@@ -222,6 +222,29 @@ void main() {
     expect(relevantCorrections('Which method for MIG?', [english]), isEmpty);
   });
 
+  test('gas corrections follow explicit replacement and mixtures', () {
+    const helium = RememberedCorrection(
+        question: 'Jaki gaz osłonowy do TIG?',
+        correction: 'Nie argon, tylko hel');
+    expect(relevantCorrections('Jaki przepływ argonu do TIG?', [helium]), isEmpty);
+    expect(relevantCorrections('Jaki przepływ helu do TIG?', [helium]), [helium]);
+    expect(relevantCorrections('Jaki gaz do TIG?', [helium]), [helium]);
+    const argon = RememberedCorrection(
+        question: 'Jaki gaz osłonowy do TIG?',
+        correction: 'Nie helu, tylko argonu');
+    expect(relevantCorrections('Jaki przepływ helu do TIG?', [argon]), isEmpty);
+    expect(relevantCorrections('Jaki przepływ argonu do TIG?', [argon]), [argon]);
+    const mixture = RememberedCorrection(
+        question: 'Jaki gaz osłonowy do TIG?',
+        correction: 'Chodzi o mieszankę argonu i helu');
+    expect(relevantCorrections('Jaki przepływ argonu i helu do TIG?', [mixture]), [mixture]);
+    expect(relevantCorrections('Jaki przepływ argonu do TIG?', [mixture]), [mixture]);
+    const english = RememberedCorrection(
+        question: 'What shielding gas for TIG?', correction: 'Not helium but argon');
+    expect(relevantCorrections('What helium flow for TIG?', [english]), isEmpty);
+    expect(relevantCorrections('What argon flow for TIG?', [english]), [english]);
+  });
+
   test('shared gas topic does not transfer corrections between explicit processes', () {
     const record = RememberedCorrection(
         question: 'Jaki gaz osłonowy do TIG?', correction: 'Chodzi o argon');

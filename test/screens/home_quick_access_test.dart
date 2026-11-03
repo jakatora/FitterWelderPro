@@ -53,12 +53,12 @@ void main() {
   }
 
   group('start bez bramki', () {
-    testWidgets('zdjęcia działów prowadzą do narzędzi', (tester) async {
+    testWidgets('grafiki działów prowadzą do narzędzi', (tester) async {
       seedFreshInstall();
       await boot(tester);
-      expect(key('home-section-photo-fitter'), findsOneWidget);
-      expect(key('home-section-photo-welder'), findsOneWidget);
-      await tester.tap(key('home-section-photo-fitter'));
+      expect(key('home-artwork-fitter'), findsOneWidget);
+      expect(key('home-artwork-welder'), findsOneWidget);
+      await tester.tap(key('home-artwork-fitter'));
       await settle(tester);
       expect(find.byType(FitterMenuScreen), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -70,8 +70,8 @@ void main() {
       await boot(tester);
       tester.view.physicalSize = const Size(320, 800);
       await settle(tester);
-      expect(key('home-section-photo-fitter'), findsOneWidget);
-      expect(key('home-section-photo-welder'), findsOneWidget);
+      expect(key('home-artwork-fitter'), findsOneWidget);
+      expect(key('home-artwork-welder'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
@@ -149,7 +149,7 @@ void main() {
       seedOutdatedConsent();
       await boot(tester);
 
-      await tester.tap(key('home-section-photo-fitter')); // MONTER
+      await tester.tap(key('home-artwork-fitter')); // MONTER
       await settle(tester);
       expect(find.byType(FitterMenuScreen), findsOneWidget);
       await back(tester);
@@ -260,7 +260,7 @@ void main() {
       await settle(tester);
       expect(key('tool-row-elbow_takeouts'), findsOneWidget);
       // Wyniki zastępują resztę ekranu (kafle działów znikają).
-      expect(key('home-section-photo-fitter'), findsNothing);
+      expect(key('home-artwork-fitter'), findsNothing);
 
       await tester.tap(key('tool-row-elbow_takeouts'));
       await settle(tester);
@@ -338,7 +338,7 @@ void main() {
       seedOnboardedUser();
       await boot(tester);
 
-      await tester.tap(key('home-section-photo-fitter'));
+      await tester.tap(key('home-artwork-fitter'));
       await settle(tester);
       await tester.tap(key('tool-group-routeSlope'));
       await settle(tester);
