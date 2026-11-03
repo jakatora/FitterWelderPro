@@ -387,6 +387,8 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
   // P3-13 — polling loading dot in AppBar. Goes true around each poll so the
   // user can see "the app is alive and watching the channel".
   bool _polling = false;
+  bool _retentionConfirmed = false;
+  bool _hasNewMessages = false;
   String? _error;
   Timer? _poller;
   String _myDeviceId = '';
@@ -398,6 +400,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _scroll.addListener(_onScroll);
     WidgetsBinding.instance.addObserver(this);
     _bootstrap();
   }
@@ -468,6 +471,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _poller?.cancel();
+    _scroll.removeListener(_onScroll);
     _scroll.dispose();
     _ctrl.dispose();
     super.dispose();
@@ -482,10 +486,14 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
   Future<void> _refresh({bool initial = false}) async {
     if (mounted) setState(() => _polling = true);
     try {
-      final msgs =
-          await ChatService.instance.listMessages(widget.room.id, limit: 100);
+      final batch = await ChatService.instance
+          .listMessageBatch(widget.room.id, limit: 100);
+      final cutoff = batch.retainedSince;
+      final msgs = batch.messages.where((m) =>
+          cutoff == null || !m.createdAt.toUtc().isBefore(cutoff)).toList();
       if (!mounted) return;
       setState(() {
+        _retentionConfirmed = cutoff != null;
         _messages
           ..clear()
           ..addAll(msgs);
@@ -511,6 +519,20 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
     }
   }
 
+  void _onScroll() {
+    if (!_hasNewMessages || !_scroll.hasClients ||
+        _scroll.position.extentAfter > 24) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_hasNewMessages || !_scroll.hasClients ||
+          _scroll.position.extentAfter > 24) {
+        return;
+      }
+      setState(() => _hasNewMessages = false);
+    });
+  }
+
   Future<void> _pollDelta() async {
     if (!mounted) return;
     // P1-42 — empty-room first-message: if we have no messages yet, do a
@@ -523,52 +545,107 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
     if (mounted) setState(() => _polling = true);
     final last = _messages.last.createdAt.toUtc().toIso8601String();
     try {
-      final delta = await ChatService.instance
-          .listMessages(widget.room.id, sinceIso: last, limit: 50);
+      final batch = await ChatService.instance
+          .listMessageBatch(widget.room.id, sinceIso: last, limit: 50);
       if (!mounted) return;
-      if (delta.isEmpty) {
-        setState(() => _polling = false);
-        return;
-      }
+      final cutoff = batch.retainedSince;
       // P1-42 — dedupe on composite (id + createdAt) so identical-timestamp
       // burst posts with distinct ids still come through; identical id+ts
       // pairs (the same logical message we already have) get filtered.
-      final fresh = delta.where((m) => !_seenKeys.contains(_keyOf(m))).toList();
-      if (fresh.isEmpty) {
-        setState(() => _polling = false);
-        return;
-      }
+      final fresh = batch.messages.where((m) =>
+          !_seenKeys.contains(_keyOf(m)) &&
+          (cutoff == null || !m.createdAt.toUtc().isBefore(cutoff))).toList();
+      final position = _scroll.hasClients ? _scroll.position : null;
+      final followLatest = position == null ||
+          (position.extentAfter <= 96 && !position.isScrollingNotifier.value);
+      final previousOffset = position?.pixels;
       setState(() {
+        _retentionConfirmed = cutoff != null;
+        if (followLatest) {
+          _hasNewMessages = false;
+        } else if (fresh.any((m) =>
+            !BlockedUsers.instance.isBlockedAny([m.authorId, m.deviceId]) &&
+            !ReportedMessages.instance.isReported(m.id))) {
+          _hasNewMessages = true;
+        }
+        if (cutoff != null) {
+          _messages.removeWhere((m) => m.createdAt.toUtc().isBefore(cutoff));
+          _seenKeys
+            ..clear()
+            ..addAll(_messages.map(_keyOf));
+        }
         _messages.addAll(fresh);
         _seenKeys.addAll(fresh.map(_keyOf));
         _polling = false;
       });
-      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+      if (fresh.isNotEmpty && followLatest) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_scroll.hasClients) return;
+          final current = _scroll.position;
+          if (current.isScrollingNotifier.value ||
+              (previousOffset != null &&
+                  (current.pixels - previousOffset).abs() > 1)) {
+            return;
+          }
+          _scrollToBottom();
+        });
+      }
     } catch (_) {
       // Quiet failure — next poll might succeed.
       if (mounted) setState(() => _polling = false);
     }
   }
 
-  void _scrollToBottom() {
+  Future<void> _scrollToBottom() async {
     if (!_scroll.hasClients) return;
-    _scroll.animateTo(
-      _scroll.position.maxScrollExtent,
+    final target = _scroll.position.maxScrollExtent;
+    await _scroll.animateTo(
+      target,
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOut,
     );
+    if (!mounted || !_scroll.hasClients) return;
+    final position = _scroll.position;
+    // ListView lazily measures rows, so the estimated end may move during
+    // animation. Do not override a gesture that interrupted the animation.
+    if (!position.isScrollingNotifier.value &&
+        (position.pixels - target).abs() <= 1 && position.extentAfter > 1) {
+      _scroll.jumpTo(position.maxScrollExtent);
+    }
   }
 
-  Future<void> _send() async {
+  Future<void> _send({String? retryText, String? retryDraft, String? retryKey,
+      AccountService? retryAccount, int? retryRevision}) async {
+    bool retryIsCurrent() => retryKey == null ||
+        (identical(AccountService.instance, retryAccount) &&
+            retryAccount?.sessionRevision == retryRevision &&
+            _pendingText == retryText && _pendingKey == retryKey);
+    void notifyStaleRetry() {
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(SnackBar(content: Text(context.tr(
+        pl: 'Nie ponowiono wiadomości — konto lub oczekująca wiadomość się zmieniły.',
+        en: 'Message not retried — the account or pending message changed.',
+      ))));
+    }
+    if (!retryIsCurrent()) {
+      notifyStaleRetry();
+      return;
+    }
     await AccountService.instance.load();
     if (!mounted) return;
+    if (!retryIsCurrent()) {
+      notifyStaleRetry();
+      return;
+    }
     if (AccountService.instance.account == null) {
       await Navigator.of(context)
           .push(MaterialPageRoute<void>(builder: (_) => const AccountScreen()));
       if (!mounted || AccountService.instance.account == null) return;
     }
 
-    final text = _ctrl.text.trim();
+    final draft = retryDraft ?? _ctrl.text;
+    final text = retryText ?? draft.trim();
     if (text.isEmpty || _sending) return;
     // P1-43 — minimum 2 visible characters. Single-character mash usually
     // means a gloved misfire; refuse and tell the user how to fix it
@@ -609,21 +686,27 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
       _gating = false;
       if (!ok || !mounted) return;
     }
+    if (!retryIsCurrent()) {
+      notifyStaleRetry();
+      return;
+    }
     setState(() => _sending = true);
     // Klucz idempotencji: ta sama treść po nieudanej próbie („Ponów" albo
     // ponowne „Wyślij") idzie z TYM SAMYM kluczem. Jeśli pierwsza próba
     // jednak doszła, serwer zwróci ją zamiast zapisać drugi raz.
-    final key = (_pendingText == text ? _pendingKey : null) ??
+    final key = retryKey ?? (_pendingText == text ? _pendingKey : null) ??
         ChatService.newIdempotencyKey();
     _pendingText = text;
     _pendingKey = key;
+    final account = AccountService.instance;
+    final accountRevision = account.sessionRevision;
     try {
       final msg = await ChatService.instance
           .postMessage(room: widget.room.id, text: text, idempotencyKey: key);
-      _ctrl.clear();
+      if (!mounted) return;
+      if (_ctrl.text == draft) _ctrl.clear();
       _pendingText = null;
       _pendingKey = null;
-      if (!mounted) return;
       setState(() {
         // Po ponowieniu serwer może odesłać wiadomość, którą odpytywanie
         // zdążyło już pokazać — drugi raz jej nie dokładamy.
@@ -680,7 +763,9 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
         action: isRetryable
             ? SnackBarAction(
                 label: context.tr(pl: 'Ponów', en: 'Retry'),
-                onPressed: _send,
+                onPressed: () => _send(retryText: text, retryDraft: draft,
+                    retryKey: key, retryAccount: account,
+                    retryRevision: accountRevision),
               )
             : null,
       ));
@@ -882,6 +967,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
     final name = context.language == AppLanguage.pl
         ? widget.room.namePl
         : widget.room.nameEn;
+    final visibleMessages = _visibleMessages;
     return Scaffold(
       backgroundColor: const Color(0xFF0B0E13),
       appBar: AppBar(
@@ -920,8 +1006,21 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
       ),
       body: Column(
         children: [
+          if (_retentionConfirmed)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              child: Text(
+                context.tr(
+                  pl: 'Wiadomości są cyklicznie usuwane po miesiącu.',
+                  en: 'Messages are periodically deleted after one month.',
+                ),
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: _kTextSec, fontSize: 12),
+              ),
+            ),
           Expanded(
-            child: _loading
+            child: Stack(children: [
+              Positioned.fill(child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null && _messages.isEmpty
                     ? _ErrorRetry(onRetry: () => _refresh(initial: true))
@@ -930,7 +1029,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
                         // P1-42 — render the empty-room CTA inside a
                         // scrollable so pull-to-refresh keeps working at
                         // zero messages.
-                        child: _visibleMessages.isEmpty
+                        child: visibleMessages.isEmpty
                             ? ListView(
                                 physics: const AlwaysScrollableScrollPhysics(),
                                 children: [
@@ -943,24 +1042,50 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
                                 ],
                               )
                             : ListView.builder(
+                                key: const Key('chat-message-list'),
                                 controller: _scroll,
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 12, vertical: 8),
-                                itemCount: _visibleMessages.length,
-                                itemBuilder: (_, i) => _MessageBubble(
-                                  message: _visibleMessages[i],
-                                  // P1-43 — guard isMine against the race
-                                  // where _myDeviceId hasn't loaded yet
-                                  // (PremiumService init in progress); an
-                                  // empty deviceId on both sides would
-                                  // otherwise falsely flag every message
-                                  // as mine.
-                                  isMine: _isMine(_visibleMessages[i]),
-                                  onActions: () =>
-                                      _messageActions(_visibleMessages[i]),
-                                ),
+                                itemCount: visibleMessages.length,
+                                itemBuilder: (_, i) {
+                                  final message = visibleMessages[i];
+                                  final date = message.createdAt.toLocal();
+                                  final firstOfDay = i == 0 ||
+                                      !DateUtils.isSameDay(
+                                          date, visibleMessages[i - 1]
+                                              .createdAt.toLocal());
+                                  return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                                    if (firstOfDay)
+                                      _ChatDateSeparator(date: date),
+                                    _MessageBubble(
+                                      message: message,
+                                      // Identity is checked only after the
+                                      // current device ID is available.
+                                      isMine: _isMine(message),
+                                      onActions: () => _messageActions(message),
+                                    ),
+                                  ]);
+                                },
                               ),
-                      ),
+                      )),
+              if (_hasNewMessages && !_loading)
+                Positioned(
+                  bottom: 12,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: FilledButton.icon(
+                      key: const Key('chat-new-messages'),
+                      onPressed: () {
+                        setState(() => _hasNewMessages = false);
+                        _scrollToBottom();
+                      },
+                      icon: const Icon(Icons.arrow_downward),
+                      label: Text(context.tr(pl: 'Nowe wiadomości', en: 'New messages')),
+                    ),
+                  ),
+                ),
+            ]),
           ),
           _Composer(
             controller: _ctrl,
@@ -968,6 +1093,36 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
             onSend: _send,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ChatDateSeparator extends StatelessWidget {
+  const _ChatDateSeparator({required this.date});
+  final DateTime date;
+
+  @override
+  Widget build(BuildContext context) {
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final label = context.tr(
+        pl: '$day.$month.${date.year}', en: '$month/$day/${date.year}');
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(0, 8, 0, 16),
+      child: Center(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: _kCard,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _kBorder),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Text(label,
+                style: const TextStyle(color: _kTextSec, fontSize: 12)),
+          ),
+        ),
       ),
     );
   }
@@ -1056,13 +1211,15 @@ class _MessageBubble extends StatelessWidget {
     final align = isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start;
     final bubble = ConstrainedBox(
       constraints: BoxConstraints(
-        maxWidth: MediaQuery.of(context).size.width * 0.78,
+        maxWidth: (MediaQuery.sizeOf(context).width * 0.72).clamp(0, 560),
       ),
-      child: _bubbleBody(color, align, time),
+      child: IntrinsicWidth(
+        child: _bubbleBody(color, align, time),
+      ),
     );
     if (isMine) {
       return Padding(
-        padding: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.only(bottom: 12),
         child: Column(crossAxisAlignment: align, children: [bubble]),
       );
     }
@@ -1074,7 +1231,7 @@ class _MessageBubble extends StatelessWidget {
       en: 'Message actions: ${message.nickname}',
     );
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1105,18 +1262,20 @@ class _MessageBubble extends StatelessWidget {
 
   Widget _bubbleBody(Color color, CrossAxisAlignment align, String time) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      key: ValueKey('chat-bubble-${message.id}'),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: color,
         borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(12),
-          topRight: const Radius.circular(12),
-          bottomLeft: Radius.circular(isMine ? 12 : 2),
-          bottomRight: Radius.circular(isMine ? 2 : 12),
+          topLeft: const Radius.circular(16),
+          topRight: const Radius.circular(16),
+          bottomLeft: Radius.circular(isMine ? 16 : 4),
+          bottomRight: Radius.circular(isMine ? 4 : 16),
         ),
         border: Border.all(color: _kBorder.withValues(alpha: 0.7)),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: align,
         children: [
           if (message.professionalProfile != null)
@@ -1129,8 +1288,8 @@ class _MessageBubble extends StatelessWidget {
               child: Text(
                 message.nickname,
                 style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
                   color: kChatAuthorName,
                 ),
               ),
@@ -1139,7 +1298,7 @@ class _MessageBubble extends StatelessWidget {
             message.text,
             style: const TextStyle(
               fontSize: 15,
-              fontWeight: FontWeight.w500,
+              fontWeight: FontWeight.w400,
               color: Color(0xFFE7ECF3),
               height: 1.35,
             ),

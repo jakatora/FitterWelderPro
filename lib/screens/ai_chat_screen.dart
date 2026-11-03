@@ -7,7 +7,7 @@ import '../assistant/navigation_plan_guard.dart';
 import '../domain/iso_notebook/sketch_summary.dart';
 import '../assistant/assistant_actions.dart';
 import '../assistant/core/assistant_actions_port.dart';
-import 'package:flutter/foundation.dart' show mapEquals;
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb, mapEquals;
 import '../assistant/assistant_ai_client.dart';
 import '../assistant/ai_execution_queue.dart';
 import 'dart:async';
@@ -25,6 +25,9 @@ import '../assistant/assistant_local_ops.dart';
 import '../assistant/assistant_tools.dart';
 import '../assistant/assistant_validator.dart';
 import '../assistant/speech_io.dart';
+import '../assistant/speech_input_factory.dart';
+import '../assistant/correction_memory.dart';
+import '../assistant/voice_session.dart';
 import '../assistant/core/brain.dart';
 import '../assistant/core/command_words.dart';
 import '../app_navigator.dart';
@@ -37,6 +40,7 @@ import '../assistant/skills/welder_calc/heat_input_skill.dart';
 import '../assistant/skills/iso/iso_command_parser.dart';
 import '../assistant/skills/iso/iso_draw_skill.dart';
 import 'iso_notebook_screen.dart';
+import 'correction_memory_screen.dart';
 import '../assistant/core/skill.dart';
 import '../assistant/skills/skill_catalog.dart';
 import '../database/weld_journal_dao.dart';
@@ -130,6 +134,22 @@ typedef _CalculatorActionState = ({
   Map<String, Object?>? inputs,
 });
 
+class _DeferredMixedAction {
+  _DeferredMixedAction({required this.command, required this.fromVoice,
+      required this.contextStillMatches, required this.clarification});
+  final String command;
+  final bool fromVoice;
+  final bool Function() contextStillMatches;
+  AiClarification clarification;
+}
+
+class _PendingCorrection {
+  _PendingCorrection(this.clarification, this.entry, this.snapshot);
+  final AiClarification clarification;
+  final RememberedCorrection entry;
+  final CorrectionMemorySnapshot snapshot;
+}
+
 class AiChatScreen extends StatefulWidget {
   const AiChatScreen({
     super.key,
@@ -196,6 +216,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   AssistantAiUnavailable? _aiUnavailable;
   AiClarification? _aiClarification;
   AiClarification? _knowledgeClarification;
+  _PendingCorrection? _pendingCorrection;
   String? get _aiQuestion => _aiClarification?.question;
   void _rememberAi(String text, String response,
       {bool addMessages = true, AiReplyKind kind = AiReplyKind.nativeAction}) {
@@ -216,8 +237,156 @@ class _AiChatScreenState extends State<AiChatScreen>
     if (_aiHistory.length > 6) _aiHistory.removeRange(0, _aiHistory.length - 6);
   }
 
-  late final SpeechInput _speech = widget.speechInput ?? SystemSpeechInput();
+  late final SpeechInput _speech = widget.speechInput ?? createSpeechInput();
   late final SpeechOutput _voice = widget.speechOutput ?? SystemSpeechOutput();
+  bool _voiceTurnPending = false;
+  bool _mixedRequestPending = false;
+  _DeferredMixedAction? _deferredMixedAction;
+  String _voiceTranscript = '';
+  bool _voiceNeedsRepeat = false;
+  bool _disposingVoice = false;
+  bool _voiceStartPending = false;
+  int _voiceStartEpoch = 0;
+  late final VoiceSession _voiceSession = VoiceSession(
+    input: _speech,
+    output: widget.speechOutput ?? CompletionSpeechOutput(SystemSpeechOutput()),
+    respond: _respondToVoice,
+    onPhase: (phase, error) {
+      if (!mounted || _disposingVoice) return;
+      setState(() {
+        if ((phase == VoiceSessionPhase.idle || phase == VoiceSessionPhase.error) &&
+            _deferredMixedAction?.fromVoice == true) {
+          _deferredMixedAction = null;
+        }
+        if (phase == VoiceSessionPhase.listening || phase == VoiceSessionPhase.muting ||
+            phase == VoiceSessionPhase.idle || phase == VoiceSessionPhase.error) {
+          _voiceTranscript = '';
+        }
+        if (phase == VoiceSessionPhase.idle || phase == VoiceSessionPhase.error ||
+            phase == VoiceSessionPhase.muting || phase == VoiceSessionPhase.thinking) {
+          _voiceNeedsRepeat = false;
+        }
+      });
+      if (phase == VoiceSessionPhase.error) {
+        final message = switch (error) {
+          'error_language_unavailable' => _tr(
+              'Brakuje modelu mowy dla wybranego języka. Sprawdź instalację aplikacji.',
+              'The speech model for the selected language is missing. Check the app installation.'),
+          'speech_overloaded' => _tr(
+              'Komputer nie nadąża z rozpoznawaniem mowy. Spróbuj ponownie.',
+              'Speech recognition cannot keep up. Please try again.'),
+          'error_network' || 'error_network_timeout' => _tr(
+              'Rozpoznawanie mowy utraciło połączenie. Sprawdź internet i rozpocznij rozmowę ponownie.',
+              'Speech recognition lost its connection. Check your internet and start the conversation again.'),
+          'voice_language_unavailable' => _tr(
+              'Brakuje głosu dla wybranego języka. Zainstaluj go w ustawieniach systemu i rozpocznij rozmowę ponownie.',
+              'A voice for the selected language is missing. Install it in system settings and restart the conversation.'),
+          'response_failed' || 'empty_answer' => _tr(
+              'Nie udało się przygotować odpowiedzi. Rozpocznij rozmowę ponownie lub wpisz pytanie.',
+              'Could not prepare an answer. Start the conversation again or type your question.'),
+          _ => _tr('Rozmowa głosowa przerwana. Sprawdź mikrofon i spróbuj ponownie.',
+              'Voice conversation stopped. Check the microphone and try again.'),
+        };
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+          content: Text(message),
+        ));
+      }
+    },
+    onTranscript: (text, _) {
+      if (mounted && !_disposingVoice) {
+        setState(() {
+          _voiceTranscript = text;
+          _voiceNeedsRepeat = false;
+        });
+      }
+    },
+    onUnrecognized: () {
+      if (mounted && !_disposingVoice) {
+        setState(() {
+          _voiceTranscript = '';
+          _voiceNeedsRepeat = true;
+        });
+      }
+    },
+    onResponseError: (message) {
+      if (mounted && !_disposingVoice) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(message)));
+      }
+    },
+  );
+
+  Future<String> _respondToVoice(String text) async {
+    if (!mounted || _busy || _cmdCtrl.text.isNotEmpty ||
+        (!widget.embedded && _inputCtrl.text.isNotEmpty)) {
+      return '';
+    }
+    final before = _messages.length;
+    _voiceTurnPending = true;
+    try {
+      _cmdCtrl.text = text;
+      _voiceUsed = true;
+      await _submitCommand();
+      if (!mounted) return '';
+      final replies = _messages.skip(before).where((m) => m.role == ChatRole.assistant);
+      return replies.map((reply) => reply.text).join('\n\n');
+    } finally {
+      _voiceTurnPending = false;
+    }
+  }
+
+  Future<void> _toggleVoiceSession() async {
+    if (_voiceSession.active) {
+      _voiceStartEpoch++;
+      unawaited(_voiceSession.stop());
+      return;
+    }
+    if (_voiceStartPending) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+        content: Text(_tr('Mikrofon kończy uruchamianie. Spróbuj ponownie za chwilę.',
+            'The microphone is still starting. Please try again shortly.')),
+      ));
+      return;
+    }
+    if (_busy || _runningAiPlan || _typing.value || _cmdCtrl.text.isNotEmpty ||
+        (!widget.embedded && _inputCtrl.text.isNotEmpty)) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+        content: Text(_tr('Wyślij lub usuń wpisany tekst przed rozpoczęciem rozmowy.',
+            'Send or clear the draft before starting a voice conversation.')),
+      ));
+      return;
+    }
+    final epoch = ++_voiceStartEpoch;
+    _voiceStartPending = true;
+    try {
+      if (_listening || _startingMic) {
+        _micEpoch++;
+        _startingMic = false;
+        setState(() => _listening = false);
+        await _speech.cancel();
+      }
+      if (!mounted || _disposingVoice || epoch != _voiceStartEpoch) return;
+      // A draft or another request can appear while the previous microphone
+      // session is shutting down. Do not start over that newer user input.
+      if (_busy || _runningAiPlan || _typing.value || _cmdCtrl.text.isNotEmpty ||
+          (!widget.embedded && _inputCtrl.text.isNotEmpty)) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+          content: Text(_tr('Wyślij lub usuń wpisany tekst przed rozpoczęciem rozmowy.',
+              'Send or clear the draft before starting a voice conversation.')),
+        ));
+        return;
+      }
+      await _voiceSession.start(context.language);
+    } catch (_) {
+      if (mounted && !_disposingVoice && epoch == _voiceStartEpoch) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+          content: Text(_tr('Nie udało się uruchomić mikrofonu.',
+              'Could not start the microphone.')),
+        ));
+      }
+    } finally {
+      _voiceStartPending = false;
+    }
+  }
   late final AssistantEngine _engine =
       widget.engine ?? AssistantEngine(remoteAllowed: () async => false);
   late final _isoPort = CallbackIsoDrawingPort(
@@ -505,6 +674,9 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   void _clearConversation() {
+    _voiceStartEpoch++;
+    _micEpoch++;
+    unawaited(_voiceSession.stop());
     _conversationEpoch++;
     for (final route in List.of(_conversationRoutes)) {
       route.navigator?.removeRoute(route, false);
@@ -548,6 +720,8 @@ class _AiChatScreenState extends State<AiChatScreen>
             appRoutes.assistantAvailable)) {
       return;
     }
+    _voiceStartEpoch++;
+    if (_voiceSession.active) unawaited(_voiceSession.stop());
     if (_listening || _startingMic) {
       _cancelMic();
       setState(() => _listening = false);
@@ -575,6 +749,8 @@ class _AiChatScreenState extends State<AiChatScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Nigdy w tle: ani mikrofon, ani czytanie na głos.
     if (state != AppLifecycleState.resumed) {
+      _voiceStartEpoch++;
+      if (_voiceSession.active) unawaited(_voiceSession.stop());
       if (_listening || _startingMic) {
         _cancelMic();
         if (mounted) setState(() => _listening = false);
@@ -585,6 +761,10 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   @override
   void dispose() {
+    _disposingVoice = true;
+    _voiceStartEpoch++;
+    _micEpoch++;
+    unawaited(_voiceSession.stop());
     _account.removeListener(_accountChanged);
     _profileChanges?.cancel();
     WidgetsBinding.instance.removeObserver(this);
@@ -657,12 +837,16 @@ class _AiChatScreenState extends State<AiChatScreen>
         mounted && epoch == _conversationEpoch && micEpoch == _micEpoch;
     final lang = context.language;
     final messenger = ScaffoldMessenger.of(context);
-    final noMic = _tr(
-      'Brak dostępu do mikrofonu albo rozpoznawania mowy. Wpisz polecenie '
-          'albo zezwól na mikrofon w ustawieniach telefonu.',
-      'No access to the microphone or speech recognition. Type the command '
-          'or allow the microphone in the phone settings.',
-    );
+    final noMic = isLocalSpeechInput(_speech)
+        ? _tr(
+            'Brak dostępu do mikrofonu lub rozpoznawania mowy. Sprawdź mikrofon i jego uprawnienia w Windows albo wpisz polecenie.',
+            'Microphone or speech recognition is unavailable. Check the microphone and Windows permissions or type the command.')
+        : _tr(
+            'Brak dostępu do mikrofonu albo rozpoznawania mowy. Wpisz polecenie '
+                'albo zezwól na mikrofon w ustawieniach telefonu.',
+            'No access to the microphone or speech recognition. Type the command '
+                'or allow the microphone in the phone settings.',
+          );
     bool ok;
     try {
       await _voice.stop(); // nie mówimy do własnego mikrofonu
@@ -728,6 +912,16 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   String _speechFailureMessage(String error, bool hasText) {
+    if (isLocalSpeechInput(_speech) &&
+        (error == 'error_language_unavailable' || error == 'speech_unavailable' || error == 'error_permission')) {
+      final message = error == 'error_language_unavailable'
+          ? _tr('Brakuje modelu mowy dla wybranego języka. Sprawdź instalację aplikacji.',
+              'The speech model for the selected language is missing. Check the app installation.')
+          : _tr('Nie można uruchomić rozpoznawania mowy. Sprawdź mikrofon i jego uprawnienia w Windows oraz instalację aplikacji.',
+              'Could not start speech recognition. Check the microphone and Windows permissions, and the app installation.');
+      if (!hasText) return message;
+      return '$message ${_tr('Tekst w polu został zachowany — możesz go poprawić i wysłać.', 'The text in the field has been kept — you can edit and send it.')}';
+    }
     final (pl, en) = switch (error) {
       'error_no_match' || 'error_speech_timeout' => (
           'Nie rozpoznano wypowiedzi. Stuknij mikrofon i spróbuj ponownie.',
@@ -766,7 +960,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   Future<void> _speak(String text) async {
-    if (!_history.speakReplies) return;
+    if (_voiceTurnPending || _mixedRequestPending || !_history.speakReplies) return;
     await _voice.speak(text, context.language);
   }
 
@@ -775,6 +969,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   // ═════════════════════════════════════════════════════════════════════════
 
   void _cancelAiThinking() {
+    _deferredMixedAction = null;
     _aiEpoch++;
     _aiQueue.cancel();
     _aiClarification = null;
@@ -791,6 +986,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   void _resetAct({bool clearText = true}) {
+    _deferredMixedAction = null;
     _aiEpoch++;
     _aiThinking = false;
     _aiQueue.cancel();
@@ -1428,6 +1624,26 @@ class _AiChatScreenState extends State<AiChatScreen>
         await _reportProblem(text, lang);
         return;
       }
+      final deferred = _deferredMixedAction;
+      if (_pendingField == null && deferred != null) {
+        final utterance = Utterance(text, lang: lang, byVoice: _voiceUsed);
+        final isNewRequest = startsNewKnowledgeTopic(utterance) ||
+            isKnowledgeCorrectionWithAction(utterance) ||
+            requestsConversationAction(utterance) || isNegatedCommand(utterance) ||
+            (isKnowledgeQuestion(utterance) && !isEllipticalKnowledgeFollowUp(utterance)) ||
+            const {'anuluj', 'cancel', 'stop', 'nie', 'no'}.contains(utterance.folded);
+        if (isNewRequest || !identical(_knowledgeClarification, deferred.clarification)) {
+          _deferredMixedAction = null;
+        } else {
+          await _continueMixedClarification(text, lang, epoch, deferred);
+          return;
+        }
+      }
+      if (_pendingField == null &&
+          hasMixedKnowledgeAndAction(Utterance(text, lang: lang, byVoice: _voiceUsed))) {
+        await _handleMixedKnowledgeAndAction(text, lang, epoch);
+        return;
+      }
       if (_pendingField == null && await _tryKnowledgeQuestion(text, lang)) {
         return;
       }
@@ -1462,6 +1678,231 @@ class _AiChatScreenState extends State<AiChatScreen>
     setState(() => _busy = false);
     await _handleOutcome(out);
     _showAiFallbackNotice();
+  }
+
+  bool Function() _mixedContextGuard(int epoch) {
+    final route = appRoutes.top;
+    final handle = ToolBridge.instance.current;
+    final activeTool = _brainContext.modules.activeToolId;
+    final modules = _brainContext.modules;
+    Map<String, Object?>? readFields() => activeTool != null && modules is FieldModuleContext
+        ? (modules as FieldModuleContext).inputFields(activeTool)
+        : null;
+    String? readRecord() => activeTool != null && modules is RecordModuleContext
+        ? (modules as RecordModuleContext).selectedRecordId(activeTool)
+        : null;
+    final fields = readFields();
+    final fieldSnapshot = fields == null ? null : Map<String, Object?>.of(fields);
+    final selectedRecord = readRecord();
+    final calculator = CalculatorQuestionContext.capture(_brainContext.modules);
+    final iso = _isoPort.isForeground ? IsoNotebookController.active : null;
+    final isoRevision = iso?.revision;
+    final sessionRevision = _sessionRevision;
+    return () {
+      if (!mounted || epoch != _conversationEpoch || sessionRevision != _sessionRevision ||
+          !identical(route, appRoutes.top) || !identical(handle, ToolBridge.instance.current) ||
+          activeTool != _brainContext.modules.activeToolId) {
+        return false;
+      }
+      if (!mapEquals(fieldSnapshot, readFields()) || selectedRecord != readRecord()) {
+        return false;
+      }
+      final current = CalculatorQuestionContext.capture(_brainContext.modules);
+      if (calculator?.toolId != current?.toolId ||
+          !mapEquals(calculator?.inputs, current?.inputs) ||
+          !mapEquals(calculator?.results, current?.results)) {
+        return false;
+      }
+      final currentIso = _isoPort.isForeground ? IsoNotebookController.active : null;
+      return identical(iso, currentIso) && (iso == null || iso.revision == isoRevision);
+    };
+  }
+
+  Future<void> _handleMixedKnowledgeAndAction(
+      String text, AppLanguage lang, int epoch) async {
+    final clauses = aiSourceClauses(text);
+    final start = _messages.length;
+    final voiceTurn = _voiceUsed;
+    final contextStillMatches = _mixedContextGuard(epoch);
+    _mixedRequestPending = true;
+    try {
+      if (clauses == null || clauses.length != 2 ||
+          !isKnowledgeQuestion(Utterance(clauses.first, lang: lang)) ||
+          !requestsConversationAction(Utterance(clauses.last, lang: lang))) {
+        final message = _tr(
+            'Nie potrafię bezpiecznie rozdzielić pytania i działania. Podaj je proszę osobno.',
+            'I cannot safely separate the question and action. Please ask them separately.');
+        setState(() {
+          _busy = false;
+          _cmdCtrl.clear();
+          _messages.add(ChatMessage(role: ChatRole.user, text: text));
+          _appendKnowledgeReply(ChatMessage(role: ChatRole.assistant,
+              text: message, kind: AiReplyKind.localDialogue));
+        });
+        return;
+      }
+      final handled = await _tryKnowledgeQuestion(clauses.first, lang);
+      if (!mounted || epoch != _conversationEpoch) return;
+      final replies = _messages.skip(start).where((m) => m.role == ChatRole.assistant).toList();
+      final answer = replies.isEmpty ? null : replies.last;
+      if (!handled || answer == null || answer.kind != AiReplyKind.live || answer.text.trim().isEmpty ||
+          answer.needsClarification || (voiceTurn && !_voiceSession.active)) {
+        if (voiceTurn && !_voiceSession.active) return;
+        final canResume = handled && answer != null && answer.kind == AiReplyKind.live &&
+            answer.needsClarification && _knowledgeClarification != null && contextStillMatches();
+        if (canResume) {
+          _deferredMixedAction = _DeferredMixedAction(command: clauses.last,
+              fromVoice: voiceTurn, contextStillMatches: contextStillMatches,
+              clarification: _knowledgeClarification!);
+        }
+        final note = canResume
+            ? _tr('Po doprecyzowaniu wrócę do drugiej części prośby.',
+                'After your clarification, I will return to the second part of your request.')
+            : _tr('Nie wykonałem jeszcze drugiej części. Poproś o nią ponownie po wyjaśnieniu pytania.',
+                'I have not performed the second part. Please ask for it again after resolving the question.');
+        setState(() {
+          _busy = false;
+          if (!handled) {
+            _cmdCtrl.clear();
+            _messages.add(ChatMessage(role: ChatRole.user, text: text));
+          }
+          _appendKnowledgeReply(ChatMessage(role: ChatRole.assistant,
+              text: note, kind: AiReplyKind.localDialogue));
+          if (widget.embedded && answer != null) {
+            _pendingKnowledgeAnswer = answer.text;
+            _visibleKnowledgeSources = List.unmodifiable(answer.citations);
+          }
+        });
+        return;
+      }
+      if (!contextStillMatches()) {
+        final note = _tr('Kontekst aplikacji się zmienił. Nie wykonałem drugiej części; poproś o nią ponownie.',
+            'The app context changed. I did not perform the second part; please request it again.');
+        setState(() => _appendKnowledgeReply(ChatMessage(role: ChatRole.assistant,
+            text: note, kind: AiReplyKind.localDialogue)));
+        return;
+      }
+      _voiceUsed = voiceTurn;
+      _cmdCtrl.text = clauses.last;
+      await _submitCommand();
+      if (mounted && epoch == _conversationEpoch && widget.embedded) {
+        setState(() {
+          _pendingKnowledgeAnswer = answer.text;
+          _visibleKnowledgeSources = List.unmodifiable(answer.citations);
+        });
+      }
+    } finally {
+      _mixedRequestPending = false;
+      if (mounted && epoch == _conversationEpoch) {
+        final spoken = _messages.skip(start)
+            .where((m) => m.role == ChatRole.assistant)
+            .map((m) => m.text).join('\n\n');
+        if (spoken.isNotEmpty) await _speak(spoken);
+      }
+    }
+  }
+
+  Future<void> _continueMixedClarification(String text, AppLanguage lang,
+      int epoch, _DeferredMixedAction deferred) async {
+    final start = _messages.length;
+    final voiceTurn = _voiceUsed;
+    _mixedRequestPending = true;
+    try {
+      if (!deferred.contextStillMatches()) {
+        _deferredMixedAction = null;
+        final note = _tr('Kontekst aplikacji się zmienił. Nie wykonałem drugiej części; podaj prośbę ponownie.',
+            'The app context changed. I did not perform the second part; please give your request again.');
+        setState(() {
+          _busy = false;
+          _cmdCtrl.clear();
+          _messages.add(ChatMessage(role: ChatRole.user, text: text));
+          _appendKnowledgeReply(ChatMessage(role: ChatRole.assistant,
+              text: note, kind: AiReplyKind.localDialogue));
+        });
+        return;
+      }
+      if (isBareKnowledgeCorrection(Utterance(text, lang: lang, byVoice: voiceTurn))) {
+        final prompt = _tr('Co konkretnie mam poprawić lub o co Ci chodzi?',
+            'What should I correct, or what did you mean?');
+        AiClarification? next;
+        try {
+          next = AiClarification(question: prompt,
+              userTurns: [...deferred.clarification.userTurns, text]);
+        } on FormatException {
+          _deferredMixedAction = null;
+        }
+        final notice = next == null
+            ? _tr('Doprecyzowanie jest zbyt długie. Podaj całą prośbę ponownie; niczego nie wykonałem.',
+                'This clarification is too long. Give the full request again; nothing was performed.')
+            : prompt;
+        setState(() {
+          if (next != null) {
+            final pending = _pendingCorrection;
+            if (pending != null && identical(pending.clarification, deferred.clarification)) {
+              _pendingCorrection = _PendingCorrection(next, pending.entry, pending.snapshot);
+            }
+            _knowledgeClarification = next;
+            deferred.clarification = next;
+          }
+          _busy = false;
+          _voiceUsed = false;
+          _cmdCtrl.clear();
+          _messages.add(ChatMessage(role: ChatRole.user, text: text));
+          _appendKnowledgeReply(ChatMessage(role: ChatRole.assistant,
+              text: notice, kind: AiReplyKind.localDialogue));
+        });
+        return;
+      }
+      final handled = await _tryKnowledgeQuestion(text, lang);
+      if (!mounted || epoch != _conversationEpoch ||
+          !identical(_deferredMixedAction, deferred)) {
+        return;
+      }
+      final replies = _messages.skip(start).where((m) => m.role == ChatRole.assistant).toList();
+      final answer = replies.isEmpty ? null : replies.last;
+      final valid = handled && answer != null && answer.kind == AiReplyKind.live &&
+          answer.text.trim().isNotEmpty && deferred.contextStillMatches() &&
+          (!deferred.fromVoice || _voiceSession.active);
+      if (valid && answer.needsClarification && _knowledgeClarification != null) {
+        deferred.clarification = _knowledgeClarification!;
+        return;
+      }
+      _deferredMixedAction = null;
+      if (!valid || answer.needsClarification) {
+        final note = _tr('Nie wykonałem drugiej części. Poproś o nią ponownie, gdy pytanie będzie wyjaśnione.',
+            'I did not perform the second part. Please request it again when the question is resolved.');
+        setState(() {
+          _busy = false;
+          if (!handled) {
+            _cmdCtrl.clear();
+            _messages.add(ChatMessage(role: ChatRole.user, text: text));
+          }
+          _appendKnowledgeReply(ChatMessage(role: ChatRole.assistant,
+              text: note, kind: AiReplyKind.localDialogue));
+          if (widget.embedded && answer != null) {
+            _pendingKnowledgeAnswer = answer.text;
+            _visibleKnowledgeSources = List.unmodifiable(answer.citations);
+          }
+        });
+        return;
+      }
+      _voiceUsed = voiceTurn;
+      _cmdCtrl.text = deferred.command;
+      await _submitCommand();
+      if (mounted && epoch == _conversationEpoch && widget.embedded) {
+        setState(() {
+          _pendingKnowledgeAnswer = answer.text;
+          _visibleKnowledgeSources = List.unmodifiable(answer.citations);
+        });
+      }
+    } finally {
+      _mixedRequestPending = false;
+      if (mounted && epoch == _conversationEpoch) {
+        final spoken = _messages.skip(start).where((m) => m.role == ChatRole.assistant)
+            .map((m) => m.text).join('\n\n');
+        if (spoken.isNotEmpty) await _speak(spoken);
+      }
+    }
   }
 
   void _isoReply(String pl, String en, {List<FollowUp> choices = const [],
@@ -2905,6 +3346,67 @@ class _AiChatScreenState extends State<AiChatScreen>
       return false;
     }
     if (_awaitingNativeInput || _aiClarification != null) return false;
+    final followsLiveAnswer = _messages.isNotEmpty &&
+        _messages.last.role == ChatRole.assistant &&
+        _messages.last.kind == AiReplyKind.live;
+    if (_knowledgeClarification == null && followsLiveAnswer &&
+        isBareKnowledgeCorrection(u)) {
+      final previous = _messages.reversed
+          .where((message) => message.role == ChatRole.user)
+          .firstOrNull;
+      if (previous != null) {
+        final prompt = _tr('Co konkretnie mam poprawić lub o co Ci chodzi?',
+            'What should I correct, or what did you mean?');
+        try {
+          _knowledgeClarification = AiClarification(
+              question: prompt, userTurns: [previous.text, text]);
+        } on FormatException {
+          // Keep the original request intact instead of truncating it.
+          return false;
+        }
+        setState(() {
+          _cmdCtrl.clear();
+          _inputCtrl.clear();
+          _messages.add(ChatMessage(role: ChatRole.user, text: text));
+          _appendKnowledgeReply(ChatMessage(role: ChatRole.assistant,
+              text: prompt, kind: AiReplyKind.localDialogue));
+          _busy = false;
+        });
+        _scrollToBottom();
+        await _speak(prompt);
+        return true;
+      }
+    }
+    if (_knowledgeClarification != null && isBareKnowledgeCorrection(u)) {
+      final previous = _knowledgeClarification!;
+      final prompt = _tr('Co konkretnie mam poprawić lub o co Ci chodzi?',
+          'What should I correct, or what did you mean?');
+      try {
+        final next = AiClarification(question: prompt,
+            userTurns: [...previous.userTurns, text]);
+        final pending = _pendingCorrection;
+        if (pending != null && identical(pending.clarification, previous)) {
+          _pendingCorrection = _PendingCorrection(next, pending.entry, pending.snapshot);
+        }
+        setState(() {
+          _knowledgeClarification = next;
+          _cmdCtrl.clear();
+          _inputCtrl.clear();
+          _voiceUsed = false;
+          _messages.add(ChatMessage(role: ChatRole.user, text: text));
+          _appendKnowledgeReply(ChatMessage(role: ChatRole.assistant,
+              text: prompt, kind: AiReplyKind.localDialogue));
+          _busy = false;
+        });
+        _scrollToBottom();
+        await _speak(prompt);
+        return true;
+      } on FormatException {
+        _knowledgeClarification = null;
+        _pendingCorrection = null;
+        return false;
+      }
+    }
     if (startsNewKnowledgeTopic(u)) {
       _knowledgeClarification = null;
       if (isBareKnowledgeTopicChange(u)) {
@@ -2943,10 +3445,8 @@ class _AiChatScreenState extends State<AiChatScreen>
       return false;
     }
     if (clarification == null) {
-      final followsKnowledgeAnswer = _messages.isNotEmpty &&
-          _messages.last.role == ChatRole.assistant &&
-          _messages.last.kind == AiReplyKind.live &&
-          isEllipticalKnowledgeFollowUp(u);
+      final followsKnowledgeAnswer = followsLiveAnswer &&
+          (isEllipticalKnowledgeFollowUp(u) || isKnowledgeCorrection(u));
       if (!isKnowledgeQuestion(u) && !followsKnowledgeAnswer) return false;
       if (_brain.recognizesReadback(u, _brainContext)) return false;
       if (parseAssistantCommand(text).intent == kIntentQueryMyParams) {
@@ -2961,13 +3461,67 @@ class _AiChatScreenState extends State<AiChatScreen>
       }
     }
     final epoch = _conversationEpoch;
+    final previousUser = _messages.reversed
+        .where((message) => message.role == ChatRole.user).firstOrNull;
+    final pendingCorrection = _pendingCorrection;
+    _pendingCorrection = null;
+    RememberedCorrection? toRemember;
+    CorrectionMemorySnapshot? memorySnapshot;
+    if (pendingCorrection != null &&
+        identical(clarification, pendingCorrection.clarification)) {
+      toRemember = RememberedCorrection(
+          question: pendingCorrection.entry.question,
+          correction: '${pendingCorrection.entry.correction}\n$text');
+      memorySnapshot = pendingCorrection.snapshot;
+    } else if (clarification == null && followsLiveAnswer &&
+        isKnowledgeCorrection(u) && !isBareKnowledgeCorrection(u) && previousUser != null) {
+      toRemember = RememberedCorrection(question: previousUser.text, correction: text);
+    } else if (clarification != null && isKnowledgeCorrection(u) &&
+        !isBareKnowledgeCorrection(u)) {
+      toRemember = RememberedCorrection(question: clarification.userTurns.first, correction: text);
+    } else if (clarification != null && clarification.userTurns.length >= 2 &&
+        isBareKnowledgeCorrection(Utterance(clarification.userTurns.last, lang: lang))) {
+      toRemember = RememberedCorrection(question: clarification.userTurns.first, correction: text);
+    }
+    if (toRemember != null && memorySnapshot == null) {
+      try {
+        memorySnapshot = await CorrectionMemoryStore.instance.capture(text);
+      } catch (_) {
+        // Answer normally, but never save across an unknown or changing memory.
+      }
+      if (!mounted || epoch != _conversationEpoch) return true;
+    }
+    Future<void> rememberCorrection() async {
+      try {
+        if (memorySnapshot == null) throw StateError('Unknown memory state');
+        memorySnapshot.requireCurrent();
+        await CorrectionMemoryStore.instance.remember(toRemember!);
+        if (mounted && epoch == _conversationEpoch) {
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+            content: Text(_tr('Zapamiętano poprawkę. Możesz ją usunąć w pamięci asystenta.',
+                'Correction saved. You can delete it in assistant memory.')),
+          ));
+        }
+      } catch (_) {
+        if (mounted && epoch == _conversationEpoch) {
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+            content: Text(_tr('Nie udało się zapamiętać tej poprawki.',
+                'Could not save this correction.')),
+          ));
+        }
+      }
+    }
     setState(() {
       if (!widget.embedded) _mode = AssistantMode.answer;
       _inputCtrl.text = text;
       _cmdCtrl.clear();
     });
     try {
-      await _send(questionClarification: clarification);
+      await _send(questionClarification: clarification,
+          onResolved: toRemember != null ? rememberCorrection : null,
+          onClarification: toRemember != null && memorySnapshot != null
+              ? (next) => _pendingCorrection = _PendingCorrection(next, toRemember!, memorySnapshot!)
+              : null);
     } finally {
       if (mounted && epoch == _conversationEpoch) setState(() => _busy = false);
     }
@@ -2991,7 +3545,9 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   void _offerKnowledgeRetry(String text, AiClarification? clarification, int epoch,
-      {bool Function()? contextStillMatches}) {
+      {bool Function()? contextStillMatches, Future<void> Function()? onResolved,
+      void Function(AiClarification)? onClarification,
+      bool speechTranscript = false}) {
     final turn = _knowledgeTurn;
     var started = false;
     void retry() {
@@ -3017,7 +3573,9 @@ class _AiChatScreenState extends State<AiChatScreen>
         return;
       }
       setState(() => _knowledgeRetry = null);
-      unawaited(_send(questionClarification: clarification, retryText: text));
+      unawaited(_send(questionClarification: clarification, retryText: text,
+          onResolved: onResolved, onClarification: onClarification,
+          retrySpeechTranscript: speechTranscript));
     }
     setState(() => _knowledgeRetry = retry);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -3032,10 +3590,14 @@ class _AiChatScreenState extends State<AiChatScreen>
     ));
   }
 
-  Future<void> _send({AiClarification? questionClarification, String? retryText}) async {
+  Future<void> _send({AiClarification? questionClarification, String? retryText,
+      Future<void> Function()? onResolved,
+      void Function(AiClarification)? onClarification,
+      bool? retrySpeechTranscript}) async {
     questionClarification ??= _knowledgeClarification;
     final epoch = _conversationEpoch;
     final text = (retryText ?? _inputCtrl.text).trim();
+    final speechTranscript = retrySpeechTranscript ?? _voiceUsed;
     if (text.isEmpty || _typing.value || _preparingKnowledgeSend) return;
     if (_blockCredentialInput(text)) return;
     if (text.length > kChatQuestionMaxChars) {
@@ -3118,7 +3680,8 @@ class _AiChatScreenState extends State<AiChatScreen>
                   history: history,
                   isoSummary: summary,
                   calculatorContext: calculatorContext,
-                  questionClarification: questionClarification);
+                  questionClarification: questionClarification,
+                  speechTranscript: speechTranscript);
       if (!mounted || epoch != _conversationEpoch) return;
       if (calculatorContext != null) {
         final current =
@@ -3172,11 +3735,20 @@ class _AiChatScreenState extends State<AiChatScreen>
       if (reply.kind == AiReplyKind.live) {
         _rememberAi(text, reply.text,
             addMessages: false, kind: AiReplyKind.live);
+        if (reply.needsClarification && _knowledgeClarification != null) {
+          onClarification?.call(_knowledgeClarification!);
+        }
+        if (!reply.needsClarification && onResolved != null) {
+          await onResolved();
+          if (!mounted || epoch != _conversationEpoch) return;
+        }
       }
       _typing.value = false;
       if (const {AiReplyKind.unavailable, AiReplyKind.offlineHelp}.contains(reply.kind)) {
         _offerKnowledgeRetry(text, questionClarification, epoch,
-            contextStillMatches: retryContextStillMatches);
+            contextStillMatches: retryContextStillMatches, onResolved: onResolved,
+            onClarification: onClarification,
+            speechTranscript: speechTranscript);
       }
       _scrollToBottom();
       await _speak(reply.text);
@@ -3195,7 +3767,9 @@ class _AiChatScreenState extends State<AiChatScreen>
       _typing.value = false;
       _scrollToBottom();
       _offerKnowledgeRetry(text, questionClarification, epoch,
-          contextStillMatches: retryContextStillMatches);
+          contextStillMatches: retryContextStillMatches, onResolved: onResolved,
+          onClarification: onClarification,
+          speechTranscript: speechTranscript);
     }
   }
 
@@ -3258,7 +3832,98 @@ class _AiChatScreenState extends State<AiChatScreen>
       messages: messages,
       onClear: _clearChat,
       onCitation: _openCitation,
+      onMemory: _openCorrectionMemory,
     ));
+  }
+
+  Future<void> _openCorrectionMemory() async {
+    await _showPrivateConversationPage(const CorrectionMemoryScreen());
+  }
+
+  bool get _canChooseVoice => !kIsWeb &&
+      defaultTargetPlatform == TargetPlatform.windows &&
+      _voice is SystemSpeechOutput;
+
+  Future<void> _chooseVoice() async {
+    if (_voiceSession.active) return;
+    final output = _voice as SystemSpeechOutput;
+    final language = context.language;
+    try {
+      final voices = await output.availableVoices(language);
+      final selected = await output.preferredVoice(language);
+      if (!mounted || _voiceSession.active) return;
+      final choice = await showDialog<int>(
+        context: _navigationContext,
+        builder: (dialogContext) => SimpleDialog(
+          title: Text(_tr('Głos asystenta', 'Assistant voice')),
+          children: [
+            SimpleDialogOption(
+              key: const Key('assistant-voice-default'),
+              onPressed: () => Navigator.pop(dialogContext, -1),
+              child: Text(_tr('Automatyczny', 'Automatic')),
+            ),
+            if (voices.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(_tr('Brak dostępnych głosów dla tego języka.',
+                    'No voices are available for this language.')),
+              ),
+            for (var i = 0; i < voices.length; i++)
+              SimpleDialogOption(
+                key: ValueKey('assistant-voice-choice-$i'),
+                onPressed: () => Navigator.pop(dialogContext, i),
+                child: Row(children: [
+                  Expanded(child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(voices[i]['name']!),
+                      Text(voices[i]['locale']!,
+                          style: Theme.of(dialogContext).textTheme.bodySmall),
+                    ],
+                  )),
+                  if (voices[i]['name'] == selected?['name'] &&
+                      voices[i]['locale'] == selected?['locale'] &&
+                      voices[i]['identifier'] == selected?['identifier'])
+                    const Icon(Icons.check),
+                  IconButton(
+                    key: ValueKey('assistant-voice-preview-$i'),
+                    tooltip: _tr('Odsłuchaj głos', 'Preview voice'),
+                    icon: const Icon(Icons.play_circle_outline),
+                    onPressed: () async {
+                      try {
+                        await output.previewVoice(voices[i], language);
+                      } catch (_) {
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(_tr('Nie udało się odtworzyć głosu.',
+                              'Could not play the voice.')),
+                        ));
+                      }
+                    },
+                  ),
+                ]),
+              ),
+          ],
+        ),
+      );
+      await output.stop();
+      if (choice == null || !mounted || _voiceSession.active) return;
+      final saved = await output.setPreferredVoice(
+          language, choice < 0 ? null : voices[choice]);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(saved
+            ? _tr('Głos zapisany.', 'Voice saved.')
+            : _tr('Nie udało się zapisać głosu.', 'Could not save the voice.')),
+      ));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_tr('Nie udało się pobrać głosów.',
+            'Could not load voices.')),
+      ));
+    }
   }
 
   // ═════════════════════════════════════════════════════════════════════════
@@ -3285,6 +3950,13 @@ class _AiChatScreenState extends State<AiChatScreen>
           ],
         ),
         actions: [
+          if (_canChooseVoice)
+            IconButton(
+              key: const Key('assistant-voice-settings'),
+              tooltip: _tr('Wybierz głos', 'Choose voice'),
+              onPressed: _voiceSession.active ? null : _chooseVoice,
+              icon: const Icon(Icons.record_voice_over_outlined),
+            ),
           ListenableBuilder(
             listenable: _history,
             builder: (context, _) {
@@ -3316,6 +3988,12 @@ class _AiChatScreenState extends State<AiChatScreen>
             tooltip: _tr('Historia operacji', 'Operation history'),
             onPressed: () => Navigator.of(_navigationContext)
                 .push(MaterialPageRoute(builder: (_) => const _HistoryPage())),
+          ),
+          IconButton(
+            key: const Key('assistant-memory'),
+            tooltip: _tr('Pamięć asystenta', 'Assistant memory'),
+            onPressed: _openCorrectionMemory,
+            icon: const Icon(Icons.bookmark_outline, color: _kTextSec),
           ),
           if (_mode == AssistantMode.answer)
             IconButton(
@@ -3353,6 +4031,8 @@ class _AiChatScreenState extends State<AiChatScreen>
                   ],
                   selected: {_mode},
                   onSelectionChanged: (s) {
+                    _voiceStartEpoch++;
+                    if (_voiceSession.active) unawaited(_voiceSession.stop());
                     _cancelMic();
                     _listening = false;
                     setState(() => _mode = s.first);
@@ -3394,17 +4074,86 @@ class _AiChatScreenState extends State<AiChatScreen>
         style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
       );
 
+  Widget _voiceSessionStatus() => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_voiceSession.active)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              child: Text(switch (_voiceSession.phase) {
+                VoiceSessionPhase.starting => _tr('Uruchamiam mikrofon…', 'Starting microphone…'),
+                VoiceSessionPhase.listening => _voiceNeedsRepeat
+                    ? _tr('Nie zrozumiałem wypowiedzi. Powiedz jeszcze raz.', 'I didn’t catch that. Please say it again.')
+                    : _tr('Słucham…', 'Listening…'),
+                VoiceSessionPhase.muting => _tr('Wyciszam mikrofon…', 'Muting microphone…'),
+                VoiceSessionPhase.muted => _tr('Mikrofon wyciszony', 'Microphone muted'),
+                VoiceSessionPhase.thinking => _tr('Przygotowuję odpowiedź…', 'Preparing an answer…'),
+                VoiceSessionPhase.speaking => _voiceNeedsRepeat
+                    ? _tr('Nie zrozumiałem wypowiedzi. Powiedz jeszcze raz.', 'I did not catch that. Please say it again.')
+                    : _tr('Odpowiadam…', 'Speaking…'),
+                _ => '',
+              }, key: const Key('assistant-voice-status')),
+            ),
+          if (_voiceSession.active && _voiceTranscript.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+              child: Text(_voiceTranscript,
+                key: const Key('assistant-voice-transcript'),
+                maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: _kTextSec, fontSize: 13)),
+            ),
+          if (_voiceSession.microphoneMuted &&
+              (_voiceSession.phase == VoiceSessionPhase.thinking || _voiceSession.phase == VoiceSessionPhase.speaking))
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text(_tr('Mikrofon wyciszony', 'Microphone muted')),
+            ),
+          if (_voiceSession.canToggleMute)
+            TextButton.icon(
+              key: const Key('assistant-mute-microphone'),
+              onPressed: () => unawaited(_voiceSession.microphoneMuted
+                  ? _voiceSession.unmute() : _voiceSession.mute()),
+              icon: Icon(_voiceSession.microphoneMuted ? Icons.mic : Icons.mic_off),
+              label: Text(_voiceSession.microphoneMuted
+                  ? _tr('Włącz mikrofon', 'Unmute microphone')
+                  : _tr('Wycisz mikrofon', 'Mute microphone')),
+            ),
+          if (_voiceSession.phase == VoiceSessionPhase.speaking && !_voiceSession.microphoneMuted)
+            TextButton.icon(
+              key: const Key('assistant-interrupt-voice'),
+              onPressed: () => unawaited(_voiceSession.interrupt()),
+              icon: const Icon(Icons.mic),
+              label: Text(_tr('Przerwij i mów', 'Interrupt and speak')),
+            ),
+        ],
+      );
+
+  Widget _voiceSessionButton() => SizedBox.square(
+        dimension: 48,
+        child: IconButton(
+          key: const Key('assistant-voice-session'),
+          tooltip: _voiceSession.active
+              ? _tr('Zakończ rozmowę głosową', 'End voice conversation')
+              : _tr('Rozpocznij rozmowę głosową', 'Start voice conversation'),
+          onPressed: _toggleVoiceSession,
+          icon: Icon(_voiceSession.active ? Icons.call_end : Icons.headset_mic_outlined),
+        ),
+      );
+
   Widget _buildEmbedded() => Column(children: [
         Expanded(
             child: ListView(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 children: [
-              if (_pendingKnowledgeAnswer != null) ...[
-                Text(_pendingKnowledgeAnswer!, key: const Key('assistant-side-answer')),
+              if (_visibleKnowledgeSources.isNotEmpty) ...[
+                Text(_tr('Źródła odpowiedzi', 'Answer sources'),
+                    style: const TextStyle(color: _kTextSec, fontSize: 12)),
                 _visibleSourceButtons(),
               ],
+              if (_pendingKnowledgeAnswer != null)
+                Text(_pendingKnowledgeAnswer!, key: const Key('assistant-side-answer')),
               if (_localResult case final result?) _localAnswerCard(result),
-              if (_pendingKnowledgeAnswer == null) _visibleSourceButtons(),
               if (_question != null) Text(_question!),
               if (_notice != null) ...[
                 Text(_notice!),
@@ -3433,6 +4182,17 @@ class _AiChatScreenState extends State<AiChatScreen>
                     key: const Key('assistant-listening')),
             ])),
         if (_knowledgeRetry != null) _persistentRetryButton(),
+        _voiceSessionStatus(),
+        if (_canChooseVoice)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              key: const Key('assistant-voice-settings'),
+              onPressed: _voiceSession.active ? null : _chooseVoice,
+              icon: const Icon(Icons.record_voice_over_outlined),
+              label: Text(_tr('Wybierz głos', 'Choose voice')),
+            ),
+          ),
         Padding(
             padding: const EdgeInsets.all(8),
             child: Row(children: [
@@ -3450,19 +4210,21 @@ class _AiChatScreenState extends State<AiChatScreen>
                                   : _openConversation,
                           icon: const Icon(Icons.forum_outlined)))),
               if (_speech.isSupported)
+                _voiceSessionButton(),
+              if (_speech.isSupported)
                 SizedBox(
                     width: 56,
                     height: 56,
                     child: IconButton(
                         key: const Key('assistant-mic'),
                         tooltip: _tr('Powiedz polecenie', 'Speak a command'),
-                        onPressed: _busy ? null : () => _toggleMic(_cmdCtrl),
+                        onPressed: _busy || _voiceSession.active ? null : () => _toggleMic(_cmdCtrl),
                         icon: Icon(_listening ? Icons.stop : Icons.mic))),
               Expanded(
                   child: TextField(
                       key: const Key('assistant-command'),
                       controller: _cmdCtrl,
-                      enabled: !_busy,
+                      enabled: !_busy && !_voiceSession.active,
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => _submitCommand(),
                       decoration: InputDecoration(
@@ -3478,7 +4240,7 @@ class _AiChatScreenState extends State<AiChatScreen>
                           : _tr('Wykonaj', 'Execute'),
                       onPressed: _aiThinking
                           ? _cancelAiThinking
-                          : _busy
+                          : _busy || _voiceSession.active
                               ? null
                               : _submitCommand,
                       icon: _aiThinking
@@ -3548,10 +4310,12 @@ class _AiChatScreenState extends State<AiChatScreen>
               const SizedBox(height: 10),
               Text(
                 _tr(
-                  'Działa bez internetu. Nic nie zapisze się bez Twojego „Zapisz". '
-                      'Mowę na tekst zamienia system telefonu (Google / Apple).',
-                  'Works offline. Nothing is saved until you tap "Save". '
-                      'Speech is turned into text by the phone system (Google / Apple).',
+                  isLocalSpeechInput(_speech)
+                      ? 'Zmiany w projektach wymagają potwierdzenia. Mowa jest rozpoznawana lokalnie na komputerze.'
+                      : 'Proste polecenia mogą działać bez internetu. Zmiany w projektach wymagają potwierdzenia. Mowę na tekst zamienia system telefonu (Google / Apple).',
+                  isLocalSpeechInput(_speech)
+                      ? 'Changes to projects require confirmation. Speech is recognised locally on this computer.'
+                      : 'Simple commands may work offline. Changes to projects require confirmation. Speech is turned into text by the phone system (Google / Apple).',
                 ),
                 style: const TextStyle(color: _kTextMut, fontSize: 12.5),
               ),
@@ -3588,12 +4352,13 @@ class _AiChatScreenState extends State<AiChatScreen>
             ],
           ),
         const SizedBox(height: 12),
+        _voiceSessionStatus(),
         TextField(
           key: const Key('assistant-command'),
           controller: _cmdCtrl,
           minLines: 2,
           maxLines: 5,
-          enabled: !_busy,
+          enabled: !_busy && !_voiceSession.active,
           textInputAction: TextInputAction.done,
           onSubmitted: (_) => _submitCommand(),
           style: const TextStyle(color: _kTextPrimary, fontSize: 16),
@@ -3610,10 +4375,14 @@ class _AiChatScreenState extends State<AiChatScreen>
         Row(
           children: [
             if (_speech.isSupported) ...[
+              _voiceSessionButton(),
+              const SizedBox(width: 8),
+            ],
+            if (_speech.isSupported) ...[
               _MicButton(
                 key: const Key('assistant-mic'),
                 listening: _listening,
-                onPressed: _busy ? null : () => _toggleMic(_cmdCtrl),
+                onPressed: _busy || _voiceSession.active ? null : () => _toggleMic(_cmdCtrl),
               ),
               const SizedBox(width: 12),
             ],
@@ -3622,7 +4391,7 @@ class _AiChatScreenState extends State<AiChatScreen>
                 height: 72,
                 child: FilledButton.icon(
                   key: const Key('assistant-go'),
-                  onPressed: _busy ? null : _submitCommand,
+                  onPressed: _busy || _voiceSession.active ? null : _submitCommand,
                   icon: _busy
                       ? const SizedBox(
                           width: 20,
@@ -3751,7 +4520,7 @@ class _AiChatScreenState extends State<AiChatScreen>
           ),
         ),
         if (_knowledgeRetry != null) _persistentRetryButton(),
-        if (_messages.length <= 1)
+        if (_messages.length <= 1 && !_voiceSession.active)
           _SuggestionStrip(onPick: (s) {
             _inputCtrl.text = s;
             _focus.requestFocus();
@@ -3766,6 +4535,7 @@ class _AiChatScreenState extends State<AiChatScreen>
                   color: _kListen, fontSize: 14, fontWeight: FontWeight.w700),
             ),
           ),
+        _voiceSessionStatus(),
         RepaintBoundary(
           child: ValueListenableBuilder<bool>(
             valueListenable: _typing,
@@ -3774,11 +4544,13 @@ class _AiChatScreenState extends State<AiChatScreen>
                 controller: _inputCtrl,
                 focusNode: _focus,
                 onSend: _send,
-                enabled: !typing,
+                enabled: !typing && !_voiceSession.active,
+                readOnly: _voiceSession.active,
+                voice: _speech.isSupported ? _voiceSessionButton() : null,
                 mic: _speech.isSupported
                     ? _MicButton(
                         listening: _listening,
-                        onPressed: typing ? null : () => _toggleMic(_inputCtrl),
+                        onPressed: typing || _voiceSession.active ? null : () => _toggleMic(_inputCtrl),
                       )
                     : null,
               );
@@ -4377,10 +5149,12 @@ class _ConversationPage extends StatelessWidget {
     required this.messages,
     required this.onClear,
     required this.onCitation,
+    required this.onMemory,
   });
   final List<ChatMessage> messages;
   final VoidCallback onClear;
   final ValueChanged<String> onCitation;
+  final VoidCallback onMemory;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -4393,6 +5167,12 @@ class _ConversationPage extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
       ),
       actions: [
+        IconButton(
+          key: const Key('assistant-conversation-memory'),
+          tooltip: context.tr(pl: 'Pamięć asystenta', en: 'Assistant memory'),
+          onPressed: onMemory,
+          icon: const Icon(Icons.bookmark_outline),
+        ),
         IconButton(
           key: const Key('assistant-conversation-clear'),
           tooltip: context.tr(pl: 'Wyczyść rozmowę', en: 'Clear chat'),
@@ -4795,13 +5575,17 @@ class _Composer extends StatelessWidget {
   final FocusNode focusNode;
   final VoidCallback onSend;
   final bool enabled;
+  final bool readOnly;
   final Widget? mic;
+  final Widget? voice;
   const _Composer({
     required this.controller,
     required this.focusNode,
     required this.onSend,
     required this.enabled,
+    this.readOnly = false,
     this.mic,
+    this.voice,
   });
 
   @override
@@ -4822,6 +5606,7 @@ class _Composer extends StatelessWidget {
                 key: const Key('assistant-question-input'),
                 controller: controller,
                 focusNode: focusNode,
+                readOnly: readOnly,
                 // The next draft stays editable while AI answers. Only sending
                 // is blocked, so typing never creates a concurrent request.
                 minLines: 1,
@@ -4859,6 +5644,10 @@ class _Composer extends StatelessWidget {
               ),
             ),
           ),
+          if (voice != null) ...[
+            const SizedBox(width: 4),
+            voice!,
+          ],
           if (mic != null) ...[
             const SizedBox(width: 8),
             mic!,

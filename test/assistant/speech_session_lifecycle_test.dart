@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:cut_list_app/assistant/assistant_ai_client.dart';
 import 'package:cut_list_app/assistant/speech_io.dart';
+import 'package:cut_list_app/assistant/windows_offline_speech_input.dart';
+import 'package:cut_list_app/assistant/windows_voice_assets.dart';
+import 'windows_offline_speech_input_test.dart' show FakeCapture;
 import 'package:cut_list_app/assistant/core/skill.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import '../support/test_database.dart';
@@ -14,6 +17,7 @@ class HeldSpeech implements SpeechInput {
   int initializes = 0;
   bool failInitialize = false;
   bool failListen = false;
+  Completer<void>? cancellation;
   void Function()? duringStop;
   final results = <SpeechResultCallback>[];
   final completions = <void Function(String?)>[];
@@ -42,11 +46,30 @@ class HeldSpeech implements SpeechInput {
     completions.lastOrNull?.call(null);
   }
   @override
-  Future<void> cancel() async => completions.lastOrNull?.call(null);
+  Future<void> cancel() async {
+    await cancellation?.future;
+    completions.lastOrNull?.call(null);
+  }
 }
 
 void main() {
   useTestDatabase();
+  testWidgets('Windows missing model reports the installation, not phone settings', (t) async {
+    final capture = FakeCapture();
+    final speech = WindowsOfflineSpeechInput(
+      supported: true,
+      createCapture: () => capture,
+      createRecognizer: (_) async => throw const OfflineVoiceModelUnavailable(),
+    );
+    addTearDown(capture.controller.close);
+    await mount(t, speech: speech, interpret: (_) async => const AiCommandPlan('answer', [], ''));
+    await t.tap(find.byKey(const Key('assistant-mic')));
+    await settle(t);
+    expect(find.textContaining('Brakuje modelu mowy'), findsOneWidget);
+    expect(find.textContaining('ustawieniach telefonu'), findsNothing);
+    expect(t.takeException(), isNull);
+  });
+
   testWidgets('empty speech failure uses English recovery without claiming saved text', (t) async {
     final speech = HeldSpeech();
     var calls = 0;

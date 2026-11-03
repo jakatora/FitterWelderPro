@@ -64,6 +64,19 @@ const moduleManifest = <ModuleAuditEntry>[
       scenario:
           'Użytkownik wysyła pytanie o spawanie i otrzymuje odpowiedź bez uruchamiania płatnej funkcji.'),
   ModuleAuditEntry(
+      id: 'assistant-correction-memory',
+      entryPoint: 'CorrectionMemoryScreen',
+      sourcePath: 'lib/screens/correction_memory_screen.dart',
+      category: AuditCategory.ai,
+      risk: AuditRisk.high,
+      status: AuditStatus.unverified,
+      scenario:
+          'Wyświetlenie zapamiętanych poprawek właściwego konta, usunięcie jednej lub wszystkich oraz sprawdzenie izolacji po zmianie konta i restarcie aplikacji.',
+      evidence: [
+        'test/assistant/correction_memory_screen_test.dart: lista i usuwanie poprawek w testowym magazynie',
+        'test/assistant/correction_memory_test.dart: izolacja kont i obsługa błędów magazynu',
+      ]),
+  ModuleAuditEntry(
       id: 'database-recovery',
       entryPoint: 'DatabaseRecoveryScreen',
       sourcePath: 'lib/screens/database_recovery_screen.dart',

@@ -25,6 +25,15 @@ void main() {
     AiCommandStep('iso.gap', 'Ustaw szczelinę ISO na 3 mm'),
     AiCommandStep('iso.dimension', 'Zmień wymiar ISO rury numer 2 na 500 mm')
   ];
+  test('show, launch and select clauses stay distinct and preserve negation', () {
+    for (final verb in ['pokaż', 'pokaz', 'uruchom', 'wybierz', 'show', 'launch', 'select']) {
+      expect(aiSourceClauses('Opowiedz o TIG i $verb kalkulator'),
+          ['Opowiedz o TIG', '$verb kalkulator'], reason: verb);
+      expect(aiSourceClauses('Opowiedz o TIG i nie $verb kalkulator'), isNull,
+          reason: verb);
+    }
+    expect(aiSourceClauses('Opowiedz o TIG i pokaż „nazwa i select 1”'), isNull);
+  });
   test('native binding retains exact clauses, signs and order', () {
     final q = AiExecutionQueue();
     expect(

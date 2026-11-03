@@ -53,7 +53,10 @@ void main() {
       final input=find.byKey(const Key('assistant-command'));
       await t.enterText(input,'Dlaczego taki gaz osłonowy?');
       await t.tap(find.byKey(const Key('assistant-go')));
-      for(var i=0;i<30 && requests==0;i++) { await t.pump(const Duration(milliseconds:100)); }
+      for (var i = 0; i < 30 && requests == 0; i++) {
+        await flushTestDatabase(t);
+        await t.pump(const Duration(milliseconds: 100));
+      }
       expect(requests,1);
       expect(await ToolBridge.instance.current!.apply(
           {'material_a':'duplex2205','material_b':'duplex2205','process':'tig'}),isEmpty);

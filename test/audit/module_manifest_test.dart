@@ -119,16 +119,16 @@ void main() {
         'podaje dokładne liczby i jawnie wymienia niezweryfikowane scenariusze',
         () {
       final markdown = renderAuditReport(moduleManifest);
-      expect(markdown, contains('Moduły: 113'));
+      expect(markdown, contains('Moduły: 114'));
       expect(markdown, contains('| passed | 62 |'));
-      expect(markdown, contains('| unverified | 50 |'));
+      expect(markdown, contains('| unverified | 51 |'));
       expect(markdown, contains('| domainReview | 1 |'));
       expect(markdown, contains('| broken | 0 |'));
       expect(markdown, contains('| simplify | 0 |'));
       final queued = markdown
           .split('\n')
           .where((line) => line.startsWith('- [unverified]'));
-      expect(queued.length, 50);
+      expect(queued.length, 51);
       for (final entry
           in moduleManifest.where((e) => e.status == AuditStatus.unverified)) {
         expect(

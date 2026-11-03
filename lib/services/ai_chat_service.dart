@@ -1,4 +1,5 @@
 import '../assistant/ai_clarification.dart';
+import '../assistant/correction_memory.dart';
 import '../assistant/calculator_question_context.dart';
 import '../security/credential_text.dart';
 import '../domain/iso_notebook/sketch_summary.dart';
@@ -152,6 +153,7 @@ class AiChatService {
     SketchSummary? isoSummary,
     CalculatorQuestionContext? calculatorContext,
     AiClarification? questionClarification,
+    bool speechTranscript = false,
   }) async {
     final trimmed = userText.trim();
     if (containsCredentialValue(trimmed) ||
@@ -202,6 +204,14 @@ class AiChatService {
       // instalacji (tryb strict) i aktywnego Premium.
       final identity = await PremiumService.instance.authHeaders();
       final profile = await AiProfessionalContext.instance.capture();
+      CorrectionMemorySnapshot? memory;
+      try {
+        memory = await CorrectionMemoryStore.instance.capture(trimmed);
+      } catch (_) {
+        // An unreadable memory is never sent as context or silently rewritten.
+      }
+      profile.requireCurrent();
+      memory?.requireCurrent();
       final resp = await http
           .post(
             url,
@@ -218,9 +228,12 @@ class AiChatService {
                   'user_turns': questionClarification.userTurns
                 },
               'conversation_mode': true,
+              if (speechTranscript) 'speech_transcript': true,
               if (isoSummary != null) 'iso_summary': isoSummary.toJson(),
               if (calculatorContext != null)
                 'calculator_context': calculatorContext.toJson(),
+              if (memory != null && memory.records.isNotEmpty)
+                'remembered_corrections': memory.records.map((r) => r.toJson()).toList(),
               'history': chatHistoryForRequest(history)
                   .map((m) => {
                         'role': m.role.name,
@@ -235,6 +248,7 @@ class AiChatService {
           // Grounded answer plus one bounded research request (25 s each).
           .timeout(const Duration(seconds: 60));
       profile.requireCurrent();
+      memory?.requireCurrent();
       if (resp.statusCode != 200) {
         debugPrint('AiChatService: backend ${resp.statusCode}');
         final failure = AiFailure.fromHttp(resp.statusCode, resp.bodyBytes);
@@ -291,6 +305,15 @@ class AiChatService {
                 ? 'The earlier details could not be included. Please ask the complete question again.'
                 : 'Nie udało się uwzględnić wcześniejszych szczegółów. Zadaj całe pytanie ponownie.',
             kind: AiReplyKind.localDialogue);
+      }
+      if (memory != null && memory.records.isNotEmpty &&
+          body['remembered_corrections_received'] != true) {
+        return ChatMessage(
+            role: ChatRole.assistant,
+            text: AppLanguageController.isEnglish
+                ? 'The server could not confirm support for saved corrections. Please try after the server update.'
+                : 'Serwer nie potwierdził obsługi zapamiętanych poprawek. Spróbuj po aktualizacji serwera.',
+            kind: AiReplyKind.unavailable);
       }
       if (calculatorContext != null &&
           body['calculator_context_used'] != true) {
@@ -354,12 +377,18 @@ class AiChatService {
       }
       return ChatMessage(
         role: ChatRole.assistant,
-        text: sources.isEmpty
-            ? text
-            : '$text\n\n${AppLanguageController.isEnglish ? 'External sources' : 'Źródła internetowe'}:\n${sources.join('\n\n')}',
+        text: text,
         citations: [...cites, ...sources],
         kind: AiReplyKind.live,
         needsClarification: needsClarification == true,
+      );
+    } on CorrectionMemoryChanged {
+      return ChatMessage(
+        role: ChatRole.assistant,
+        text: AppLanguageController.isEnglish
+            ? 'Assistant memory changed while preparing the answer. Please ask again.'
+            : 'Pamięć asystenta zmieniła się podczas przygotowywania odpowiedzi. Zapytaj ponownie.',
+        kind: AiReplyKind.unavailable,
       );
     } on FormatException {
       return ChatMessage(

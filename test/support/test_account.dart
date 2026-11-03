@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:cut_list_app/services/account_service.dart';
 import 'package:cut_list_app/services/user_profile.dart';
+import 'package:cut_list_app/assistant/correction_memory.dart';
 
 Future<void> seedGuestAccount() async {
   FlutterSecureStorage.setMockInitialValues({});
@@ -37,6 +38,9 @@ Future<void> seedSignedInAccount() async {
 /// Fresh offline guest identity for tests which now open account-scoped data.
 void useGuestAccount() {
   setUp(() {
+    // Each widget test has its own fake-async zone. Never carry a completed
+    // singleton queue from the previous test into the next guest session.
+    CorrectionMemoryStore.instance.resetForTest();
     final previous = AccountService.instance;
     FlutterSecureStorage.setMockInitialValues({});
     final client =

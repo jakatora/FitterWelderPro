@@ -8,11 +8,11 @@ uprawnień spawacza, Biblioteka WPS), nie każdy wewnętrzny serwis aplikacji.
 
 ## Podsumowanie manifestu
 
-Moduły: 113
+Moduły: 114
 
 | Status | Liczba |
 |---|---:|
-| unverified | 50 |
+| unverified | 51 |
 | passed | 62 |
 | simplify | 0 |
 | broken | 0 |
@@ -43,6 +43,7 @@ własności wyników, a nie zgodność z zatwierdzonym projektem/WPS.
 | `railway-account` | AccountScreen | lib/screens/account_screen.dart | account | high | unverified | Rejestracja na Railway, ponowne logowanie, prywatny profil zawodowy, wylogowanie i usunięcie konta. | Brak dowodu scenariusza |
 | `admin-reports` | AdminReportsScreen | lib/screens/account_screen.dart | account | high | unverified | Administrator widzi raporty i zmienia status; zwykłe konto otrzymuje odmowę także bezpośrednio z API. | Brak dowodu scenariusza |
 | `ai-chat` | AiChatScreen | lib/screens/ai_chat_screen.dart | ai | high | unverified | Użytkownik wysyła pytanie o spawanie i otrzymuje odpowiedź bez uruchamiania płatnej funkcji. | Brak dowodu scenariusza |
+| `assistant-correction-memory` | CorrectionMemoryScreen | lib/screens/correction_memory_screen.dart | ai | high | unverified | Wyświetlenie zapamiętanych poprawek właściwego konta, usunięcie jednej lub wszystkich oraz sprawdzenie izolacji po zmianie konta i restarcie aplikacji. | test/assistant/correction_memory_screen_test.dart: lista i usuwanie poprawek w testowym magazynie<br>test/assistant/correction_memory_test.dart: izolacja kont i obsługa błędów magazynu |
 | `database-recovery` | DatabaseRecoveryScreen | lib/screens/database_recovery_screen.dart | project | high | unverified | Windows: wybór istniejącej lub przeniesionej bazy po konflikcie, z potwierdzeniem i bez nadpisywania pozostałych plików. | test/data/database_recovery_screen_test.dart: wybór, anulowanie i wskazanie przeniesionego pliku (mock pickera)<br>test/data/windows_database_location_test.dart: kontrola bazy i zachowanie danych; bez testu natywnego okna |
 | `bolt-kit` | BoltKitPage | lib/features/bolt_kit/bolt_kit_page.dart | fitter | safetyCritical | passed | DN100 CL150 RF → 8 × 5/8" × 3-1/2" (88,9 mm); DN150 CL300 RF → 12 × 3/4" × 4-3/4" (120,65 mm), RTJ 5-1/2" + pierścień R45; CL150 DN15 RTJ → komunikat, bez wyniku; CL600 DN200 RTJ → 7-3/4" (dłuższa z rozbieżnych źródeł) z notatką; z wymiarów 24 + 24 + 4,5 + 2 × 18 + 2 × 2,5 = 93,5 → 95 mm (co 10 mm → 100, co 1/4" → 3-3/4"), 115,00 → 115, 115,01 → 120, puste pole → brak wyniku; komplet 4 × DN150 CL300 B7 → 48 szpilek, 96 nakrętek, 4 uszczelki, zapas 10 % → 53 / 106 / 5; uszkodzony JSON → pusta lista z komunikatem i kopią przed nadpisaniem. | test/domain/bolting/stud_length_test.dart: Class 300 DN150 RF: 12 × 3/4" × 4-3/4", RTJ 5-1/2"<br>test/domain/bolting/stud_length_test.dart: Class 150 DN15 i DN20 RTJ — brak w B16.5, nie zgadujemy<br>test/domain/bolting/stud_length_test.dart: rozbieżne źródła → dłuższa wartość i notatka<br>test/domain/bolting/stud_length_test.dart: liczba i średnica szpilek: katalog = źródło tabeli długości<br>test/domain/bolting/stud_length_test.dart: granica kroku: 115,00 → 115 (nie 120); 115,01 → 120<br>test/domain/bolting/stud_length_test.dart: zaokrąglenie zawsze w górę: siatka wartości, każdy typoszereg<br>test/domain/bolting/stud_length_test.dart: puste / nieczytelne pole → brak wyniku z listą pól (nie zero)<br>test/domain/bolting/bolt_kit_test.dart: 10 %: 48 → 53, 96 → 106, 4 → 5 (zawsze w górę)<br>test/features/bolt_kit/bolt_kit_store_test.dart: uszkodzony zapis: komunikat, kopia przed nadpisaniem — tylko raz<br>test/features/bolt_kit/bolt_kit_page_test.dart: wybór DN × Class → długość szpilki z tabeli B16.5<br>test/features/bolt_kit/bolt_kit_page_test.dart: tryb z wymiarów: 93,5 mm → 95 mm; puste pole — brak wyniku<br>test/features/bolt_kit/bolt_kit_page_test.dart: lista połączeń → zamówienie z zapasem i zapis<br>test/features/bolt_kit/bolt_kit_page_test.dart: wąski ekran 320×640, tekst ×1,3 — bez wyjątków (pl)<br>test/services/bolt_kit_export_test.dart: PDF renderuje się z polskimi fontami |
 | `bolt-torque` | BoltTorqueScreen | lib/screens/bolt_torque_screen.dart | fitter | safetyCritical | unverified | Śruba M16 klasy 8.8 zwraca moment dokręcania w Nm. | Brak dowodu scenariusza |
@@ -207,6 +208,7 @@ zmienić status. Nie kupować ani nie publikować w ramach testu.
 - [unverified] `railway-account`: Rejestracja na Railway, ponowne logowanie, prywatny profil zawodowy, wylogowanie i usunięcie konta. (ryzyko: high).
 - [unverified] `admin-reports`: Administrator widzi raporty i zmienia status; zwykłe konto otrzymuje odmowę także bezpośrednio z API. (ryzyko: high).
 - [unverified] `ai-chat`: Użytkownik wysyła pytanie o spawanie i otrzymuje odpowiedź bez uruchamiania płatnej funkcji. (ryzyko: high).
+- [unverified] `assistant-correction-memory`: Wyświetlenie zapamiętanych poprawek właściwego konta, usunięcie jednej lub wszystkich oraz sprawdzenie izolacji po zmianie konta i restarcie aplikacji. (ryzyko: high).
 - [unverified] `database-recovery`: Windows: wybór istniejącej lub przeniesionej bazy po konflikcie, z potwierdzeniem i bez nadpisywania pozostałych plików. (ryzyko: high).
 - [unverified] `consent`: Użytkownik akceptuje wymagane zgody przed użyciem aplikacji. (ryzyko: high).
 - [unverified] `iso-notebook`: Użytkownik otwiera zapisany notatnik ISO projektu. (ryzyko: high).

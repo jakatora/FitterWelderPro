@@ -31,11 +31,19 @@ String _all(LegalDocument d) =>
     [d.intro, for (final s in d.sections) '${s.heading}\n${s.body}'].join('\n');
 
 void main() {
-  test('wersja zasad podniesiona do 6 z datą zmiany (skaner + asystent)', () {
-    expect(kLegalVersion, 6);
-    // 2026-09-26: doprecyzowania bez ponownej akceptacji (imię na czacie,
-    // kopia Androida, moderacja) — patrz nagłówek legal_texts.dart.
-    expect(kLegalUpdated, '2026-10-22');
+  test('lokalna wersja zasad obejmuje planowane zmiany asystenta', () {
+    expect(kLegalVersion, 7);
+    expect(kLegalUpdated, '2026-11-03');
+  });
+
+  testWidgets('polityka opisuje obecną retencję bez obietnicy miesiąca',
+      (tester) async {
+    final pl = _all(await _build(tester, AppLanguage.pl, privacyPolicy));
+    final en = _all(await _build(tester, AppLanguage.en, privacyPolicy));
+    expect(pl, contains('tak długo, jak istnieje pokój'));
+    expect(pl, isNot(contains('cyklicznie usuwane po miesiącu')));
+    expect(en, contains('as long as the room in which they were posted exists'));
+    expect(en, isNot(contains('periodically deleted after one calendar month')));
   });
 
   testWidgets('polityka PL: skaner rysunków — serwer, Anthropic, bez zapisu',
@@ -54,6 +62,8 @@ void main() {
       (tester) async {
     final text = _all(await _build(tester, AppLanguage.pl, privacyPolicy));
     expect(text, contains('Asystent AI'));
+    expect(text, contains('użytkownika bez konta'));
+    expect(text, contains('Poprawki bieżącego konta'));
     expect(text, contains('udostępnione pola widocznego kalkulatora'));
     expect(text, contains('natywny wynik wyświetlony'));
     expect(text, contains('mogą zostać dołączone do pytania'));
@@ -62,7 +72,8 @@ void main() {
     expect(text, contains('rozpoznaje polecenia na telefonie'));
     expect(text, contains('Google'));
     expect(text, contains('Apple'));
-    expect(text, contains('tylko po naciśnięciu'));
+    expect(text, contains('nasłuch rozpoczyna się po naciśnięciu'));
+    expect(text, contains('mikrofon włącza się ponownie'));
     expect(text, contains('Nie zapisujemy treści pytań'));
   });
 
@@ -73,13 +84,16 @@ void main() {
     expect(text, contains('The server does not store the photo or the result'));
     expect(text, contains('daily limit'));
     expect(text, contains('AI assistant'));
+    expect(text, contains('for use without an account'));
+    expect(text, contains('corrections for the current account or guest'));
     expect(text, contains('shared inputs of the visible calculator'));
     expect(text, contains('native result displayed'));
     expect(text, contains('may be included in the question'));
     expect(text, contains('"Do"'));
     expect(text, contains('"Answer"'));
     expect(text, contains('Google'));
-    expect(text, contains('only when you press'));
+    expect(text, contains('listening starts when you press'));
+    expect(text, contains('microphone turns on again'));
     expect(text, contains('Anthropic'));
   });
 

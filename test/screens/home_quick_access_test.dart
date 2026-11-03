@@ -2,10 +2,14 @@
 // powitanie imieniem, przełącznik języka i bramka dopiero przed czatem.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:cut_list_app/app.dart';
+import 'package:cut_list_app/assistant/speech_io.dart';
+import 'package:cut_list_app/assistant/core/assistant_panel_controller.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/screens/chat_screen.dart';
 import 'package:cut_list_app/screens/dn_mm_screen.dart';
@@ -49,6 +53,66 @@ void main() {
   }
 
   group('start bez bramki', () {
+    testWidgets('zdjęcia działów prowadzą do narzędzi', (tester) async {
+      seedFreshInstall();
+      await boot(tester);
+      expect(key('home-section-photo-fitter'), findsOneWidget);
+      expect(key('home-section-photo-welder'), findsOneWidget);
+      await tester.tap(key('home-section-photo-fitter'));
+      await settle(tester);
+      expect(find.byType(FitterMenuScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('kafelki działów mieszczą się na wąskim ekranie',
+        (tester) async {
+      seedFreshInstall();
+      await boot(tester);
+      tester.view.physicalSize = const Size(320, 800);
+      await settle(tester);
+      expect(key('home-section-photo-fitter'), findsOneWidget);
+      expect(key('home-section-photo-welder'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('panel asystenta otwiera wybór i odsłuch głosu Windows',
+        (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      addTearDown(() => AssistantPanelController.instance.setExpanded(false));
+      const channel = MethodChannel('flutter_tts');
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        return call.method == 'getVoices'
+            ? [{'name': 'Testowy głos', 'locale': 'pl-PL'}]
+            : 1;
+      });
+      addTearDown(() => TestDefaultBinaryMessengerBinding.instance
+          .defaultBinaryMessenger.setMockMethodCallHandler(channel, null));
+      seedFreshInstall();
+      await boot(tester);
+      await tester.tap(find.byTooltip('Powiedz, co zrobić'));
+      await settle(tester);
+      await tester.tap(key('assistant-voice-settings'));
+      await settle(tester);
+      expect(find.text('Głos asystenta'), findsOneWidget);
+      expect(find.text('Testowy głos'), findsOneWidget);
+      await tester.tap(key('assistant-voice-preview-0'));
+      await settle(tester);
+      expect(calls.where((call) => call.method == 'speak'), hasLength(1));
+      expect(await SystemSpeechOutput().preferredVoice(AppLanguage.pl), isNull);
+      await tester.tap(find.text('Testowy głos'));
+      await settle(tester);
+      expect(await SystemSpeechOutput().preferredVoice(AppLanguage.pl),
+          {'name': 'Testowy głos', 'locale': 'pl-PL'});
+      expect(tester.takeException(), isNull);
+      AssistantPanelController.instance.setExpanded(false);
+      await settle(tester);
+      debugDefaultTargetPlatformOverride = null;
+    });
+
     testWidgets('świeża instalacja: ekran główny od razu, powitanie ogólne',
         (tester) async {
       seedFreshInstall();
@@ -85,7 +149,7 @@ void main() {
       seedOutdatedConsent();
       await boot(tester);
 
-      await tester.tap(find.byIcon(Icons.handyman_outlined)); // MONTER
+      await tester.tap(key('home-section-photo-fitter')); // MONTER
       await settle(tester);
       expect(find.byType(FitterMenuScreen), findsOneWidget);
       await back(tester);
@@ -196,7 +260,7 @@ void main() {
       await settle(tester);
       expect(key('tool-row-elbow_takeouts'), findsOneWidget);
       // Wyniki zastępują resztę ekranu (kafle działów znikają).
-      expect(find.byIcon(Icons.handyman_outlined), findsNothing);
+      expect(key('home-section-photo-fitter'), findsNothing);
 
       await tester.tap(key('tool-row-elbow_takeouts'));
       await settle(tester);
@@ -274,12 +338,15 @@ void main() {
       seedOnboardedUser();
       await boot(tester);
 
-      await tester.tap(find.byIcon(Icons.handyman_outlined));
+      await tester.tap(key('home-section-photo-fitter'));
+      await settle(tester);
+      await tester.tap(key('tool-group-routeSlope'));
       await settle(tester);
       await tester.longPress(key('tool-row-rolling_offset'));
       await settle(tester);
       expect(find.byIcon(Icons.push_pin), findsOneWidget);
 
+      await back(tester);
       await back(tester);
       expect(key('pinned-rolling_offset'), findsOneWidget);
     });

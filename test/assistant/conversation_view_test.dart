@@ -52,6 +52,17 @@ void main() {
   });
   tearDown(() => AccountService.instance = previous);
 
+  testWidgets('conversation exposes assistant memory controls', (tester) async {
+    await mount(tester,
+        speech: FixtureSpeech(),
+        interpret: (_) async => throw StateError('No command expected'));
+    await openConversation(tester);
+    await tester.tap(find.byKey(const Key('assistant-conversation-memory')));
+    await settle(tester);
+    expect(find.text('Pamięć asystenta'), findsOneWidget);
+    expect(find.text('Brak zapamiętanych poprawek.'), findsOneWidget);
+  });
+
   testWidgets('copy includes each external source once and keeps app context',
       (tester) async {
     final copied = <String>[];

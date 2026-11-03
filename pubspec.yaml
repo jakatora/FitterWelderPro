@@ -19,6 +19,8 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   cupertino_icons: ^1.0.8
+  ffi: ^2.1.3
+  record: ^7.1.2
   sqflite: ^2.3.0
   sqflite_common_ffi: ^2.3.3
   # BEZ TEGO APLIKACJA NA WINDOWSIE NIE WSTAJE. `sqflite_common_ffi` sam nie dostarcza
@@ -59,7 +61,8 @@ dependencies:
   # Asystent głosowy (lib/assistant/speech_io.dart). 6.x NIE kompiluje się na
   # Androidzie z Flutter 3.47 (usunięty v1 `Registrar`, sprawdzone buildem).
   speech_to_text: ^7.5.0
-  flutter_tts: ^4.2.5
+  flutter_tts:
+    path: third_party/flutter_tts
   # Tylko po to, żeby podniesienie `web` do 1.x nie wciągnęło sqlite3 3.x
   # (natywne build hooks zamiast sqlite3_flutter_libs) — to osobna migracja.
   sqlite3: ">=2.7.0 <3.0.0"
@@ -89,5 +92,6 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - assets/tool_photos/
     - assets/fonts/Roboto-Regular.ttf
     - assets/fonts/Roboto-Bold.ttf

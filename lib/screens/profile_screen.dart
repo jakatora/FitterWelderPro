@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../assistant/assistant_history.dart';
+import '../assistant/correction_memory.dart';
 import '../database/local_record_owner.dart';
 import '../config/app_links.dart';
 import '../i18n/app_language.dart';
@@ -423,7 +424,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           pl: 'Najpierw usuniemy z serwera Twoje wiadomości z czatu, '
               'zgłoszenia, ogłoszenia oraz identyfikator i sekret instalacji.\n\n'
               'Potem skasujemy z tego telefonu Twoje imię i nazwisko, zgodę na '
-              'zasady, zgodę na wysyłkę zdjęć do skanera, historię asystenta, '
+              'zasady, zgodę na wysyłkę zdjęć do skanera, historię i pamięć asystenta, '
               'listę zablokowanych i zgłoszonych wiadomości, tożsamość '
               'spawacza (stempel i e-mail) oraz rejestr uprawnień spawacza '
               '(certyfikaty, zdjęcia, przypomnienia). Nowe spoiny przestaną '
@@ -436,7 +437,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               'listings and your installation identifier and secret.\n\n'
               'Then we erase from this phone your name, your consent to the '
               'rules, your consent to send photos to the scanner, the '
-              'assistant history, your block list and reported messages, '
+              'assistant history and memory, your block list and reported messages, '
               'your welder identity (stamp and e-mail) and the '
               'welder qualification register (certificates, photos, '
               'reminders). New welds will no longer be signed with your '
@@ -526,8 +527,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title: context.tr(
             pl: 'Niepełne usunięcie danych', en: 'Data deletion incomplete'),
         body: '${_serverSummary(server)}\n\n${context.tr(
-          pl: 'Nie udało się usunąć z telefonu całej historii asystenta, oznaczeń zgłoszonych wiadomości, blokad autorów, zgody skanera lub tożsamości i uprawnień spawacza imienia i nazwiska, zgody na zasady lub identyfikatora instalacji. Ponów usunięcie danych.',
-          en: 'Could not delete reported message markers, blocked authors, assistant history, scanner consent or welder identity and qualifications profile name, rules consent or installation identifier from this phone. Retry data deletion.',
+          pl: 'Nie udało się usunąć z telefonu wszystkich danych: historii lub pamięci asystenta, oznaczeń zgłoszonych wiadomości, blokad autorów, zgody skanera, tożsamości i uprawnień spawacza, imienia i nazwiska, zgody na zasady lub identyfikatora instalacji. Ponów usunięcie danych.',
+          en: 'Could not delete all local data: assistant history or memory, reported message markers, blocked authors, scanner consent, welder identity and qualifications, profile name, rules consent or installation identifier. Retry data deletion.',
         )}',
       );
       return;
@@ -632,14 +633,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _localSummary(bool identityKept) => identityKept
       ? context.tr(
           pl: 'Z telefonu usunęliśmy: imię i nazwisko, zgodę na zasady, zgodę '
-              'skanera (wysyłka zdjęć), historię asystenta, listę '
+              'skanera (wysyłka zdjęć), historię i pamięć asystenta, listę '
               'zablokowanych i zgłoszonych, tożsamość spawacza (stempel, '
               'e-mail) i rejestr uprawnień (certyfikaty, zdjęcia, '
               'przypomnienia). Identyfikator instalacji zostaje, bo łączy '
               'telefon z aktywną subskrypcją Premium. Projekty, cut listy i '
               'dziennik spoin zostają.',
           en: 'Deleted from the phone: your name, your consent to the rules, '
-              'your scanner consent (photo upload), the assistant history, '
+              'your scanner consent (photo upload), the assistant history and memory, '
               'your block and report lists, your welder identity (stamp, '
               'e-mail) and the qualification register (certificates, photos, '
               'reminders). The installation identifier stays because it '
@@ -648,13 +649,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
         )
       : context.tr(
           pl: 'Z telefonu usunęliśmy: imię i nazwisko, zgodę na zasady, zgodę '
-              'skanera (wysyłka zdjęć), historię asystenta, listę '
+              'skanera (wysyłka zdjęć), historię i pamięć asystenta, listę '
               'zablokowanych i zgłoszonych, tożsamość spawacza (stempel, '
               'e-mail), rejestr uprawnień (certyfikaty, zdjęcia, '
               'przypomnienia) oraz identyfikator i sekret instalacji. '
               'Projekty, cut listy i dziennik spoin zostają.',
           en: 'Deleted from the phone: your name, your consent to the rules, '
-              'your scanner consent (photo upload), the assistant history, '
+              'your scanner consent (photo upload), the assistant history and memory, '
               'your block and report lists, your welder identity (stamp, '
               'e-mail), the qualification register (certificates, photos, '
               'reminders) and the installation identifier and secret. '
@@ -751,6 +752,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
   /// [resetIdentity] — identyfikator i sekret instalacji (nowa para powstanie
   /// dopiero przy następnym kontakcie z serwerem; nic nie leci na serwer).
   Future<bool> _eraseLocalData({required bool resetIdentity}) async {
+    var correctionMemoryCleared = false;
+    try {
+      await CorrectionMemoryStore.instance.clear();
+      correctionMemoryCleared = true;
+    } catch (_) {
+      // The final deletion report must not claim success if secure storage fails.
+    }
     final profileCleared = await UserProfileService.instance.clear();
     final legalCleared = await LegalConsent.instance.clear();
     // Zgoda na wysyłkę zdjęć do skanera to osobna zgoda — bez tego skaner po
@@ -769,6 +777,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final installationCleared =
         !resetIdentity || await PremiumService.instance.resetIdentity();
     return installationCleared &&
+        correctionMemoryCleared &&
         legalCleared &&
         profileCleared &&
         scanCleared &&

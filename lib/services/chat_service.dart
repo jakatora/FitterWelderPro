@@ -54,6 +54,12 @@ class ChatRoom {
       );
 }
 
+class ChatMessageBatch {
+  final List<ChatMessage> messages;
+  final DateTime? retainedSince;
+  const ChatMessageBatch(this.messages, {this.retainedSince});
+}
+
 class ChatMessage {
   final int id;
   final String room;
@@ -278,8 +284,12 @@ class ChatService {
   /// newer ones (used by the polling loop on the room screen). Without
   /// [sinceIso] returns the last 50 messages.
   Future<List<ChatMessage>> listMessages(String room,
+      {String? sinceIso, int limit = 100}) async =>
+      (await listMessageBatch(room, sinceIso: sinceIso, limit: limit)).messages;
+
+  Future<ChatMessageBatch> listMessageBatch(String room,
       {String? sinceIso, int limit = 100}) async {
-    if (!BackendConfig.chatBackendLive) return const [];
+    if (!BackendConfig.chatBackendLive) return const ChatMessageBatch([]);
     final account = AccountService.instance;
     final revision = account.sessionRevision;
     await account.load();
@@ -306,9 +316,12 @@ class ChatService {
         .catchError((Object error) => _accountError(error, account, revision));
     _requireChatSession(account, revision);
     final raw = body['messages'] as List<dynamic>? ?? const [];
-    return raw
+    final messages = raw
         .map((j) => ChatMessage.fromJson(j as Map<String, dynamic>))
         .toList();
+    final cutoff = body['retained_since'];
+    return ChatMessageBatch(messages,
+        retainedSince: cutoff is String ? DateTime.tryParse(cutoff)?.toUtc() : null);
   }
 
   /// Nowy klucz idempotencji (UUID v4) — jeden na wiadomość albo zgłoszenie.

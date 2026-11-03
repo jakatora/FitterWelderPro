@@ -20,7 +20,7 @@ void main() {
       () => AiChatService.instance.sendMessage('Wyjaśnij temat'),
       () => MockClient((_) async => http.Response(jsonEncode(body), 200,
           headers: {'content-type': 'application/json; charset=utf-8'})));
-  test('external references are visible in the answer and source chips',
+  test('external references remain separate from the spoken answer',
       () async {
     final reply = await receive({
       'text': 'Informacja z dokumentacji.',
@@ -33,9 +33,9 @@ void main() {
       ]
     });
     expect(reply.kind, AiReplyKind.live);
-    expect(reply.text, contains('TWI guidance'));
-    expect(reply.text, contains('https://www.twi-global.com/'));
+    expect(reply.text, 'Informacja z dokumentacji.');
     expect(reply.citations.single, contains('TWI guidance'));
+    expect(reply.citations.single, contains('https://www.twi-global.com/'));
   });
   test('source labels match the inline research references in order', () async {
     final reply = await receive({

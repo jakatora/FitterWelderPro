@@ -252,6 +252,53 @@ class AccountService extends ChangeNotifier {
     return data;
   }
 
+  /// Removes local account data only after the server confirms deletion.
+  /// A later login is never invalidated by an older deletion response.
+  Future<void> deleteAccount(
+    String password, {
+    required int expectedRevision,
+    required Future<void> Function() clearDeletedAccountMemory,
+  }) async {
+    _requireSession(expectedRevision);
+    final token = _token;
+    if (token == null) throw AccountException('Zaloguj się / Sign in');
+    final req =
+        http.Request('DELETE', Uri.parse('$_baseUrl/api/fitter/account/me'));
+    req.headers.addAll(
+        {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'});
+    req.body = jsonEncode({'password': password});
+    final response = await http.Response.fromStream(
+        await _client.send(req).timeout(const Duration(seconds: 20)));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      throw AccountException(
+          data['error']?['message'] as String? ?? 'Błąd serwera / Server error',
+          status: response.statusCode);
+    }
+    Object? acknowledgement;
+    try {
+      acknowledgement = jsonDecode(response.body);
+    } catch (_) {
+      // A proxy or interrupted response may return 2xx without confirmation.
+    }
+    if (acknowledgement is! Map || acknowledgement['ok'] != true) {
+      throw AccountException(
+          'Nie potwierdzono usunięcia konta przez serwer. Sprawdź stan konta. / The server did not confirm account deletion. Check the account status.');
+    }
+    Object? cleanupError;
+    try {
+      await clearDeletedAccountMemory();
+    } catch (error) {
+      cleanupError = error;
+    } finally {
+      if (expectedRevision == _sessionRevision) await _eraseSession();
+    }
+    if (cleanupError != null) {
+      throw AccountException(
+          'Konto usunięto, ale nie udało się usunąć pamięci asystenta z urządzenia. / The account was deleted, but assistant memory could not be removed from this device.');
+    }
+  }
+
   Future<void> signIn(String email, String password,
       {String? displayName}) async {
     final epoch = ++_authEpoch, revision = _sessionRevision;

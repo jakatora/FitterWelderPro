@@ -15,6 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import 'package:cut_list_app/assistant/assistant_history.dart';
+import 'package:cut_list_app/assistant/correction_memory.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/legal/legal_texts.dart';
 import 'package:cut_list_app/screens/home_screen.dart';
@@ -109,6 +110,7 @@ void main() {
 
   setUp(() {
     requests.clear();
+    CorrectionMemoryStore.instance.resetForTest();
     _seed();
   });
 
@@ -131,6 +133,17 @@ void main() {
     await prefs.reload();
     expect(prefs.getString('fitter_device_id'), _deviceId);
     expect(prefs.getString('fitter_install_secret'), _secret);
+  });
+
+  testWidgets('usuwanie danych obejmuje pamięć poprawek asystenta', (tester) async {
+    await tester.runAsync(() => CorrectionMemoryStore.instance.remember(const RememberedCorrection(
+        question: 'Co to TIG?', correction: 'Chodzi o aluminium')));
+    backend((_) async =>
+        _json(200, {'ok': true, 'deleted': {}, 'premium_retained': false}));
+    await _openProfile(tester);
+    await _confirmDelete(tester);
+    final saved = await tester.runAsync(() => CorrectionMemoryStore.instance.list());
+    expect(saved, isEmpty);
   });
 
   testWidgets('profil ostrzega o nieusuniętej zgodzie na zasady',
@@ -318,7 +331,7 @@ void main() {
       await _openProfile(tester);
       await _confirmDelete(tester);
       expect(find.text('Data deletion incomplete'), findsOneWidget);
-      expect(_inDialog('Could not delete reported message markers'),
+      expect(_inDialog('reported message markers'),
           findsOneWidget);
       await prefs.reload();
       expect(prefs.getString(ReportedMessages.prefsKey), '[11]');

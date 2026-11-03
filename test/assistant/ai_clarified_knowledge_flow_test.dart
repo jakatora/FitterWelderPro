@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:cut_list_app/assistant/assistant_ai_client.dart';
 import 'package:cut_list_app/assistant/core/skill.dart';
+import 'package:cut_list_app/assistant/correction_memory.dart';
 import 'package:cut_list_app/services/account_service.dart';
 import 'package:cut_list_app/services/premium_service.dart';
 import '../support/test_account.dart';
@@ -16,6 +17,7 @@ import 'global_pipe_slope_flow_test.dart' show say, settle;
 void main() {
   useGuestAccount();
   useTestDatabase();
+  setUp(() => CorrectionMemoryStore.instance.resetForTest());
   for (final voice in [false, true]) {
     for (final mode in ['normal', 'retry', 'expired', 'oldServer']) {
       testWidgets(

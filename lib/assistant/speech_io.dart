@@ -10,8 +10,12 @@
 // odpowiedzi głosem (`flutter_tts`) jest ustawieniem użytkownika, domyślnie
 // wyłączonym, i milknie, gdy aplikacja schodzi w tło.
 
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
@@ -42,11 +46,16 @@ abstract class SpeechInput {
   Future<void> cancel();
 }
 
+/// Cancellation for a mute control must report failure to stop capture.
+abstract interface class MicrophoneMute {
+  Future<void> cancelForMute();
+}
+
 /// Identyfikator języka dla rozpoznawania mowy.
 String speechLocaleFor(AppLanguage lang) =>
     lang == AppLanguage.en ? 'en_US' : 'pl_PL';
 
-class SystemSpeechInput implements SpeechInput {
+class SystemSpeechInput implements SpeechInput, MicrophoneMute {
   factory SystemSpeechInput() => _shared;
   SystemSpeechInput._();
   static final _shared = SystemSpeechInput._();
@@ -122,6 +131,15 @@ class SystemSpeechInput implements SpeechInput {
   }
 
   @override
+  Future<void> cancelForMute() async {
+    try {
+      await _stt.cancel();
+    } finally {
+      _finish(null);
+    }
+  }
+
+  @override
   Future<void> cancel() async {
     try {
       await _stt.cancel();
@@ -135,23 +153,274 @@ abstract class SpeechOutput {
   Future<void> stop();
 }
 
+/// The platform could not select an installed voice for the requested language.
+class SpeechLanguageUnavailable implements Exception {
+  const SpeechLanguageUnavailable();
+}
+
+/// Adapter for a voice session that must wait until native playback finishes.
+class CompletionSpeechOutput implements SpeechOutput {
+  CompletionSpeechOutput(this._system);
+  final SystemSpeechOutput _system;
+
+  @override
+  Future<void> speak(String text, AppLanguage language) =>
+      _system.speakUntilDone(text, language);
+
+  @override
+  Future<void> stop() => _system.stop();
+}
+
+/// Prefer an installed, high-quality voice for the requested locale when the
+/// platform reports enough information to identify one. Otherwise leave the
+/// system default alone. Network-only Android voices are deliberately excluded.
+bool _voiceLocaleMatches(String locale, AppLanguage language) {
+  final normalized = locale.toLowerCase().replaceAll('_', '-');
+  return language == AppLanguage.en
+      ? normalized == 'en' || normalized.startsWith('en-')
+      : normalized == 'pl-pl';
+}
+
+bool _voiceIsInstalledLocally(Map raw) =>
+    raw['network_required'] != true && raw['network_required'] != '1' &&
+    !(raw['features'] is String &&
+        (raw['features'] as String).toLowerCase().contains('notinstalled'));
+
+@visibleForTesting
+Map<String, String>? chooseEnhancedVoice(Object? voices, AppLanguage language) {
+  if (voices is! List) return null;
+  const scores = {'high': 2, 'very high': 3, 'enhanced': 2, 'premium': 3};
+  Map<String, String>? best;
+  var bestScore = 0;
+  for (final raw in voices) {
+    if (raw is! Map) continue;
+    final name = raw['name'];
+    final locale = raw['locale'];
+    if (name is! String ||
+        name.isEmpty ||
+        locale is! String ||
+        !_voiceLocaleMatches(locale, language)) {
+      continue;
+    }
+    if (!_voiceIsInstalledLocally(raw)) continue;
+    final quality = raw['quality'];
+    final score = quality is String ? (scores[quality.toLowerCase()] ?? 0) : 0;
+    if (score <= bestScore) continue;
+    bestScore = score;
+    best = {'name': name, 'locale': locale};
+    if (raw['identifier'] is String &&
+        (raw['identifier'] as String).isNotEmpty) {
+      best['identifier'] = raw['identifier'] as String;
+    }
+  }
+  return best;
+}
+
 class SystemSpeechOutput implements SpeechOutput {
   factory SystemSpeechOutput() => _shared;
   SystemSpeechOutput._();
   static final _shared = SystemSpeechOutput._();
   FlutterTts? _tts;
   int _speechEpoch = 0;
+  bool _playbackMayBeActive = false;
+  Future<void>? _stoppingPlayback;
+
+  String _voicePreferenceKey(AppLanguage language) =>
+      'assistant_voice_${language == AppLanguage.en ? 'en' : 'pl'}_v1';
+
+  /// Installed local voices for the language currently used by the app.
+  Future<List<Map<String, String>>> availableVoices(
+      AppLanguage language) async {
+    final rawVoices = await (_tts ??= FlutterTts()).getVoices;
+    if (rawVoices is! List) return [];
+    final voices = <Map<String, String>>[];
+    final seen = <String>{};
+    for (final raw in rawVoices) {
+      if (raw is! Map) continue;
+      final name = raw['name'];
+      final locale = raw['locale'];
+      if (name is! String ||
+          name.isEmpty ||
+          locale is! String ||
+          !_voiceLocaleMatches(locale, language) ||
+          !_voiceIsInstalledLocally(raw)) {
+        continue;
+      }
+      final id = raw['identifier'];
+      final voice = <String, String>{'name': name, 'locale': locale};
+      if (id is String && id.isNotEmpty) voice['identifier'] = id;
+      if (seen.add('$locale\u0000$name\u0000${voice['identifier'] ?? ''}')) {
+        voices.add(voice);
+      }
+    }
+    return voices;
+  }
+
+  Future<Map<String, String>?> preferredVoice(AppLanguage language) async {
+    final prefs = await SharedPreferences.getInstance();
+    final json = prefs.getString(_voicePreferenceKey(language));
+    if (json == null) return null;
+    try {
+      final raw = jsonDecode(json);
+      if (raw is! Map || raw['name'] is! String || raw['locale'] is! String) {
+        return null;
+      }
+      return {
+        'name': raw['name'] as String,
+        'locale': raw['locale'] as String,
+        if (raw['identifier'] is String)
+          'identifier': raw['identifier'] as String,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> setPreferredVoice(
+      AppLanguage language, Map<String, String>? voice) async {
+    final prefs = await SharedPreferences.getInstance();
+    return voice == null
+        ? prefs.remove(_voicePreferenceKey(language))
+        : prefs.setString(_voicePreferenceKey(language), jsonEncode(voice));
+  }
+
+  Future<void> _stopPlayback(FlutterTts tts) async {
+    final pending = _stoppingPlayback;
+    if (pending != null) {
+      await pending;
+      return;
+    }
+    if (!_playbackMayBeActive) return;
+    _playbackMayBeActive = false;
+    final stopped = Completer<void>();
+    _stoppingPlayback = stopped.future;
+    try {
+      await tts.stop();
+    } finally {
+      _stoppingPlayback = null;
+      stopped.complete();
+    }
+  }
 
   @override
   Future<void> speak(String text, AppLanguage language) async {
+    await _speak(text, language, waitForCompletion: false);
+  }
+
+  /// Used by voice conversations, which must not reopen the microphone while
+  /// the synthesizer is still speaking. Normal read-aloud stays nonblocking.
+  Future<void> speakUntilDone(String text, AppLanguage language) async {
+    await _speak(text, language, waitForCompletion: true);
+  }
+
+  Future<void> previewVoice(Map<String, String> voice, AppLanguage language) =>
+      _speak(
+        language == AppLanguage.en
+            ? 'Hello, I am your assistant.'
+            : 'Dzień dobry, jestem Twoim asystentem.',
+        language,
+        waitForCompletion: true,
+        preview: voice,
+      );
+
+  Future<void> _speak(String text, AppLanguage language,
+      {required bool waitForCompletion, Map<String, String>? preview}) async {
     final epoch = ++_speechEpoch;
     try {
       final tts = _tts ??= FlutterTts();
-      await tts.setLanguage(language == AppLanguage.en ? 'en-US' : 'pl-PL');
+      // Stop an earlier utterance before switching completion mode. On
+      // Windows the native stop() uses the current mode to resolve speak().
+      await _stopPlayback(tts);
       if (epoch != _speechEpoch) return;
-      await tts.speak(text);
+      await tts.awaitSpeakCompletion(waitForCompletion);
+      if (epoch != _speechEpoch) return;
+      Object? knownVoices;
+      try {
+        knownVoices = await tts.getVoices;
+      } catch (_) {
+        // Fall back to the platform's language result if discovery fails.
+      }
+      if (epoch != _speechEpoch) return;
+      var localeToUse = language == AppLanguage.en ? 'en-US' : 'pl-PL';
+      if (knownVoices is List && language == AppLanguage.en) {
+        final englishLocales = knownVoices.whereType<Map>()
+            .where(_voiceIsInstalledLocally)
+            .map((voice) => voice['locale'])
+            .whereType<String>()
+            .where((locale) => _voiceLocaleMatches(locale, language))
+            .toList();
+        if (englishLocales.isNotEmpty &&
+            !englishLocales.any((locale) => locale.toLowerCase().replaceAll('_', '-') == 'en-us')) {
+          localeToUse = englishLocales.first;
+        }
+      }
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+        if (knownVoices is List) {
+          final hasReportedLocale = knownVoices.whereType<Map>()
+              .any((voice) => voice['locale'] is String);
+          final locales = knownVoices
+              .whereType<Map>()
+              .where(_voiceIsInstalledLocally)
+              .map((voice) => voice['locale'])
+              .whereType<String>()
+              .map((locale) => locale.toLowerCase().replaceAll('_', '-'))
+              .toList();
+          if ((knownVoices.isEmpty || hasReportedLocale) &&
+              !locales.any((locale) => _voiceLocaleMatches(locale, language))) {
+            throw const SpeechLanguageUnavailable();
+          }
+        }
+      }
+      final languageResult = await tts.setLanguage(localeToUse);
+      if (epoch != _speechEpoch) return;
+      if (languageResult == 0) throw const SpeechLanguageUnavailable();
+      if (preview != null) {
+        final result = await tts.setVoice(preview);
+        if (result == 0) throw StateError('Voice unavailable');
+      } else {
+        try {
+          final voices = knownVoices ?? await tts.getVoices;
+          Map<String, String>? preferred;
+          try {
+            preferred = await preferredVoice(language);
+          } catch (_) {
+            // A preferences failure must not disable automatic voice selection.
+          }
+          final available = voices is List ? voices : const [];
+          final matches = available.where((raw) =>
+              raw is Map &&
+              raw['locale'] is String &&
+              raw['name'] == preferred?['name'] &&
+              raw['locale'] == preferred?['locale'] &&
+              _voiceLocaleMatches(raw['locale'] as String, language) &&
+              _voiceIsInstalledLocally(raw) &&
+              (preferred?['identifier'] == null ||
+                  raw['identifier'] == preferred?['identifier']));
+          final voice = preferred != null && matches.isNotEmpty
+              ? preferred
+              : chooseEnhancedVoice(voices, language);
+          if (epoch != _speechEpoch) return;
+          if (voice != null) await tts.setVoice(voice);
+        } catch (_) {
+          // Some platforms do not provide voice metadata; keep the system voice.
+        }
+      }
+      if (epoch != _speechEpoch) return;
+      _playbackMayBeActive = true;
+      try {
+        final result = await tts.speak(text);
+        if (result == 0) throw StateError('Speech output unavailable');
+      } finally {
+        // Nonblocking speech can continue after speak() returns. In the
+        // completion mode, however, the native call finishes with playback.
+        if (waitForCompletion && epoch == _speechEpoch) {
+          _playbackMayBeActive = false;
+        }
+      }
     } catch (e) {
+      if (epoch == _speechEpoch) _playbackMayBeActive = false;
       debugPrint('SystemSpeechOutput.speak: $e');
+      if (waitForCompletion) rethrow;
     }
   }
 
@@ -159,9 +428,9 @@ class SystemSpeechOutput implements SpeechOutput {
   Future<void> stop() async {
     _speechEpoch++;
     final tts = _tts;
-    if (tts == null) return; // nigdy nie mówiliśmy — nie ruszamy platformy
+    if (tts == null) return;
     try {
-      await tts.stop();
+      await _stopPlayback(tts);
     } catch (_) {}
   }
 }

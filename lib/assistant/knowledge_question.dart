@@ -19,6 +19,46 @@ final _continuation =
         r'in other words)\s+)+');
 final _inferenceQuestion = RegExp(r'^(?:does that mean|you mean)\s+\S');
 
+// Corrections to an answer belong to the current conversation, but a new
+// explicit app command in the remainder still belongs to the action workflow.
+final _answerCorrection = RegExp(
+    r'^(?:(?:nie|no)\s+)?(?:nie o to mi chodz(?:i|ilo)|'
+    r'nie o to (?:pytam|pytal(?:em|am))|nie pytal(?:em|am) o to|'
+    r'to nie (?:jest )?to o co pytal(?:em|am)|'
+    r'zle mowisz|zle mnie zrozumial(?:es|as)|nie zgadzam sie|'
+    r'to (?:raczej )?tak nie (?:bedzie|jest|dziala)|'
+    r'to (?:nieprawda|bledne|nieprawidlowe)|to nie to|to nie tak|wrong|that is not what i meant|'
+    r'that is wrong|you are wrong|chodzilo mi o|chodzi mi o|'
+    r'mial(?:em|am) na mysli|mam na mysli|i meant)\b');
+final _correctionConnectors = RegExp(
+    r'^(?:(?:ale|tylko|raczej|but|instead|chodzilo mi o|chodzi mi o|'
+    r'mial(?:em|am) na mysli|mam na mysli|i mean)\s*)+');
+
+String? _correctionDetail(Utterance u) {
+  final match = _answerCorrection.firstMatch(u.folded);
+  if (match == null) return null;
+  return u.folded.substring(match.end).trim().replaceFirst(_correctionConnectors, '').trim();
+}
+
+bool isKnowledgeCorrection(Utterance u) {
+  final detail = _correctionDetail(u);
+  if (detail == null) return false;
+  return detail.isEmpty ||
+      (!requestsConversationAction(Utterance(detail, lang: u.lang)) &&
+          !_followingAction.hasMatch(detail));
+}
+
+bool isBareKnowledgeCorrection(Utterance u) =>
+    isKnowledgeCorrection(u) && _correctionDetail(u)!.isEmpty;
+
+/// A correction that also gives a new command must not resume an older action.
+bool isKnowledgeCorrectionWithAction(Utterance u) {
+  final detail = _correctionDetail(u);
+  return detail != null && detail.isNotEmpty &&
+      (requestsConversationAction(Utterance(detail, lang: u.lang)) ||
+          _followingAction.hasMatch(detail));
+}
+
 String _conversationText(Utterance u) =>
     u.folded.replaceFirst(_newTopic, '').replaceFirst(_continuation, '');
 
@@ -38,10 +78,10 @@ final _politeAction = RegExp(
     r'(?:(?:mi|please)\s+)?(\w+)');
 final _action = RegExp(
     r'^(?:(?:prosze|please|hej|hey)\s+)*(?:otworz\w*|pokaz\w*|uruchom\w*|'
-    r'zapis\w*|dodaj\w*|ustaw\w*|zmien\w*|usun\w*|oblicz\w*|policz\w*|'
+    r'zapis\w*|dodaj\w*|ustaw\w*|zmien\w*|usun\w*|wybierz\w*|oblicz\w*|policz\w*|'
     r'narys\w*|dorys\w*|przelicz\w*|skopiuj\w*|wyczysc\w*|nazwij\w*|podsumuj\w*|'
     r'zmniejsz\w*|zwieksz\w*|wydluz\w*|skroc\w*|obroc\w*|przesun\w*|cofnij\w*|powtorz\w*|'
-    r'open|show|save|add|set|change|delete|calculate|compute|draw|copy|clear|'
+    r'open|show|launch|select|save|add|set|change|delete|calculate|compute|draw|copy|clear|'
     r'increase|decrease|reduce|extend|shorten|rotate|move|undo|redo|rename|reset)\b');
 
 // "Help me understand" asks for an explanation, while "help me open"
@@ -60,6 +100,14 @@ final _helpDecide = RegExp(r'^(?:(?:prosze|please)\s+)*'
     r'choose|decide|compare)\b');
 final _needAdvice = RegExp(r'^(?:(?:prosze|please)\s+)*'
     r'(?:potrzebuje (?:porady|wskazowek)|i need (?:advice|guidance))\b');
+// "Show me how" asks for instructions; "show the calculator" is a command.
+final _showHow = RegExp(r'^(?:(?:prosze|please)\s+)*'
+    r'(?:(?:czy (?:mozesz|moglbys)|can you|could you)\s+)?'
+    r'(?:(?:mi|please)\s+)*(?:pokaz|pokazac|show)\s+'
+    r'(?:(?:mi|me|please)\s+)?(?:jak|how)\b\s+\S');
+final _explainTopic = RegExp(r'^(?:(?:prosze|please)\s+)*'
+    r'(?:(?:opowiedz|powiedz)(?:\s+mi)?\s+(?:cos\s+)?(?:o|na temat)|'
+    r'tell\s+me\s+about)\b\s+\S');
 // Restrict this to information-seeking phrases; "find my project" still
 // belongs to the app's own data and action workflows.
 final _informationSearch = RegExp(r'^(?:(?:prosze|please)\s+)*'
@@ -79,7 +127,9 @@ final _followingAction =
 bool _isAdviceRequest(String text) =>
     _helpUnderstand.hasMatch(text) ||
     _helpDecide.hasMatch(text) ||
-    _needAdvice.hasMatch(text);
+    _needAdvice.hasMatch(text) ||
+    _showHow.hasMatch(text) ||
+    _explainTopic.hasMatch(text);
 
 bool requestsConversationAction(Utterance u) {
   final text = _conversationText(u);
@@ -111,6 +161,18 @@ bool isKnowledgeQuestion(Utterance u) =>
         // Written elliptical questions still belong to the conversation;
         // explicit action verbs above retain their native workflow.
         (u.raw.trimRight().endsWith('?') && isEllipticalKnowledgeFollowUp(u)));
+
+/// A question followed by a separate explicit action needs both parts to be
+/// handled. The action-only planner cannot represent an answer and an action
+/// in the same plan, so do not allow it to silently drop either part.
+bool hasMixedKnowledgeAndAction(Utterance u) {
+  final text = _conversationText(u);
+  final action = _followingAction.firstMatch(text);
+  if (action == null || action.start == 0) return false;
+  final question = text.substring(0, action.start).trim();
+  return question.isNotEmpty &&
+      isKnowledgeQuestion(Utterance(question, lang: u.lang));
+}
 
 bool isExplanationQuestion(Utterance u) =>
     _isAdviceRequest(_conversationText(u)) ||

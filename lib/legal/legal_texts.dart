@@ -253,11 +253,12 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
               pl: 'Jak długo przechowujemy wiadomości',
               en: 'How long we keep messages'),
           c.tr(
-            pl: 'Wiadomości czatu przechowujemy tak długo, jak istnieje pokój, w '
-                'którym je napisano, chyba że wcześniej usunie je moderacja albo '
-                'Ty je usuniesz (niżej).',
-            en: 'Chat messages are kept for as long as the room exists, unless '
-                'they are removed earlier by moderation or by you (below).',
+            pl: 'Wiadomości czatu przechowujemy tak długo, jak istnieje pokój, '
+                'w którym je napisano, chyba że wcześniej usunie je moderacja '
+                'albo Ty je usuniesz (niżej).',
+            en: 'Chat messages are kept as long as the room in which they were '
+                'posted exists, unless removed earlier by moderation or by '
+                'you (below).',
           ),
         ),
         LegalSection(
@@ -333,9 +334,14 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
                 'wyszukiwarki internetowej; zapytanie może trafić do jej dostawcy. '
                 'Model otrzymuje instrukcję pomijania danych osobowych i poufnych, '
                 'ale nie jest to gwarantowane.\n\n'
+                'Asystent może zapamiętać Twoje doprecyzowanie wraz z pytaniem w bezpiecznym magazynie urządzenia, oddzielnie dla każdego konta oraz użytkownika bez konta. Przy podobnym pytaniu może przesłać do trzech pasujących wpisów jako kontekst AI. Poprawki bieżącego konta lub użytkownika bez konta możesz przeglądać i usuwać w pamięci asystenta albo przez „Usuń moje dane”. Nie zapisuj tam danych poufnych.\n\n'
                 'Profil zawodowy jest opcjonalny i domyślnie wyłączony. Po włączeniu go w ustawieniach asystenta serwer dołącza do zapytania AI zawód, procesy spawania i lata doświadczenia z zalogowanego konta. Nie dołącza imienia, nazwiska, adresu e-mail, stempla ani kwalifikacji. Token sesji służy tylko do uwierzytelnienia na naszym serwerze, nie trafia do modelu. Możesz wyłączyć tę opcję przed kolejnym zapytaniem.\n\n'
-                'Mowa: mikrofon włącza się tylko po naciśnięciu przycisku '
-                'mikrofonu. Mowę na tekst zamienia system telefonu (Google na '
+                'Mowa: nasłuch rozpoczyna się po naciśnięciu przycisku '
+                'mikrofonu lub rozpoczęciu rozmowy głosowej. Podczas rozmowy '
+                'mikrofon włącza się ponownie po odpowiedzi asystenta, chyba że go '
+                'wyciszysz lub zakończysz rozmowę. Na Windows w wersji testowej mowa jest '
+                'rozpoznawana lokalnie na komputerze. Na telefonie mowę na tekst '
+                'zamienia system (Google na '
                 'Androidzie, Apple na iPhonie), który może w tym celu przesyłać '
                 'dźwięk do swoich usług — na zasadach ich polityk prywatności. '
                 'Nagranie nie trafia na nasz serwer; do nas trafia wyłącznie '
@@ -358,9 +364,14 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
                 'the model may create a web search query that may reach the search '
                 'provider. The model is instructed to omit personal and confidential '
                 'data, but this is not guaranteed.\n\n'
+                'The assistant may save your clarification with its question in secure device storage, separately for each account and for use without an account. For a related question, it may send up to three matching entries as AI context. You can review and delete corrections for the current account or guest in assistant memory or using Delete my data. Do not save confidential information there.\n\n'
                 'Professional profile context is optional and off by default. When enabled in assistant settings, the server adds the profession, welding processes and years of experience from the signed-in account to the AI request. It does not add your name, email address, welder stamp or qualifications. The session token authenticates you only to our server and is not sent to the model. You can disable this option before the next request.\n\n'
-                'Speech: the microphone turns on only when you press the '
-                'microphone button. Speech is turned into text by the phone\'s '
+                'Speech: listening starts when you press the microphone button '
+                'or start a voice conversation. During a conversation, the '
+                'microphone turns on again after the assistant replies unless you '
+                'mute it or end the conversation. In the Windows preview, speech is '
+                'recognised locally on your computer. On phones, speech is '
+                'turned into text by the phone\'s '
                 'system (Google on Android, Apple on iPhone), which may send the '
                 'audio to its own services for that — under their privacy '
                 'policies. The recording never reaches our server; we receive '

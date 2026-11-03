@@ -4,7 +4,80 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 
 void main() {
+  test('mixed information and action are distinguished from ordinary requests', () {
+    for (final text in [
+      'Opowiedz mi o TIG i otwórz kalkulator',
+      'Pokaż mi jak dobrać gaz i otwórz kalkulator',
+      'Tell me about TIG and open the calculator',
+      'Co to jest DN i pokaż kalkulator',
+      'Opowiedz mi o TIG i uruchom kalkulator',
+      'Opowiedz mi o TIG i wybierz materiał',
+      'Tell me about TIG and launch the calculator',
+    ]) {
+      expect(hasMixedKnowledgeAndAction(Utterance(text, lang: AppLanguage.pl)), isTrue,
+          reason: text);
+    }
+    for (final text in [
+      'Jak dobrać gaz do TIG?',
+      'Otwórz kalkulator i ustaw średnicę',
+      'Opowiedz mi o gazie i ciśnieniu',
+    ]) {
+      expect(hasMixedKnowledgeAndAction(Utterance(text, lang: AppLanguage.pl)), isFalse,
+          reason: text);
+    }
+  });
+  for (final phrase in [
+    'Nie o to mi chodzi', 'źle mówisz', 'That is wrong',
+    'Nie, to raczej tak nie będzie', 'Nie zgadzam się',
+    'Źle mnie zrozumiałeś', 'To nieprawda', 'Nie o to pytałem',
+    'Nie pytałam o to', 'To nie jest to, o co pytałem'
+  ]) {
+    test('bare correction asks for details: $phrase', () {
+      final u = Utterance(phrase, lang: AppLanguage.pl);
+      expect(isKnowledgeCorrection(u), isTrue);
+      expect(isBareKnowledgeCorrection(u), isTrue);
+    });
+  }
+  for (final phrase in [
+    'Nie o to mi chodzi, chodzi mi o stal nierdzewną',
+    'Źle mówisz, mam na myśli rurę DN50',
+    'I meant the outside diameter',
+    'Nie, to raczej tak nie będzie, chodzi mi o stal nierdzewną',
+    'Źle mnie zrozumiałaś, mam na myśli średnicę zewnętrzną',
+    'Nie, chodziło mi o średnicę zewnętrzną',
+    'Nie o to pytałem, miałem na myśli stal nierdzewną',
+    'Miałam na myśli gaz osłonowy',
+  ]) {
+    test('detailed correction is a follow-up: $phrase', () {
+      final u = Utterance(phrase, lang: AppLanguage.pl);
+      expect(isKnowledgeCorrection(u), isTrue);
+      expect(isBareKnowledgeCorrection(u), isFalse);
+    });
+  }
+  test('correction with an explicit app action is not routed as knowledge', () {
+    final u = Utterance('Nie o to mi chodzi, otwórz kalkulator', lang: AppLanguage.pl);
+    expect(isKnowledgeCorrection(u), isFalse);
+    expect(isKnowledgeCorrectionWithAction(u), isTrue);
+  });
+  test('a correction containing a later app action is not routed as knowledge', () {
+    final u = Utterance('Nie o to mi chodzi, chodzi o stal i otwórz kalkulator', lang: AppLanguage.pl);
+    expect(isKnowledgeCorrection(u), isFalse);
+    expect(isKnowledgeCorrectionWithAction(u), isTrue);
+  });
+  test('a past-tense clarification cannot swallow an app command', () {
+    final u = Utterance('Nie o to pytałem, chodziło mi o otwórz kalkulator', lang: AppLanguage.pl);
+    expect(isKnowledgeCorrection(u), isFalse);
+  });
   for (final text in [
+    'Opowiedz mi o spawaniu TIG',
+    'Powiedz coś o porowatości spoin',
+    'Powiedz mi o gazach osłonowych',
+    'Tell me about stainless steel welding',
+    'Pokaż mi, jak obliczyć spadek rury',
+    'Czy możesz pokazać jak dobrać gaz?',
+    'Czy możesz mi pokazać, jak otworzyć kalkulator?',
+    'Show me how to calculate the pipe slope',
+    'Could you please show me how to use the calculator?',
     'Wyszukaj informacje o spawaniu hybrydowym',
     'Poszukaj informacji o nierdzewce',
     'Czy możesz znaleźć informacje na temat TIG?',
@@ -23,6 +96,11 @@ void main() {
     });
   }
   for (final text in [
+    'Pokaż kalkulator',
+    'Opowiedz mi o TIG i otwórz kalkulator',
+    'Tell me about TIG and open the calculator',
+    'Pokaż mi jak dobrać gaz i otwórz kalkulator',
+    'Show me how to choose a gas and open the calculator',
     'Wyszukaj informacje o TIG i otwórz kalkulator',
     'Search for information about TIG and delete the project',
   ]) {

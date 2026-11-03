@@ -69,7 +69,7 @@ void main() {
     await settle(tester);
 
     // Kalkulatory działają offline i bez konta — ekran główny od razu.
-    expect(find.byIcon(Icons.handyman_outlined), findsOneWidget); // MONTER
+    expect(find.byKey(const Key('home-section-photo-fitter')), findsOneWidget); // MONTER
     expect(find.byType(OnboardingNameScreen), findsNothing);
 
     // Dopiero czat pyta o imię, nazwisko i zasady.
@@ -108,8 +108,8 @@ void main() {
 
     // Widoczne: MONTER, SPAWACZ, CZAT (ikony są niezależne od języka).
     // Kafla POMOC nie ma — pomoc jest pod ikoną „?" w pasku.
-    expect(find.byIcon(Icons.handyman_outlined), findsOneWidget); // MONTER
-    expect(find.byIcon(Icons.waves_outlined), findsOneWidget); // SPAWACZ
+    expect(find.byKey(const Key('home-section-photo-fitter')), findsOneWidget); // MONTER
+    expect(find.byKey(const Key('home-section-photo-welder')), findsOneWidget); // SPAWACZ
     expect(find.byIcon(Icons.forum_outlined), findsOneWidget); // CZAT
 
     // Skaner działa w darmowym trybie z dziennym limitem — kafel jest.
@@ -168,9 +168,11 @@ void main() {
 
     // SPAWACZ → „Heat input i CE" — jedyne wejście do podgrzewania (dawna
     // zakładka „Temperatura" w kalkulatorach spawacza dublowała ten ekran).
-    await tester.tap(find.byIcon(Icons.waves_outlined));
+    await tester.tap(find.byKey(const Key('home-section-photo-welder')));
     await settle(tester);
-    final heatInput = find.byIcon(Icons.local_fire_department_outlined);
+    await tester.tap(find.byKey(const Key('tool-group-weldCalculators')));
+    await settle(tester);
+    final heatInput = find.byKey(const Key('tool-row-heat_input'));
     expect(heatInput, findsOneWidget);
     await tester.ensureVisible(heatInput);
     await settle(tester);
@@ -211,14 +213,20 @@ void main() {
       (tester) async {
     await boot(tester, withProfile: true);
 
-    await tester.tap(find.byIcon(Icons.handyman_outlined)); // MONTER
+    await tester.tap(find.byKey(const Key('home-section-photo-fitter'))); // MONTER
     await settle(tester);
 
-    // Kafel skanera jest — darmowy tryb z dziennym limitem.
-    expect(find.byIcon(Icons.document_scanner_outlined), findsOneWidget);
+    // Skaner jest w grupie cięć i projektów.
+    await tester.tap(find.byKey(const Key('tool-group-cutProjects')));
+    await settle(tester);
+    expect(find.byKey(const Key('tool-row-iso_scanner')), findsOneWidget);
+    tester.state<NavigatorState>(find.byType(Navigator).first).pop();
+    await settle(tester);
 
     // "Wymiary kolan" — tabela takeoutów.
-    final elbows = find.byIcon(Icons.table_rows_outlined);
+    await tester.tap(find.byKey(const Key('tool-group-elbowsFittings')));
+    await settle(tester);
+    final elbows = find.byKey(const Key('tool-row-elbow_takeouts'));
     expect(elbows, findsOneWidget);
     await tester.ensureVisible(elbows);
     await settle(tester);

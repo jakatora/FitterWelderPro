@@ -446,6 +446,8 @@ class _HomeScreenState extends State<HomeScreen> {
     return [
       _SectionTile(
         icon: Icons.handyman_outlined,
+        photoAsset: 'assets/tool_photos/home_fitter.jpg',
+        photoKey: const Key('home-section-photo-fitter'),
         title: context.tr(pl: 'MONTER', en: 'FITTER'),
         subtitle:
             context.tr(pl: 'Cięcie, kolana, trasy', en: 'Cuts, elbows, routes'),
@@ -454,6 +456,9 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       _SectionTile(
         icon: Icons.waves_outlined,
+        photoAsset: 'assets/tool_photos/home_welder.jpg',
+        photoKey: const Key('home-section-photo-welder'),
+        photoAlignment: const Alignment(0.55, 0.55),
         title: context.tr(pl: 'SPAWACZ', en: 'WELDER'),
         subtitle:
             context.tr(pl: 'Parametry i dziennik', en: 'Parameters, journal'),
@@ -814,6 +819,9 @@ class _Label extends StatelessWidget {
 // ─── KAFEL DZIAŁU ─────────────────────────────────────────────────────────────
 class _SectionTile extends StatelessWidget {
   final IconData icon;
+  final String? photoAsset;
+  final Key? photoKey;
+  final Alignment photoAlignment;
   final String title;
   final String subtitle;
   final Color accent;
@@ -821,6 +829,9 @@ class _SectionTile extends StatelessWidget {
 
   const _SectionTile({
     required this.icon,
+    this.photoAsset,
+    this.photoKey,
+    this.photoAlignment = Alignment.center,
     required this.title,
     required this.subtitle,
     required this.accent,
@@ -846,15 +857,22 @@ class _SectionTile extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
             child: Row(
               children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: accent.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(11),
-                    border: Border.all(color: accent.withValues(alpha: 0.25)),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(11),
+                  child: SizedBox(
+                    width: photoAsset == null ? 42 : 52,
+                    height: photoAsset == null ? 42 : 52,
+                    child: photoAsset == null
+                        ? _icon()
+                        : Image.asset(
+                            photoAsset!,
+                            key: photoKey,
+                            fit: BoxFit.cover,
+                            alignment: photoAlignment,
+                            excludeFromSemantics: true,
+                            errorBuilder: (_, __, ___) => _icon(),
+                          ),
                   ),
-                  child: Icon(icon, size: 22, color: accent),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -889,6 +907,15 @@ class _SectionTile extends StatelessWidget {
       ),
     );
   }
+
+  Widget _icon() => Container(
+        decoration: BoxDecoration(
+          color: accent.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(11),
+          border: Border.all(color: accent.withValues(alpha: 0.25)),
+        ),
+        child: Icon(icon, size: 22, color: accent),
+      );
 }
 
 // ─── PIERWSZY KROK ────────────────────────────────────────────────────────────

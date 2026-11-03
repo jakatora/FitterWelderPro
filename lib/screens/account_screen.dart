@@ -1,5 +1,6 @@
 import '../app_navigator.dart';
 import '../assistant/core/tool_bridge.dart';
+import '../assistant/correction_memory.dart';
 import '../assistant/core/skill.dart';
 import '../assistant/core/professional_profile_edit.dart';
 import 'package:flutter/material.dart';
@@ -608,9 +609,12 @@ class _AccountScreenState extends State<AccountScreen>
                 ]));
     if (yes == true && mounted) {
       await _run(() async {
-        await service.request('DELETE', '/me', {'password': password.text});
-        await service.invalidateSession();
-        password.clear();
+        final revision = service.sessionRevision;
+        final clearMemory =
+            await CorrectionMemoryStore.instance.prepareAccountDeletion();
+        await service.deleteAccount(password.text,
+            expectedRevision: revision, clearDeletedAccountMemory: clearMemory);
+        if (revision == service.sessionRevision) password.clear();
       });
     }
   }

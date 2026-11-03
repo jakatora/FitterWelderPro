@@ -2,6 +2,7 @@
 // treściach tworzonych przez użytkowników (wytyczna 1.2).
 
 import 'support/test_account.dart';
+import 'support/test_database.dart';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -21,6 +22,7 @@ import 'package:cut_list_app/services/welder_identity.dart';
 
 void main() {
   useGuestAccount();
+  useTestDatabase();
   group('filtr treści', () {
     test('przepuszcza normalną rozmowę montera', () {
       const ok = [
@@ -205,6 +207,7 @@ void main() {
       await tester.tap(find.text('Delete'));
       for (var i = 0; i < 12; i++) {
         await tester.pump(const Duration(milliseconds: 120));
+        await flushTestDatabase(tester);
       }
 
       expect(
