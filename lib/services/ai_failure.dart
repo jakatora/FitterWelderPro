@@ -9,6 +9,7 @@ class AiFailure {
   final String? code;
   static const _known = {
     'AI_BUDGET_EXCEEDED',
+    'AI_DEPLOYMENT_HOLD',
     'AI_BUSY',
     'AI_CONFIG',
     'AI_PLAN_INVALID',
@@ -47,6 +48,11 @@ class AiFailure {
       return en
           ? 'The monthly AI cost limit has been reached. AI will be available when the budget renews.'
           : 'Osiągnięto miesięczny limit kosztów AI. AI będzie dostępne po odnowieniu budżetu.';
+    }
+    if (status == 503 && code == 'AI_DEPLOYMENT_HOLD') {
+      return en
+          ? 'AI is temporarily paused. Local commands and calculators remain available. Try again later.'
+          : 'AI jest chwilowo wstrzymane. Lokalne polecenia i kalkulatory nadal działają. Spróbuj ponownie później.';
     }
     if (status == 404) {
       return en

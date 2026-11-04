@@ -17,6 +17,11 @@ const _ignoredWords = {
   'jakie',
   'czym',
   'czy',
+  'nie',
+  'dlaczego',
+  'czemu',
+  'kiedy',
+  'mozna',
   'jest',
   'oraz',
   'moge',
@@ -58,6 +63,13 @@ const _ignoredWords = {
   'what',
   'which',
   'does',
+  'not',
+  'why',
+  'when',
+  'can',
+  'could',
+  'would',
+  'should',
   'with',
   'about',
   'please',
@@ -135,21 +147,38 @@ const _qualifierGroups = [
 
 final _explicitReplacement = RegExp(
     r'\b(?:nie|not)\s+(?:gaz\w*\s+)?'
+    r'(?:chodz(?:i|ilo)\s+(?:mi\s+)?o\s+)?'
     r'(tig|mig|mag|mma|alumini\w*|nierdzew\w*|argon\w*|hel\w*)\s+'
-    r'(?:tylko|lecz|but)\s+(?:(?:stal|gaz)\w*\s+)?'
+    r'(?:tylko|lecz|but)\s+(?:o\s+)?(?:(?:stal|gaz)\w*\s+)?'
     r'(tig|mig|mag|mma|alumini\w*|nierdzew\w*|argon\w*|hel\w*)\b');
+
+// Recognize assertions, not questions such as “Can I use helium instead of
+// argon?”. Keeping this anchored also avoids reversing “I do not use…”.
+final _usedGasInstead = RegExp(
+    r'^(?:ja )?uzywam (hel(?:u|em|ie)?|argon\w*) zamiast (hel(?:u|em|ie)?|argon\w*)\b');
+final _insteadUseGas = RegExp(
+    r'^zamiast (hel(?:u|em|ie)?|argon\w*) uzywam (hel(?:u|em|ie)?|argon\w*)\b');
+final _useGasInstead = RegExp(
+    r'^(?:i )?use (helium|argon) instead of (helium|argon)\b');
 
 Set<String> _effectiveCorrectionWords(String text) {
   final words = _topicWords(text);
   final folded = Utterance(text, lang: AppLanguage.pl).folded;
-  for (final match in _explicitReplacement.allMatches(folded)) {
-    final rejected = _canonicalTopic(match[1]!);
-    final accepted = _canonicalTopic(match[2]!);
+  void removeRejected(String rejectedWord, String acceptedWord) {
+    final rejected = _canonicalTopic(rejectedWord);
+    final accepted = _canonicalTopic(acceptedWord);
     if (rejected != accepted &&
         _qualifierGroups.any((group) => group.contains(rejected) && group.contains(accepted))) {
       words.remove(rejected);
     }
   }
+  for (final match in _explicitReplacement.allMatches(folded)) {
+    removeRejected(match[1]!, match[2]!);
+  }
+  final used = _usedGasInstead.firstMatch(folded) ?? _useGasInstead.firstMatch(folded);
+  if (used != null) removeRejected(used[2]!, used[1]!);
+  final instead = _insteadUseGas.firstMatch(folded);
+  if (instead != null) removeRejected(instead[1]!, instead[2]!);
   return words;
 }
 

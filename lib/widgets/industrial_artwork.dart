@@ -11,6 +11,13 @@ enum IndustrialArtworkKind {
   unitConversion, dictionary, pipeSupport, torque, flangeCheck, boltKit,
   weldHeat, gasTimer, heatTreatment, weldStrength, powerSource,
   weldPasses, weldDistortion, coolingTime,
+  weldChecklist, interpassTemperature, weldingWeather, weldDefects,
+  ndtPlan, hardnessTest, ferriteTest,
+  hotWork, confinedSpace, fumeExtraction, rigging, grinder, electrodeOven,
+  weldJournal, welderExam, qualificationRange, welderCertificate, wpsLibrary,
+  workProgress, weldSymbols, weldAcceptance, instrumentCalibration, couponLog,
+  pressureTest,
+  heatTint, passivation, weldQuote, hourlyRate, piecework,
 }
 
 class IndustrialArtwork extends StatelessWidget {
@@ -149,6 +156,216 @@ class _IndustrialPainter extends CustomPainter {
         canvas.drawLine(const Offset(28, 44), const Offset(48, 44), amber);
         canvas.drawCircle(const Offset(65, 65), 13, steel..strokeWidth = 5);
         canvas.drawLine(const Offset(74, 74), const Offset(85, 85), amber..strokeWidth = 5);
+      case IndustrialArtworkKind.weldChecklist:
+        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(22, 16, 56, 70),
+          const Radius.circular(4)), steel..strokeWidth = 4);
+        for (final y in [32.0, 49.0, 66.0]) {
+          final tick = Path()..moveTo(30, y)..lineTo(34, y + 4)..lineTo(41, y - 4);
+          canvas.drawPath(tick, amber..strokeWidth = 3);
+          canvas.drawLine(Offset(48, y), Offset(69, y), steel..strokeWidth = 3);
+        }
+      case IndustrialArtworkKind.interpassTemperature:
+        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(37, 14, 17, 53),
+          const Radius.circular(9)), steel..strokeWidth = 4);
+        canvas.drawCircle(const Offset(45.5, 72), 11, steel..strokeWidth = 4);
+        canvas.drawLine(const Offset(45.5, 35), const Offset(45.5, 74), amber..strokeWidth = 5);
+        canvas.drawLine(const Offset(62, 29), const Offset(71, 29), steel..strokeWidth = 3);
+        canvas.drawLine(const Offset(62, 42), const Offset(71, 42), steel);
+      case IndustrialArtworkKind.weldingWeather:
+        final cloud = Path()..moveTo(23, 55)..cubicTo(11, 55, 12, 38, 26, 37)
+          ..cubicTo(29, 18, 57, 18, 63, 34)..cubicTo(84, 31, 87, 55, 70, 55)..close();
+        canvas.drawPath(cloud, steel..strokeWidth = 4);
+        for (final x in [32.0, 49.0, 66.0]) {
+          canvas.drawLine(Offset(x, 66), Offset(x - 5, 78), amber..strokeWidth = 4);
+        }
+      case IndustrialArtworkKind.weldDefects:
+        canvas.drawLine(const Offset(15, 65), const Offset(85, 65), steel..strokeWidth = 13);
+        final seam = Path()..moveTo(22, 59)..quadraticBezierTo(34, 49, 44, 59)
+          ..lineTo(49, 53)..lineTo(54, 61)..quadraticBezierTo(66, 49, 78, 59);
+        canvas.drawPath(seam, amber..strokeWidth = 4);
+        canvas.drawCircle(const Offset(52, 58), 3, Paint()..color = const Color(0xff182432));
+      case IndustrialArtworkKind.ndtPlan:
+        canvas.drawLine(const Offset(16, 70), const Offset(84, 70), steel..strokeWidth = 12);
+        canvas.drawLine(const Offset(25, 63), const Offset(75, 63), amber..strokeWidth = 4);
+        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(36, 22, 28, 19),
+          const Radius.circular(4)), steel..strokeWidth = 4);
+        canvas.drawLine(const Offset(42, 44), const Offset(33, 57), amber..strokeWidth = 3);
+        canvas.drawLine(const Offset(50, 44), const Offset(50, 57), amber);
+        canvas.drawLine(const Offset(58, 44), const Offset(67, 57), amber);
+      case IndustrialArtworkKind.hardnessTest:
+        canvas.drawLine(const Offset(17, 75), const Offset(83, 75), steel..strokeWidth = 10);
+        canvas.drawLine(const Offset(50, 18), const Offset(50, 44), steel..strokeWidth = 7);
+        final tip = Path()..moveTo(39, 44)..lineTo(61, 44)..lineTo(50, 61)..close();
+        canvas.drawPath(tip, amber..strokeWidth = 4);
+        canvas.drawLine(const Offset(39, 68), const Offset(61, 68), amber..strokeWidth = 3);
+      case IndustrialArtworkKind.ferriteTest:
+        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(20, 16, 50, 64),
+          const Radius.circular(6)), steel..strokeWidth = 4);
+        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(29, 26, 32, 19),
+          const Radius.circular(3)), amber..strokeWidth = 3);
+        canvas.drawCircle(const Offset(44, 59), 5, steel..strokeWidth = 3);
+        canvas.drawLine(const Offset(70, 49), const Offset(82, 62), steel..strokeWidth = 4);
+        canvas.drawLine(const Offset(82, 62), const Offset(79, 77), amber..strokeWidth = 4);
+      case IndustrialArtworkKind.hotWork:
+        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(29, 30, 38, 51),
+          const Radius.circular(8)), steel..strokeWidth = 4);
+        canvas.drawLine(const Offset(40, 29), const Offset(40, 21), steel..strokeWidth = 4);
+        canvas.drawLine(const Offset(38, 20), const Offset(58, 20), steel);
+        final hose = Path()..moveTo(58, 21)..quadraticBezierTo(76, 22, 76, 44);
+        canvas.drawPath(hose, amber..strokeWidth = 3);
+        canvas.drawLine(const Offset(35, 50), const Offset(61, 50), amber..strokeWidth = 4);
+      case IndustrialArtworkKind.confinedSpace:
+        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(15, 23, 70, 57),
+          const Radius.circular(19)), steel..strokeWidth = 5);
+        canvas.drawCircle(const Offset(50, 51), 15, amber..strokeWidth = 4);
+        canvas.drawLine(const Offset(44, 51), const Offset(56, 51), steel..strokeWidth = 3);
+        canvas.drawLine(const Offset(50, 45), const Offset(50, 57), steel);
+        canvas.drawLine(const Offset(41, 16), const Offset(59, 16), steel..strokeWidth = 5);
+      case IndustrialArtworkKind.fumeExtraction:
+        final hood = Path()..moveTo(33, 24)..lineTo(67, 24)..lineTo(76, 41)
+          ..lineTo(24, 41)..close();
+        canvas.drawPath(hood, steel..strokeWidth = 4);
+        canvas.drawLine(const Offset(50, 23), const Offset(50, 13), steel..strokeWidth = 6);
+        for (final x in [35.0, 50.0, 65.0]) {
+          final smoke = Path()..moveTo(x, 77)..quadraticBezierTo(x - 7, 66, x, 58)
+            ..quadraticBezierTo(x + 5, 51, x, 46);
+          canvas.drawPath(smoke, amber..strokeWidth = 3);
+        }
+      case IndustrialArtworkKind.rigging:
+        canvas.drawLine(const Offset(50, 12), const Offset(50, 28), steel..strokeWidth = 6);
+        canvas.drawCircle(const Offset(50, 34), 7, amber..strokeWidth = 4);
+        canvas.drawLine(const Offset(44, 39), const Offset(25, 72), steel..strokeWidth = 5);
+        canvas.drawLine(const Offset(56, 39), const Offset(75, 72), steel);
+        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(18, 72, 64, 12),
+          const Radius.circular(3)), amber..strokeWidth = 4);
+      case IndustrialArtworkKind.grinder:
+        canvas.drawCircle(const Offset(33, 65), 17, steel..strokeWidth = 5);
+        canvas.drawCircle(const Offset(33, 65), 5, amber..strokeWidth = 3);
+        final body = Path()..moveTo(45, 49)..lineTo(68, 26)..lineTo(81, 39)
+          ..lineTo(58, 62)..close();
+        canvas.drawPath(body, steel..strokeWidth = 5);
+        canvas.drawLine(const Offset(68, 26), const Offset(73, 16), amber..strokeWidth = 4);
+      case IndustrialArtworkKind.electrodeOven:
+        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(21, 22, 58, 60),
+          const Radius.circular(5)), steel..strokeWidth = 4);
+        canvas.drawLine(const Offset(26, 36), const Offset(74, 36), steel..strokeWidth = 3);
+        for (final x in [36.0, 48.0, 60.0]) {
+          canvas.drawLine(Offset(x, 46), Offset(x + 6, 70), amber..strokeWidth = 4);
+        }
+        canvas.drawLine(const Offset(32, 15), const Offset(68, 15), steel..strokeWidth = 4);
+      case IndustrialArtworkKind.weldJournal:
+        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(22, 15, 58, 70),
+          const Radius.circular(4)), steel..strokeWidth = 4);
+        canvas.drawLine(const Offset(34, 16), const Offset(34, 84), amber..strokeWidth = 3);
+        canvas.drawLine(const Offset(43, 33), const Offset(69, 33), steel..strokeWidth = 3);
+        canvas.drawLine(const Offset(43, 46), const Offset(69, 46), steel);
+        canvas.drawLine(const Offset(43, 59), const Offset(63, 59), amber);
+      case IndustrialArtworkKind.welderExam:
+        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(22, 15, 56, 70),
+          const Radius.circular(4)), steel..strokeWidth = 4);
+        for (final y in [31.0, 48.0, 65.0]) {
+          canvas.drawCircle(Offset(34, y), 4, amber..strokeWidth = 3);
+          canvas.drawLine(Offset(45, y), Offset(68, y), steel..strokeWidth = 3);
+        }
+      case IndustrialArtworkKind.qualificationRange:
+        canvas.drawCircle(const Offset(40, 49), 23, steel..strokeWidth = 6);
+        canvas.drawCircle(const Offset(40, 49), 11, steel..strokeWidth = 3);
+        canvas.drawLine(const Offset(69, 23), const Offset(69, 77), amber..strokeWidth = 3);
+        canvas.drawLine(const Offset(63, 23), const Offset(75, 23), amber);
+        canvas.drawLine(const Offset(63, 77), const Offset(75, 77), amber);
+      case IndustrialArtworkKind.welderCertificate:
+        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(23, 16, 54, 67),
+          const Radius.circular(4)), steel..strokeWidth = 4);
+        canvas.drawLine(const Offset(33, 31), const Offset(67, 31), steel..strokeWidth = 3);
+        canvas.drawLine(const Offset(33, 43), const Offset(59, 43), steel);
+        canvas.drawCircle(const Offset(57, 65), 10, amber..strokeWidth = 4);
+        canvas.drawLine(const Offset(52, 73), const Offset(49, 83), amber..strokeWidth = 3);
+        canvas.drawLine(const Offset(62, 73), const Offset(65, 83), amber);
+      case IndustrialArtworkKind.wpsLibrary:
+        for (final x in [20.0, 38.0, 56.0]) {
+          canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(x, 20, 16, 62),
+            const Radius.circular(2)), steel..strokeWidth = 3);
+          canvas.drawLine(Offset(x + 4, 32), Offset(x + 12, 32), amber..strokeWidth = 3);
+        }
+        canvas.drawLine(const Offset(15, 84), const Offset(81, 84), steel..strokeWidth = 4);
+      case IndustrialArtworkKind.workProgress:
+        canvas.drawLine(const Offset(20, 80), const Offset(81, 80), steel..strokeWidth = 4);
+        for (final bar in [const Rect.fromLTWH(26, 60, 10, 20),
+          const Rect.fromLTWH(44, 46, 10, 34), const Rect.fromLTWH(62, 29, 10, 51)]) {
+          canvas.drawRRect(RRect.fromRectAndRadius(bar, const Radius.circular(2)),
+            Paint()..color = const Color(0xffb8ccd5));
+        }
+        canvas.drawLine(const Offset(24, 48), const Offset(72, 18), amber..strokeWidth = 3);
+      case IndustrialArtworkKind.weldSymbols:
+        canvas.drawLine(const Offset(20, 39), const Offset(80, 39), steel..strokeWidth = 4);
+        canvas.drawLine(const Offset(20, 39), const Offset(14, 60), steel);
+        canvas.drawLine(const Offset(14, 60), const Offset(9, 54), amber..strokeWidth = 3);
+        final symbol = Path()..moveTo(43, 39)..lineTo(43, 62)..lineTo(62, 62)..close();
+        canvas.drawPath(symbol, amber..strokeWidth = 4);
+      case IndustrialArtworkKind.weldAcceptance:
+        canvas.drawLine(const Offset(14, 59), const Offset(80, 59), steel..strokeWidth = 12);
+        canvas.drawLine(const Offset(24, 53), const Offset(70, 53), amber..strokeWidth = 4);
+        final tick = Path()..moveTo(53, 73)..lineTo(63, 83)..lineTo(84, 65);
+        canvas.drawPath(tick, amber..strokeWidth = 5);
+      case IndustrialArtworkKind.instrumentCalibration:
+        canvas.drawCircle(const Offset(49, 46), 27, steel..strokeWidth = 5);
+        canvas.drawLine(const Offset(49, 46), const Offset(62, 34), amber..strokeWidth = 4);
+        canvas.drawLine(const Offset(49, 20), const Offset(49, 26), steel..strokeWidth = 3);
+        canvas.drawLine(const Offset(24, 46), const Offset(30, 46), steel);
+        canvas.drawLine(const Offset(68, 46), const Offset(74, 46), steel);
+        canvas.drawLine(const Offset(39, 77), const Offset(59, 77), amber..strokeWidth = 3);
+      case IndustrialArtworkKind.couponLog:
+        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(18, 21, 64, 58),
+          const Radius.circular(4)), steel..strokeWidth = 4);
+        for (final y in [35.0, 50.0, 65.0]) {
+          canvas.drawLine(Offset(29, y), Offset(53, y), steel..strokeWidth = 3);
+          canvas.drawLine(Offset(61, y), Offset(71, y), amber..strokeWidth = 4);
+        }
+      case IndustrialArtworkKind.pressureTest:
+        canvas.drawCircle(const Offset(50, 38), 22, steel..strokeWidth = 5);
+        canvas.drawLine(const Offset(50, 38), const Offset(63, 27), amber..strokeWidth = 4);
+        canvas.drawLine(const Offset(50, 60), const Offset(50, 77), steel..strokeWidth = 6);
+        canvas.drawLine(const Offset(25, 79), const Offset(75, 79), steel..strokeWidth = 9);
+      case IndustrialArtworkKind.heatTint:
+        canvas.drawLine(const Offset(17, 64), const Offset(83, 64), steel..strokeWidth = 15);
+        for (var i = 0; i < 4; i++) {
+          canvas.drawLine(Offset(27 + i * 13.0, 57), Offset(27 + i * 13.0, 71),
+            Paint()..color = [const Color(0xffe4bb72), const Color(0xffb890a8),
+              const Color(0xff7d9db6), const Color(0xff83a6a2)][i]..strokeWidth = 5);
+        }
+        canvas.drawLine(const Offset(32, 31), const Offset(68, 31), amber..strokeWidth = 3);
+      case IndustrialArtworkKind.passivation:
+        canvas.drawLine(const Offset(15, 73), const Offset(85, 73), steel..strokeWidth = 12);
+        final brush = Path()..moveTo(31, 30)..lineTo(51, 42)..lineTo(62, 31)
+          ..lineTo(42, 18)..close();
+        canvas.drawPath(brush, steel..strokeWidth = 4);
+        for (final x in [46.0, 51.0, 56.0]) {
+          canvas.drawLine(Offset(x, 43), Offset(x - 4, 53), amber..strokeWidth = 3);
+        }
+        canvas.drawLine(const Offset(56, 30), const Offset(74, 17), steel..strokeWidth = 6);
+      case IndustrialArtworkKind.weldQuote:
+        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(23, 15, 54, 70),
+          const Radius.circular(4)), steel..strokeWidth = 4);
+        canvas.drawLine(const Offset(32, 30), const Offset(67, 30), amber..strokeWidth = 3);
+        for (final y in [42.0, 53.0, 64.0]) {
+          canvas.drawLine(Offset(32, y), Offset(54, y), steel..strokeWidth = 3);
+          canvas.drawLine(Offset(62, y), Offset(68, y), amber);
+        }
+        canvas.drawLine(const Offset(44, 75), const Offset(68, 75), steel..strokeWidth = 3);
+      case IndustrialArtworkKind.hourlyRate:
+        canvas.drawCircle(const Offset(44, 46), 25, steel..strokeWidth = 5);
+        canvas.drawLine(const Offset(44, 46), const Offset(44, 31), amber..strokeWidth = 4);
+        canvas.drawLine(const Offset(44, 46), const Offset(56, 52), amber);
+        canvas.drawCircle(const Offset(72, 70), 12, steel..strokeWidth = 4);
+        canvas.drawLine(const Offset(68, 70), const Offset(76, 70), amber..strokeWidth = 3);
+      case IndustrialArtworkKind.piecework:
+        canvas.drawLine(const Offset(18, 31), const Offset(80, 31), steel..strokeWidth = 12);
+        canvas.drawLine(const Offset(18, 52), const Offset(80, 52), steel);
+        for (final x in [32.0, 51.0, 70.0]) {
+          canvas.drawLine(Offset(x, 24), Offset(x, 38), amber..strokeWidth = 4);
+          canvas.drawLine(Offset(x, 45), Offset(x, 59), amber);
+        }
+        canvas.drawLine(const Offset(31, 76), const Offset(69, 76), steel..strokeWidth = 4);
       case IndustrialArtworkKind.finishing:
         canvas.drawCircle(const Offset(47, 53), 24, steel..strokeWidth = 7);
         canvas.drawCircle(const Offset(47, 53), 8, amber);

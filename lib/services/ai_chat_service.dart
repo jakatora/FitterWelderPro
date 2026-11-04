@@ -267,6 +267,17 @@ class AiChatService {
             }
             return _notice(AiReplyKind.dailyLimit);
           case 503:
+            if (failure.code == 'AI_BUSY') {
+              final help = offlineReply(fallbackQuestion, serviceUnavailable: true);
+              if (help.citations.isNotEmpty) {
+                return ChatMessage(
+                  role: ChatRole.assistant,
+                  text: '${failure.message(AppLanguageController.current)}\n\n${help.text}',
+                  citations: help.citations,
+                  kind: AiReplyKind.offlineHelp,
+                );
+              }
+            }
             return ChatMessage(
                 role: ChatRole.assistant,
                 text: failure.message(AppLanguageController.current),
@@ -429,12 +440,14 @@ class AiChatService {
 
   /// Odpowiedź bez serwera: najlepiej pasujący wpis z pomocy w aplikacji
   /// (help_entries.dart), wyraźnie opisany jako pomoc offline, nie AI.
-  ChatMessage offlineReply(String userText) {
+  ChatMessage offlineReply(String userText, {bool serviceUnavailable = false}) {
     final lang = AppLanguageController.current;
     final en = lang == AppLanguage.en;
-    final prefix = en
-        ? '(Offline mode — in-app help, not an AI answer.)'
-        : '(Tryb offline — pomoc z aplikacji, nie odpowiedź AI.)';
+    final prefix = serviceUnavailable
+        ? (en ? '(In-app help, not an AI answer.)'
+              : '(Pomoc z aplikacji, nie odpowiedź AI.)')
+        : (en ? '(Offline mode — in-app help, not an AI answer.)'
+              : '(Tryb offline — pomoc z aplikacji, nie odpowiedź AI.)');
     // Generic question words alone must not select an unrelated help entry.
     const questionWords = {
       'jak', 'jaka', 'jakie', 'jaki', 'czy', 'co', 'czym', 'dlaczego', 'czemu', 'kiedy', 'ile', 'jest', 'sa',

@@ -92,12 +92,13 @@ class FlutterTtsPlugin {
 
     utterance.onError = (JSObject event) {
       ttsState = TtsState.stopped;
-      if (_speechCompleter != null) {
-        _speechCompleter = null;
-      }
+      final completer = _speechCompleter;
+      _speechCompleter = null;
+      if (completer != null && !completer.isCompleted) completer.complete(0);
       t?.cancel();
-      print(event); // Log the entire event object to get more details
-      channel.invokeMethod("speak.onError", event["error"]);
+      final error = event["error"]?.dartify();
+      channel.invokeMethod(
+          "speak.onError", error is String ? error : 'synthesis-failed');
     }.toJS;
 
     utterance.onBoundary = (JSObject event) {
@@ -129,9 +130,10 @@ class FlutterTtsPlugin {
         if (awaitSpeakCompletion) {
           _speechCompleter = Completer();
         }
+        final completer = _speechCompleter;
         _speak(text);
         if (awaitSpeakCompletion) {
-          return _speechCompleter?.future;
+          return completer?.future;
         }
         break;
       case 'awaitSpeakCompletion':

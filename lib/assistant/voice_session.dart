@@ -33,6 +33,7 @@ class VoiceSession {
   Future<void>? _muting;
   Future<void>? _failedCaptureCleanup;
   bool _captureCleanupFailed = false;
+  bool _playbackCleanupFailed = false;
   Timer? _retryTimer;
   bool _muteRequested = false;
   bool _captureStopped = false;
@@ -62,6 +63,15 @@ class VoiceSession {
     if (cleanup != null) await cleanup;
     if (requestEpoch != _epoch) return;
     if (active) return;
+    if (_playbackCleanupFailed) {
+      try {
+        await _stopOutputSafely();
+      } catch (_) {
+        if (requestEpoch == _epoch) _setPhase(VoiceSessionPhase.error, 'voice_playback_failed');
+        return;
+      }
+      if (requestEpoch != _epoch) return;
+    }
     if (_captureCleanupFailed) {
       await _cleanupFailedCapture(requestEpoch);
       if (requestEpoch != _epoch || _captureCleanupFailed) return;
@@ -99,11 +109,11 @@ class VoiceSession {
     _setPhase(VoiceSessionPhase.starting);
     try {
       if (epoch != _epoch) return;
-      await output.stop();
+      await _stopOutputSafely();
       if (epoch != _epoch) return;
       await _listen(epoch);
     } catch (_) {
-      if (epoch == _epoch) _setPhase(VoiceSessionPhase.error, 'speech_failed');
+      if (epoch == _epoch) _setPhase(VoiceSessionPhase.error, 'voice_playback_failed');
     } finally {
       _interrupting = null;
       completed.complete();
@@ -128,11 +138,7 @@ class VoiceSession {
     _retryTimer = null;
     _setPhase(VoiceSessionPhase.muting);
     try {
-      if (input case final MicrophoneMute source) {
-        await source.cancelForMute();
-      } else {
-        await input.cancel();
-      }
+      await _cancelCaptureSafely();
       if (epoch == _epoch && _phase == VoiceSessionPhase.muting) {
         _setPhase(VoiceSessionPhase.muted);
       }
@@ -259,27 +265,55 @@ class VoiceSession {
     _captureCleanupFailed = false;
   }
 
+  Future<void> _cancelCaptureSafely() async {
+    try {
+      if (input case final MicrophoneMute source) {
+        await source.cancelForMute();
+      } else {
+        await input.cancel();
+      }
+      _captureCleanupFailed = false;
+    } catch (_) {
+      _captureCleanupFailed = true;
+      rethrow;
+    }
+  }
+
+  Future<void> _stopOutputSafely() async {
+    try {
+      await output.stop();
+      _playbackCleanupFailed = false;
+    } catch (_) {
+      _playbackCleanupFailed = true;
+      rethrow;
+    }
+  }
+
   Future<void> _askToRepeat(int epoch) async {
     _setPhase(VoiceSessionPhase.starting);
     if (epoch != _epoch) return;
     try {
       // Some platform recognizers report an error before capture has fully
       // stopped. Never play the prompt while the microphone may be active.
-      if (input case final MicrophoneMute source) {
-        await source.cancelForMute();
-      } else {
-        await input.cancel();
-      }
+      await _cancelCaptureSafely();
       if (epoch != _epoch) return;
       _captureStopped = true;
       _setPhase(VoiceSessionPhase.speaking);
       if (epoch != _epoch) return;
-      await output.speak(
-        _language == AppLanguage.pl
-            ? 'Nie zrozumiałem wypowiedzi. Powiedz jeszcze raz.'
-            : 'I did not catch that. Please say it again.',
-        _language,
-      );
+      try {
+        await output.speak(
+          _language == AppLanguage.pl
+              ? 'Nie zrozumiałem wypowiedzi. Powiedz jeszcze raz.'
+              : 'I did not catch that. Please say it again.',
+          _language,
+        );
+      } on SpeechLanguageUnavailable {
+        rethrow;
+      } catch (_) {
+        _playbackCleanupFailed = true;
+        if (epoch == _epoch) _setPhase(VoiceSessionPhase.error, 'voice_playback_failed');
+        return;
+      }
       if (epoch == _epoch) await _listen(epoch);
     } on SpeechLanguageUnavailable {
       if (epoch == _epoch) _setPhase(VoiceSessionPhase.error, 'voice_language_unavailable');
@@ -292,10 +326,11 @@ class VoiceSession {
     _setPhase(VoiceSessionPhase.thinking);
     if (epoch != _epoch) return;
     try {
-      if (input case final MicrophoneMute source) {
-        await source.cancelForMute();
-      } else {
-        await input.cancel();
+      try {
+        await _cancelCaptureSafely();
+      } catch (_) {
+        if (epoch == _epoch) _setPhase(VoiceSessionPhase.error, 'speech_failed');
+        return;
       }
       if (epoch != _epoch) return;
       _captureStopped = true;
@@ -318,7 +353,15 @@ class VoiceSession {
       }
       _setPhase(VoiceSessionPhase.speaking);
       if (epoch != _epoch) return;
-      await output.speak(answer, _language);
+      try {
+        await output.speak(answer, _language);
+      } on SpeechLanguageUnavailable {
+        rethrow;
+      } catch (_) {
+        _playbackCleanupFailed = true;
+        if (epoch == _epoch) _setPhase(VoiceSessionPhase.error, 'voice_playback_failed');
+        return;
+      }
       if (epoch != _epoch) return;
       await _listen(epoch);
     } on SpeechLanguageUnavailable {
@@ -348,7 +391,7 @@ class VoiceSession {
         if (_muting case final muting?) muting
         else if (_failedCaptureCleanup case final cleanup?) cleanup
         else _cancelCaptureForStop(),
-        output.stop(),
+        _stopOutputSafely().catchError((Object _) {}),
         if (_interrupting case final interrupting?) interrupting,
       ]);
     } finally {

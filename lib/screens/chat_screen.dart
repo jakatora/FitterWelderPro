@@ -127,10 +127,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   Text(context.tr(pl: 'Czat', en: 'Chat'),
                       style: const TextStyle(
                           fontSize: 20, fontWeight: FontWeight.w700)),
-                  if (AccountService.instance.account != null)
+                  if (AccountService.instance.account?['displayName']
+                      case final String name when name.trim().isNotEmpty)
                     Text(
-                        AccountService.instance.account!['displayName']
-                            as String,
+                        name,
                         style: const TextStyle(fontSize: 12),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis),
@@ -204,10 +204,10 @@ class _ChatComingSoon extends StatelessWidget {
                   Text(context.tr(pl: 'Czat', en: 'Chat'),
                       style: const TextStyle(
                           fontSize: 20, fontWeight: FontWeight.w700)),
-                  if (AccountService.instance.account != null)
+                  if (AccountService.instance.account?['displayName']
+                      case final String name when name.trim().isNotEmpty)
                     Text(
-                        AccountService.instance.account!['displayName']
-                            as String,
+                        name,
                         style: const TextStyle(fontSize: 12),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis),
@@ -391,6 +391,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
   // P3-13 — polling loading dot in AppBar. Goes true around each poll so the
   // user can see "the app is alive and watching the channel".
   bool _polling = false;
+  bool _pollFailed = false;
   bool _retentionConfirmed = false;
   bool _hasNewMessages = false;
   String? _error;
@@ -525,6 +526,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
           ..addAll(_messages.map(_keyOf));
         _loading = false;
         _polling = false;
+        _pollFailed = false;
         _error = null;
       });
       if (initial) {
@@ -536,6 +538,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
         _error = e.toString();
         _loading = false;
         _polling = false;
+        _pollFailed = true;
       });
     }
   }
@@ -613,6 +616,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
         });
         _seenKeys.addAll(fresh.map(_keyOf));
         _polling = false;
+        _pollFailed = false;
       });
       if (fresh.isNotEmpty && followLatest) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -627,8 +631,12 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
         });
       }
     } catch (_) {
-      // Quiet failure — next poll might succeed.
-      if (mounted) setState(() => _polling = false);
+      if (mounted) {
+        setState(() {
+          _polling = false;
+          _pollFailed = true;
+        });
+      }
     }
   }
 
@@ -1065,6 +1073,18 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
       ),
       body: Column(
         children: [
+          if (_pollFailed && _messages.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              child: Text(
+                context.tr(
+                  pl: 'Nie udało się odświeżyć wiadomości. Ponawiam próbę automatycznie.',
+                  en: 'Could not refresh messages. Trying again automatically.',
+                ),
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: _kTextSec, fontSize: 12),
+              ),
+            ),
           if (_retentionConfirmed)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -1320,6 +1340,18 @@ class _MessageBubble extends StatelessWidget {
   }
 
   Widget _bubbleBody(Color color, CrossAxisAlignment align, String time) {
+    final profile = message.professionalProfile;
+    final profession = profile?['profession'];
+    final processes = profile?['processes'];
+    final processLabel = processes is List
+        ? processes.whereType<String>().map((value) => value.trim())
+            .where((value) => value.isNotEmpty).join(' / ')
+        : '';
+    final parts = <String>[
+      if (profession is String && profession.trim().isNotEmpty) profession.trim(),
+      if (processLabel.isNotEmpty) processLabel,
+    ];
+    final profileLabel = parts.join(' · ');
     return Container(
       key: ValueKey('chat-bubble-${message.id}'),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -1337,10 +1369,11 @@ class _MessageBubble extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: align,
         children: [
-          if (message.professionalProfile != null)
+          if (profileLabel.isNotEmpty)
             Text(
-                '${message.professionalProfile!['profession']} · ${(message.professionalProfile!['processes'] as List? ?? []).join(' / ')}',
-                style: const TextStyle(fontSize: 12, color: kChatTimeOnOthers)),
+                profileLabel,
+                style: TextStyle(fontSize: 12,
+                    color: isMine ? kChatTimeOnMine : kChatTimeOnOthers)),
           if (!isMine)
             Padding(
               padding: const EdgeInsets.only(bottom: 3),

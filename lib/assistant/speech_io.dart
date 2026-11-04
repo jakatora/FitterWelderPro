@@ -168,7 +168,7 @@ class CompletionSpeechOutput implements SpeechOutput {
       _system.speakUntilDone(text, language);
 
   @override
-  Future<void> stop() => _system.stop();
+  Future<void> stop() => _system.stopForConversation();
 }
 
 /// Prefer an installed, high-quality voice for the requested locale when the
@@ -178,7 +178,7 @@ bool _voiceLocaleMatches(String locale, AppLanguage language) {
   final normalized = locale.toLowerCase().replaceAll('_', '-');
   return language == AppLanguage.en
       ? normalized == 'en' || normalized.startsWith('en-')
-      : normalized == 'pl-pl';
+      : normalized == 'pl' || normalized.startsWith('pl-');
 }
 
 bool _voiceIsInstalledLocally(Map raw) =>
@@ -291,14 +291,15 @@ class SystemSpeechOutput implements SpeechOutput {
       return;
     }
     if (!_playbackMayBeActive) return;
-    _playbackMayBeActive = false;
-    final stopped = Completer<void>();
-    _stoppingPlayback = stopped.future;
+    final stopped = tts.stop().then<void>((result) {
+      if (result == 0) throw StateError('Speech output did not stop');
+    });
+    _stoppingPlayback = stopped;
     try {
-      await tts.stop();
+      await stopped;
+      _playbackMayBeActive = false;
     } finally {
       _stoppingPlayback = null;
-      stopped.complete();
     }
   }
 
@@ -326,11 +327,14 @@ class SystemSpeechOutput implements SpeechOutput {
   Future<void> _speak(String text, AppLanguage language,
       {required bool waitForCompletion, Map<String, String>? preview}) async {
     final epoch = ++_speechEpoch;
+    var priorPlaybackStopped = false;
+    var playbackAttempted = false;
     try {
       final tts = _tts ??= FlutterTts();
       // Stop an earlier utterance before switching completion mode. On
       // Windows the native stop() uses the current mode to resolve speak().
       await _stopPlayback(tts);
+      priorPlaybackStopped = true;
       if (epoch != _speechEpoch) return;
       await tts.awaitSpeakCompletion(waitForCompletion);
       if (epoch != _speechEpoch) return;
@@ -342,16 +346,19 @@ class SystemSpeechOutput implements SpeechOutput {
       }
       if (epoch != _speechEpoch) return;
       var localeToUse = language == AppLanguage.en ? 'en-US' : 'pl-PL';
-      if (knownVoices is List && language == AppLanguage.en) {
-        final englishLocales = knownVoices.whereType<Map>()
+      if (knownVoices is List) {
+        final availableLocales = knownVoices.whereType<Map>()
             .where(_voiceIsInstalledLocally)
             .map((voice) => voice['locale'])
             .whereType<String>()
             .where((locale) => _voiceLocaleMatches(locale, language))
             .toList();
-        if (englishLocales.isNotEmpty &&
-            !englishLocales.any((locale) => locale.toLowerCase().replaceAll('_', '-') == 'en-us')) {
-          localeToUse = englishLocales.first;
+        if (availableLocales.isNotEmpty) {
+          final standardLocale = localeToUse.toLowerCase();
+          localeToUse = availableLocales.firstWhere(
+            (locale) => locale.toLowerCase().replaceAll('_', '-') == standardLocale,
+            orElse: () => availableLocales.first,
+          );
         }
       }
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
@@ -407,18 +414,23 @@ class SystemSpeechOutput implements SpeechOutput {
       }
       if (epoch != _speechEpoch) return;
       _playbackMayBeActive = true;
+      playbackAttempted = true;
+      var playbackCompleted = false;
       try {
         final result = await tts.speak(text);
         if (result == 0) throw StateError('Speech output unavailable');
+        playbackCompleted = true;
       } finally {
         // Nonblocking speech can continue after speak() returns. In the
         // completion mode, however, the native call finishes with playback.
-        if (waitForCompletion && epoch == _speechEpoch) {
+        if (waitForCompletion && playbackCompleted && epoch == _speechEpoch) {
           _playbackMayBeActive = false;
         }
       }
     } catch (e) {
-      if (epoch == _speechEpoch) _playbackMayBeActive = false;
+      if (epoch == _speechEpoch && priorPlaybackStopped && !playbackAttempted) {
+        _playbackMayBeActive = false;
+      }
       debugPrint('SystemSpeechOutput.speak: $e');
       if (waitForCompletion) rethrow;
     }
@@ -426,11 +438,16 @@ class SystemSpeechOutput implements SpeechOutput {
 
   @override
   Future<void> stop() async {
+    try {
+      await stopForConversation();
+    } catch (_) {}
+  }
+
+  /// A voice session must not restart the microphone if playback may continue.
+  Future<void> stopForConversation() async {
     _speechEpoch++;
     final tts = _tts;
     if (tts == null) return;
-    try {
-      await _stopPlayback(tts);
-    } catch (_) {}
+    await _stopPlayback(tts);
   }
 }

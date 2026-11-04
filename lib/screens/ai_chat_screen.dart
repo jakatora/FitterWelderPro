@@ -243,6 +243,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   bool _mixedRequestPending = false;
   _DeferredMixedAction? _deferredMixedAction;
   String _voiceTranscript = '';
+  bool _voiceFinalPending = false;
   bool _voiceNeedsRepeat = false;
   bool _disposingVoice = false;
   bool _voiceStartPending = false;
@@ -253,6 +254,10 @@ class _AiChatScreenState extends State<AiChatScreen>
     respond: _respondToVoice,
     onPhase: (phase, error) {
       if (!mounted || _disposingVoice) return;
+      final restoreQuestion = phase == VoiceSessionPhase.error &&
+          _voiceFinalPending && _voiceTranscript.trim().isNotEmpty &&
+          _cmdCtrl.text.isEmpty;
+      if (restoreQuestion) _cmdCtrl.text = _voiceTranscript;
       setState(() {
         if ((phase == VoiceSessionPhase.idle || phase == VoiceSessionPhase.error) &&
             _deferredMixedAction?.fromVoice == true) {
@@ -261,6 +266,7 @@ class _AiChatScreenState extends State<AiChatScreen>
         if (phase == VoiceSessionPhase.listening || phase == VoiceSessionPhase.muting ||
             phase == VoiceSessionPhase.idle || phase == VoiceSessionPhase.error) {
           _voiceTranscript = '';
+          _voiceFinalPending = false;
         }
         if (phase == VoiceSessionPhase.idle || phase == VoiceSessionPhase.error ||
             phase == VoiceSessionPhase.muting || phase == VoiceSessionPhase.thinking) {
@@ -281,6 +287,9 @@ class _AiChatScreenState extends State<AiChatScreen>
           'voice_language_unavailable' => _tr(
               'Brakuje głosu dla wybranego języka. Zainstaluj go w ustawieniach systemu i rozpocznij rozmowę ponownie.',
               'A voice for the selected language is missing. Install it in system settings and restart the conversation.'),
+          'voice_playback_failed' => _tr(
+              'Nie udało się odczytać odpowiedzi. Możesz ją przeczytać w rozmowie i spróbować ponownie.',
+              'Could not read the answer aloud. You can read it in the conversation and try again.'),
           'response_failed' || 'empty_answer' => _tr(
               'Nie udało się przygotować odpowiedzi. Rozpocznij rozmowę ponownie lub wpisz pytanie.',
               'Could not prepare an answer. Start the conversation again or type your question.'),
@@ -288,14 +297,17 @@ class _AiChatScreenState extends State<AiChatScreen>
               'Voice conversation stopped. Check the microphone and try again.'),
         };
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-          content: Text(message),
+          content: Text(restoreQuestion
+              ? '$message ${_tr('Pytanie zachowano w polu tekstowym.', 'Your question was kept in the text field.')}'
+              : message),
         ));
       }
     },
-    onTranscript: (text, _) {
+    onTranscript: (text, isFinal) {
       if (mounted && !_disposingVoice) {
         setState(() {
           _voiceTranscript = text;
+          _voiceFinalPending = isFinal;
           _voiceNeedsRepeat = false;
         });
       }
@@ -321,6 +333,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       return '';
     }
     final before = _messages.length;
+    _voiceFinalPending = false;
     _voiceTurnPending = true;
     try {
       _cmdCtrl.text = text;
@@ -1622,6 +1635,68 @@ class _AiChatScreenState extends State<AiChatScreen>
           classifyFeedback(text, lastTurnFailed: false) ==
               FeedbackKind.explicit) {
         await _reportProblem(text, lang);
+        return;
+      }
+      // Do not send an observed ambiguous speech transcription to the model
+      // or execute a command on its basis. Preserve any existing question so
+      // the user can repeat their answer in the same conversation.
+      final repeatMethodPrompt = _tr(
+        'Nie rozpoznałem nazwy metody spawania. Powiedz ją proszę jeszcze raz, wolniej.',
+        'I could not recognize the welding method. Please say it again, more slowly.',
+      );
+      final previousAiClarification = _aiClarification;
+      final previousClarification = previousAiClarification ?? _knowledgeClarification;
+      final speechUtterance = Utterance(text, lang: lang, byVoice: _voiceUsed);
+      if (_pendingField == null && !_awaitingNativeInput &&
+          needsWeldingMethodRepeat(speechUtterance,
+              awaitingMethod: previousClarification?.question == repeatMethodPrompt)) {
+        final includesAction = requestsConversationAction(speechUtterance) ||
+            hasMixedKnowledgeAndAction(speechUtterance);
+        AiClarification? next;
+        if (!includesAction) {
+          try {
+            next = AiClarification(question: repeatMethodPrompt,
+                userTurns: [...?previousClarification?.userTurns, text]);
+          } on FormatException {
+            // Preserve the old conversation; do not silently truncate it.
+          }
+        }
+        final prompt = includesAction
+            ? _tr('Nie rozpoznałem metody. Powtórz proszę całe polecenie, mówiąc wolniej.',
+                'I could not recognize the method. Please repeat the whole command more slowly.')
+            : next == null
+            ? _tr('Nie rozpoznałem metody. Powtórz proszę całe pytanie.',
+                'I could not recognize the method. Please repeat the whole question.')
+            : repeatMethodPrompt;
+        setState(() {
+          if (includesAction) {
+            _aiClarification = null;
+            _aiQueue.cancel();
+            _knowledgeClarification = null;
+            _pendingCorrection = null;
+            _deferredMixedAction = null;
+          } else if (next != null) {
+            if (previousAiClarification != null) {
+              _aiClarification = next;
+            } else {
+              _knowledgeClarification = next;
+              final pending = _pendingCorrection;
+              if (pending != null && identical(pending.clarification, previousClarification)) {
+                _pendingCorrection = _PendingCorrection(next, pending.entry, pending.snapshot);
+              }
+            }
+          }
+          _cmdCtrl.clear();
+          _inputCtrl.clear();
+          _voiceUsed = false;
+          _commandSoFar = _commandBeforeAnswer;
+          _messages.add(ChatMessage(role: ChatRole.user, text: text));
+          _appendKnowledgeReply(ChatMessage(role: ChatRole.assistant,
+              text: prompt, kind: AiReplyKind.localDialogue));
+          _busy = false;
+        });
+        _scrollToBottom();
+        await _speak(prompt);
         return;
       }
       final deferred = _deferredMixedAction;
@@ -2954,9 +3029,11 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   Future<void> _openCitation(String citation) async {
     if (!mounted) return;
+    final endsVoiceSession = widget.embedded && _voiceSession.active;
     await _showPrivateConversationRoute(DialogRoute<bool>(
       context: _navigationContext,
-      builder: (context) => _citationDialog(context, citation),
+      builder: (context) => _citationDialog(context, citation,
+          endsVoiceSession: endsVoiceSession),
     ));
   }
 
@@ -4074,7 +4151,7 @@ class _AiChatScreenState extends State<AiChatScreen>
         style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
       );
 
-  Widget _voiceSessionStatus() => Column(
+  Widget _voiceSessionStatus({bool showMute = true}) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -4109,7 +4186,7 @@ class _AiChatScreenState extends State<AiChatScreen>
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Text(_tr('Mikrofon wyciszony', 'Microphone muted')),
             ),
-          if (_voiceSession.canToggleMute)
+          if (showMute && _voiceSession.canToggleMute)
             TextButton.icon(
               key: const Key('assistant-mute-microphone'),
               onPressed: () => unawaited(_voiceSession.microphoneMuted
@@ -4144,8 +4221,21 @@ class _AiChatScreenState extends State<AiChatScreen>
   Widget _buildEmbedded() => Column(children: [
         Expanded(
             child: ListView(
+                key: const Key('assistant-embedded-details'),
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 children: [
+              _voiceSessionStatus(showMute: false),
+              if (_knowledgeRetry != null) _persistentRetryButton(),
+              if (_canChooseVoice)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    key: const Key('assistant-voice-settings'),
+                    onPressed: _voiceSession.active ? null : _chooseVoice,
+                    icon: const Icon(Icons.record_voice_over_outlined),
+                    label: Text(_tr('Wybierz głos', 'Choose voice')),
+                  ),
+                ),
               if (_visibleKnowledgeSources.isNotEmpty) ...[
                 Text(_tr('Źródła odpowiedzi', 'Answer sources'),
                     style: const TextStyle(color: _kTextSec, fontSize: 12)),
@@ -4181,21 +4271,13 @@ class _AiChatScreenState extends State<AiChatScreen>
                 Text(_tr('Słucham…', 'Listening…'),
                     key: const Key('assistant-listening')),
             ])),
-        if (_knowledgeRetry != null) _persistentRetryButton(),
-        _voiceSessionStatus(),
-        if (_canChooseVoice)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              key: const Key('assistant-voice-settings'),
-              onPressed: _voiceSession.active ? null : _chooseVoice,
-              icon: const Icon(Icons.record_voice_over_outlined),
-              label: Text(_tr('Wybierz głos', 'Choose voice')),
-            ),
-          ),
-        Padding(
-            padding: const EdgeInsets.all(8),
-            child: Row(children: [
+        _embeddedComposer(),
+      ]);
+
+  Widget _embeddedComposer() => Padding(
+        padding: const EdgeInsets.all(8),
+        child: LayoutBuilder(builder: (context, constraints) {
+          final controls = <Widget>[
               ValueListenableBuilder<bool>(
                   valueListenable: _typing,
                   builder: (context, typing, _) => SizedBox.square(
@@ -4216,12 +4298,26 @@ class _AiChatScreenState extends State<AiChatScreen>
                     width: 56,
                     height: 56,
                     child: IconButton(
-                        key: const Key('assistant-mic'),
-                        tooltip: _tr('Powiedz polecenie', 'Speak a command'),
-                        onPressed: _busy || _voiceSession.active ? null : () => _toggleMic(_cmdCtrl),
-                        icon: Icon(_listening ? Icons.stop : Icons.mic))),
-              Expanded(
-                  child: TextField(
+                        key: Key(_voiceSession.active
+                            ? 'assistant-mute-microphone'
+                            : 'assistant-mic'),
+                        tooltip: _voiceSession.active
+                            ? (_voiceSession.microphoneMuted
+                                ? _tr('Włącz mikrofon', 'Unmute microphone')
+                                : _tr('Wycisz mikrofon', 'Mute microphone'))
+                            : _tr('Powiedz polecenie', 'Speak a command'),
+                        onPressed: _voiceSession.active
+                            ? (_voiceSession.canToggleMute
+                                ? () => unawaited(_voiceSession.microphoneMuted
+                                    ? _voiceSession.unmute()
+                                    : _voiceSession.mute())
+                                : null)
+                            : (_busy ? null : () => _toggleMic(_cmdCtrl)),
+                        icon: Icon(_voiceSession.active
+                            ? (_voiceSession.microphoneMuted ? Icons.mic : Icons.mic_off)
+                            : (_listening ? Icons.stop : Icons.mic)))),
+          ];
+          final input = TextField(
                       key: const Key('assistant-command'),
                       controller: _cmdCtrl,
                       enabled: !_busy && !_voiceSession.active,
@@ -4229,8 +4325,8 @@ class _AiChatScreenState extends State<AiChatScreen>
                       onSubmitted: (_) => _submitCommand(),
                       decoration: InputDecoration(
                           labelText:
-                              _tr('Co mam zrobić?', 'What should I do?')))),
-              SizedBox(
+                              _tr('Co mam zrobić?', 'What should I do?')));
+          final send = SizedBox(
                   width: 56,
                   height: 56,
                   child: IconButton(
@@ -4251,9 +4347,16 @@ class _AiChatScreenState extends State<AiChatScreen>
                                   height: 20,
                                   child:
                                       CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(Icons.send))),
-            ])),
-      ]);
+                              : const Icon(Icons.send)));
+          if (constraints.maxWidth < 380 && _speech.isSupported) {
+            return Column(mainAxisSize: MainAxisSize.min, children: [
+              Row(children: [Expanded(child: input), send]),
+              Row(children: controls),
+            ]);
+          }
+          return Row(children: [...controls, Expanded(child: input), send]);
+        }),
+      );
 
   Widget _buildActBody() {
     final answering = _question != null;
@@ -5052,7 +5155,8 @@ class _DemoChip extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════════════
 // Message bubble
 /// Source details use the assistant's private-route owner, including logout.
-Widget _citationDialog(BuildContext context, String citation) {
+Widget _citationDialog(BuildContext context, String citation,
+    {bool endsVoiceSession = false}) {
   final cs = Theme.of(context).colorScheme;
   final lines = citation.split('\n');
   final sourceUrl = lines.length > 1 ? Uri.tryParse(lines.last) : null;
@@ -5100,6 +5204,13 @@ Widget _citationDialog(BuildContext context, String citation) {
               height: 1.5,
             ),
           ),
+          if (endsVoiceSession) ...[
+            const SizedBox(height: 12),
+            Text(context.tr(
+              pl: 'Otwarcie źródła kończy rozmowę głosową. Aby kontynuować, uruchom ją ponownie po powrocie.',
+              en: 'Opening a source ends the voice conversation. Start it again after returning to continue.',
+            )),
+          ],
         ],
       ),
       actions: [

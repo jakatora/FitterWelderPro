@@ -96,13 +96,21 @@ class _AssistantOverlayState extends State<AssistantOverlay> {
                                   media.padding.bottom) -
                               media.padding.top -
                               24)
-                      : math.min(
-                          media.size.height * .4,
-                          math.max(
-                              180,
+                      // The composer switches at 380 dp after its horizontal
+                      // margins and padding (32 dp in total).
+                      : media.size.width < 412
+                          ? math.max(0, math.min(
+                              media.size.height * .65,
                               media.size.height -
-                                  media.viewInsets.bottom -
-                                  100)),
+                                  math.max(media.viewInsets.bottom, media.padding.bottom) -
+                                  media.padding.top - 24))
+                          : math.min(
+                              media.size.height * .4,
+                              math.max(
+                                  180,
+                                  media.size.height -
+                                      media.viewInsets.bottom -
+                                      100)),
                   child: Material(
                     elevation: 12,
                     borderRadius: BorderRadius.circular(16),

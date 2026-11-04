@@ -1,4 +1,14 @@
 import 'core/utterance.dart';
+import '../i18n/app_language.dart';
+
+// Observed Vosk PL failure: a spoken welding method (TIG) became
+// "metodę tę ideę". Ask for a repeat rather than silently choosing a method.
+final _unclearWeldingMethod = RegExp(r'\bmetod(?:e|a|y|zie)?\s+(?:te|ta)\s+idee\b');
+
+bool needsWeldingMethodRepeat(Utterance u, {bool awaitingMethod = false}) =>
+    u.byVoice && u.lang == AppLanguage.pl &&
+    (_unclearWeldingMethod.hasMatch(u.folded) ||
+        (awaitingMethod && RegExp(r'^(?:te|ta)\s+idee$').hasMatch(u.folded)));
 
 final _newTopic = RegExp(
     r'^(?:(?:a|ale|and|but)\s+)*(?:mam (?:inne|nowe) pytanie|'
@@ -22,16 +32,18 @@ final _inferenceQuestion = RegExp(r'^(?:does that mean|you mean)\s+\S');
 // Corrections to an answer belong to the current conversation, but a new
 // explicit app command in the remainder still belongs to the action workflow.
 final _answerCorrection = RegExp(
-    r'^(?:(?:nie|no)\s+)?(?:nie o to mi chodz(?:i|ilo)|'
+    r'^(?:nie chodz(?:i|ilo) (?:mi )?o to\b|(?:(?:nie|no)\s+)?(?:nie o to mi chodz(?:i|ilo)|'
+    r'nie chodz(?:i|ilo) (?:mi )?o|'
     r'nie o to (?:pytam|pytal(?:em|am))|nie pytal(?:em|am) o to|'
+    r'nie to mial(?:em|am) na mysli|'
     r'to nie (?:jest )?to o co pytal(?:em|am)|'
     r'zle mowisz|zle mnie zrozumial(?:es|as)|nie zgadzam sie|'
     r'to (?:raczej )?tak nie (?:bedzie|jest|dziala)|'
     r'to (?:nieprawda|bledne|nieprawidlowe)|to nie to|to nie tak|wrong|that is not what i meant|'
-    r'that is wrong|you are wrong|chodzilo mi o|chodzi mi o|'
-    r'mial(?:em|am) na mysli|mam na mysli|i meant)\b');
+    r'that is wrong|you are wrong|chodzilo (?:mi )?o|chodzi (?:mi )?o|'
+    r'mial(?:em|am) na mysli|mam na mysli|i meant)\b)');
 final _correctionConnectors = RegExp(
-    r'^(?:(?:ale|tylko|raczej|but|instead|chodzilo mi o|chodzi mi o|'
+    r'^(?:(?:ale|tylko|raczej|but|instead|chodzilo (?:mi )?o|chodzi (?:mi )?o|'
     r'mial(?:em|am) na mysli|mam na mysli|i mean)\s*)+');
 
 String? _correctionDetail(Utterance u) {
@@ -124,7 +136,7 @@ final _informationSearch = RegExp(r'^(?:(?:prosze|please)\s+)*'
     r'(?:(?:wyszukaj|poszukaj|znajdz|znalezc)\s+informacj\w*\s+(?:o|na temat)|'
     r'(?:search for|find|look for)\s+information\s+(?:about|on))\b\s+\S');
 final _followingAction =
-    RegExp(r'\b(?:i|oraz|potem|nastepnie|and|then)\s+(?:(?:prosze|please)\s+)?'
+    RegExp(r'\b(?:i|oraz|potem|nastepnie|ale|tylko|and|then|but|instead)\s+(?:(?:prosze|please)\s+)?'
     r'(?:otworz|pokaz|uruchom|zapisz|dodaj|ustaw|zmien|usun|wybierz|'
     r'oblicz|policz|przelicz|narysuj|dorysuj|skopiuj|wyczysc|nazwij|'
     r'podsumuj|zmniejsz|zwieksz|wydluz|skroc|obroc|przesun|cofnij|powtorz|'

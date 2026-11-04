@@ -10,6 +10,7 @@
 #include <memory>
 #include <sstream>
 #include <cstdint>
+#include <stdexcept>
 
 typedef std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> FlutterResult;
 //typedef flutter::MethodResult<flutter::EncodableValue>* PFlutterResult;
@@ -168,16 +169,15 @@ namespace {
 	}
 
 	void FlutterTtsPlugin::stop() {
-	    methodChannel->InvokeMethod("speak.onCancel", NULL);
-		if (awaitSpeakCompletion && speakResult) {
-			auto result = std::move(speakResult);
-            result->Success(1);
-        }
-
 		mPlayer.Close();
 		addMplayer();
 		isSpeaking = false;
 		isPaused = false;
+		methodChannel->InvokeMethod("speak.onCancel", NULL);
+		if (awaitSpeakCompletion && speakResult) {
+			auto result = std::move(speakResult);
+            result->Success(1);
+        }
 	}
 	void FlutterTtsPlugin::setVolume(const double newVolume) { synth.Options().AudioVolume(newVolume); }
 
@@ -414,8 +414,11 @@ namespace {
 	}
 	void FlutterTtsPlugin::stop()
 	{
-		pVoice->Speak(L"", 2, NULL);
-		pVoice->Resume();
+		const HRESULT stopped = pVoice->Speak(L"", 2, NULL);
+		const HRESULT resumed = pVoice->Resume();
+		if (FAILED(stopped) || FAILED(resumed)) {
+			throw std::runtime_error("Speech output did not stop");
+		}
 		isPaused = false;
 	    methodChannel->InvokeMethod("speak.onCancel", NULL);
 	}
@@ -673,8 +676,12 @@ namespace {
 			else result->Success(0);
 		}
 		else if (method_call.method_name().compare("stop") == 0) {
-			stop();
-			result->Success(1);
+			try {
+				stop();
+				result->Success(1);
+			} catch (...) {
+				result->Success(0);
+			}
 		}
 		else if (method_call.method_name().compare("getLanguages") == 0) {
 			flutter::EncodableList l;

@@ -15,7 +15,7 @@ class CorrectionMemoryScreen extends StatefulWidget {
 
 class _CorrectionMemoryScreenState extends State<CorrectionMemoryScreen> {
   late final _store = widget.store ?? CorrectionMemoryStore.instance;
-  late final _account = AccountService.instance;
+  late AccountService _account = AccountService.instance;
   int _epoch = 0;
   bool _busy = true;
   bool _failed = false;
@@ -38,22 +38,28 @@ class _CorrectionMemoryScreenState extends State<CorrectionMemoryScreen> {
     _reload();
   }
 
+  bool _syncAccount() {
+    final current = AccountService.instance;
+    if (identical(_account, current)) return false;
+    _account.removeListener(_accountChanged);
+    _account = current;
+    _account.addListener(_accountChanged);
+    _accountChanged();
+    return true;
+  }
+
   Future<void> _reload() async {
     final epoch = ++_epoch;
     try {
       final records = await _store.list();
-      if (!mounted ||
-          epoch != _epoch ||
-          !identical(_account, AccountService.instance)) {
-        return;
-      }
+      if (!mounted || epoch != _epoch || _syncAccount()) return;
       setState(() {
         _records = records;
         _busy = false;
         _failed = false;
       });
     } catch (_) {
-      if (!mounted || epoch != _epoch) return;
+      if (!mounted || epoch != _epoch || _syncAccount()) return;
       setState(() {
         _records = const [];
         _busy = false;
@@ -63,15 +69,15 @@ class _CorrectionMemoryScreenState extends State<CorrectionMemoryScreen> {
   }
 
   Future<void> _forget(RememberedCorrection record) async {
-    if (_busy) return;
+    if (_syncAccount() || _busy) return;
     final epoch = _epoch;
     setState(() => _busy = true);
     try {
       await _store.forget(record);
-      if (!mounted || epoch != _epoch) return;
+      if (!mounted || epoch != _epoch || _syncAccount()) return;
       await _reload();
     } catch (_) {
-      if (!mounted || epoch != _epoch) return;
+      if (!mounted || epoch != _epoch || _syncAccount()) return;
       setState(() {
         _records = const [];
         _busy = false;
@@ -81,7 +87,7 @@ class _CorrectionMemoryScreenState extends State<CorrectionMemoryScreen> {
   }
 
   Future<void> _clearAll() async {
-    if (_busy || _records.isEmpty) return;
+    if (_syncAccount() || _busy || _records.isEmpty) return;
     final epoch = _epoch;
     final confirmed = await showDialog<bool>(
       context: context,
@@ -106,17 +112,17 @@ class _CorrectionMemoryScreenState extends State<CorrectionMemoryScreen> {
     if (confirmed != true ||
         !mounted ||
         epoch != _epoch ||
-        !identical(_account, AccountService.instance) ||
+        _syncAccount() ||
         _busy) {
       return;
     }
     setState(() => _busy = true);
     try {
       await _store.clear();
-      if (!mounted || epoch != _epoch) return;
+      if (!mounted || epoch != _epoch || _syncAccount()) return;
       await _reload();
     } catch (_) {
-      if (!mounted || epoch != _epoch) return;
+      if (!mounted || epoch != _epoch || _syncAccount()) return;
       setState(() {
         _records = const [];
         _busy = false;
