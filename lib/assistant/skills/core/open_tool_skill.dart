@@ -9,6 +9,7 @@ import '../../../services/help_search.dart' show normalizeForSearch;
 import '../../../widgets/tool_registry.dart';
 import '../../core/skill.dart';
 import '../../core/tool_lookup.dart';
+import '../../knowledge_question.dart' show withoutPolishVoiceFillers;
 import 'skill_words.dart';
 
 final _whereRe = RegExp(r'^(?:(?:a|i|hej|hey|ok|okej|asystencie|asystent)\s+)*'
@@ -54,7 +55,7 @@ const Set<String> _generic = {
 
 /// Zapytanie po czasowniku „otwórz/gdzie jest", bez słów ogólnych.
 String? openQuery(Utterance u) {
-  final f = u.folded;
+  final f = withoutPolishVoiceFillers(u);
   final m = kOpenVerbAtStartRe.firstMatch(f) ?? _whereRe.firstMatch(f);
   if (m == null) return null;
   final words = f
@@ -66,12 +67,13 @@ String? openQuery(Utterance u) {
 }
 
 String? _navigationQuery(Utterance u) {
-  if (referencesInstruction(u) || isNegatedCommand(u)) return null;
+  final normalized = u.withRaw(withoutPolishVoiceFillers(u));
+  if (referencesInstruction(normalized) || isNegatedCommand(normalized)) return null;
   final direct = openQuery(u);
   if (direct != null) return direct;
   final natural = RegExp(
           r'^(?:(?:prosze|please|hej|hey) )?(?:przejdzmy (?:teraz )?do|wejdzmy (?:teraz )?(?:do|w)|przenies mnie (?:teraz )?do|chce (?:teraz )?(?:przejsc do|wejsc w|otworzyc)|(?:czy )?mozesz (?:mi )?(?:otworzyc|pokazac)|let s (?:now )?go to|take me (?:now )?to|i (?:want|would like) to (?:open|go to)|(?:could|can|would) you (?:please )?(?:open|show)) (.+)$')
-      .firstMatch(u.folded);
+      .firstMatch(normalized.folded);
   return natural == null ? null : openQuery(u.withRaw('open ${natural[1]}'));
 }
 
@@ -146,7 +148,7 @@ class OpenToolSkill extends AssistantSkill {
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     final q = openQuery(u);
     if (q == null) return null;
-    final where = !kOpenVerbAtStartRe.hasMatch(u.folded);
+    final where = !kOpenVerbAtStartRe.hasMatch(withoutPolishVoiceFillers(u));
     if (q.isEmpty) {
       return SkillMatch(this, 0.6, missing: const ['tool'], utterance: u);
     }

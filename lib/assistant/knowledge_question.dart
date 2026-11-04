@@ -10,6 +10,11 @@ bool needsWeldingMethodRepeat(Utterance u, {bool awaitingMethod = false}) =>
     (_unclearWeldingMethod.hasMatch(u.folded) ||
         (awaitingMethod && RegExp(r'^(?:te|ta)\s+idee$').hasMatch(u.folded)));
 
+final _polishSpeechLead = RegExp(r'^(?:(?:no|sluchaj|wiesz|yyy|yy)\s+)+');
+
+String withoutPolishVoiceFillers(Utterance u) => u.byVoice && u.lang == AppLanguage.pl
+    ? u.folded.replaceFirst(_polishSpeechLead, '') : u.folded;
+
 final _newTopic = RegExp(
     r'^(?:(?:a|ale|and|but)\s+)*(?:mam (?:inne|nowe) pytanie|'
     r'(?:inne|nowe) pytanie|zmienmy temat|(?:new|different) question|'
@@ -17,7 +22,7 @@ final _newTopic = RegExp(
 
 /// Only an explicit topic change ends an unanswered knowledge question.
 /// Ordinary short replies and mentions of a "new question" remain context.
-bool startsNewKnowledgeTopic(Utterance u) => _newTopic.hasMatch(u.folded);
+bool startsNewKnowledgeTopic(Utterance u) => _newTopic.hasMatch(withoutPolishVoiceFillers(u));
 
 bool isBareKnowledgeTopicChange(Utterance u) =>
     startsNewKnowledgeTopic(u) && _conversationText(u).isEmpty;
@@ -32,7 +37,10 @@ final _inferenceQuestion = RegExp(r'^(?:does that mean|you mean)\s+\S');
 // Corrections to an answer belong to the current conversation, but a new
 // explicit app command in the remainder still belongs to the action workflow.
 final _answerCorrection = RegExp(
-    r'^(?:nie chodz(?:i|ilo) (?:mi )?o to\b|(?:(?:nie|no)\s+)?(?:nie o to mi chodz(?:i|ilo)|'
+    r'^(?:(?:nie|not)\s+(?:stal\w*\s+(?:weglow\w*|czarn\w*|nierdzew\w*)|'
+    r'(?:weglow\w*|czarn\w*|nierdzew\w*)\s+stal\w*|carbon\s+steel|'
+    r'alumini\w*|nierdzew\w*|argon\w*|hel\w*|helium|dn\s*\d{1,4}[a-z]?|tig|mig|mag|mma)\s+(?:tylko|lecz|but)\b|'
+    r'nie chodz(?:i|ilo) (?:mi )?o to\b|(?:(?:nie|no)\s+)?(?:nie o to mi chodz(?:i|ilo)|'
     r'nie chodz(?:i|ilo) (?:mi )?o|'
     r'nie o to (?:pytam|pytal(?:em|am))|nie pytal(?:em|am) o to|'
     r'nie to mial(?:em|am) na mysli|'
@@ -48,7 +56,7 @@ final _correctionConnectors = RegExp(
     r'mial(?:em|am) na mysli|mam na mysli|i mean)\s*)+');
 
 String? _correctionDetail(Utterance u) {
-  var remaining = u.folded;
+  var remaining = withoutPolishVoiceFillers(u);
   var matched = false;
   final discourse = RegExp(r'^(?:(?:ale|tylko|raczej|but|instead)\s+)+');
   while (true) {
@@ -81,7 +89,7 @@ bool isKnowledgeCorrectionWithAction(Utterance u) {
 }
 
 String _conversationText(Utterance u) =>
-    u.folded.replaceFirst(_newTopic, '').replaceFirst(_continuation, '');
+    withoutPolishVoiceFillers(u).replaceFirst(_newTopic, '').replaceFirst(_continuation, '');
 
 // Conversation questions describe a problem; mentioning a tool is not a
 // navigation request. Native commands and literal field replies remain owned
@@ -168,8 +176,8 @@ bool requestsConversationAction(Utterance u) {
 /// Requires a current knowledge conversation when punctuation is absent.
 bool isEllipticalKnowledgeFollowUp(Utterance u) =>
     !requestsConversationAction(u) &&
-    (_continuation.hasMatch(u.folded) ||
-        _inferenceQuestion.hasMatch(u.folded)) &&
+    (_continuation.hasMatch(withoutPolishVoiceFillers(u)) ||
+        _inferenceQuestion.hasMatch(withoutPolishVoiceFillers(u))) &&
     _conversationText(u).isNotEmpty;
 
 bool isKnowledgeQuestion(Utterance u) =>

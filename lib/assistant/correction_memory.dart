@@ -111,9 +111,15 @@ String _canonicalTopic(String word) {
   return word;
 }
 
-Set<String> _topicWords(String text) => Utterance(text, lang: AppLanguage.pl)
-    .folded
-    .replaceAllMapped(RegExp(r'\bdn\s+(\d{1,4})\b'), (match) => 'dn${match[1]}')
+final _carbonSteel = RegExp(
+    r'\b(?:stal\w* (?:weglow\w*|czarn\w*)|(?:weglow\w*|czarn\w*) stal\w*|carbon steel)\b');
+
+String _normalizeMaterials(String text) => text
+    .replaceAll(_carbonSteel, 'stalweglowa')
+    .replaceAllMapped(RegExp(r'\bdn\s+(\d{1,4})\b'), (match) => 'dn${match[1]}');
+
+Set<String> _topicWords(String text) => _normalizeMaterials(Utterance(text, lang: AppLanguage.pl)
+    .folded)
     .split(' ')
     .where((word) => word.length >= 3 && !_ignoredWords.contains(word))
     .map(_canonicalTopic)
@@ -124,6 +130,7 @@ final _technicalCode =
 const _correctionTopics = {
   'aluminium',
   'nierdzewna',
+  'stalweglowa',
   'kolnierz',
   'kolano',
   'argon',
@@ -141,16 +148,16 @@ Set<String> _correctionTechnicalTopics(Set<String> words) => words
 
 const _qualifierGroups = [
   {'tig', 'mig', 'mag', 'mma'},
-  {'aluminium', 'nierdzewna'},
+  {'aluminium', 'nierdzewna', 'stalweglowa'},
   {'argon', 'hel'},
 ];
 
 final _explicitReplacement = RegExp(
     r'\b(?:nie|not)\s+(?:gaz\w*\s+)?'
     r'(?:chodz(?:i|ilo)\s+(?:mi\s+)?o\s+)?'
-    r'(tig|mig|mag|mma|alumini\w*|nierdzew\w*|argon\w*|hel\w*)\s+'
+    r'(tig|mig|mag|mma|dn\d{1,4}[a-z]?|stalweglowa|alumini\w*|nierdzew\w*|argon\w*|hel\w*)\s+'
     r'(?:tylko|lecz|but)\s+(?:o\s+)?(?:(?:stal|gaz)\w*\s+)?'
-    r'(tig|mig|mag|mma|alumini\w*|nierdzew\w*|argon\w*|hel\w*)\b');
+    r'(tig|mig|mag|mma|dn\d{1,4}[a-z]?|stalweglowa|alumini\w*|nierdzew\w*|argon\w*|hel\w*)\b');
 
 // Recognize assertions, not questions such as “Can I use helium instead of
 // argon?”. Keeping this anchored also avoids reversing “I do not use…”.
@@ -163,12 +170,13 @@ final _useGasInstead = RegExp(
 
 Set<String> _effectiveCorrectionWords(String text) {
   final words = _topicWords(text);
-  final folded = Utterance(text, lang: AppLanguage.pl).folded;
+  final folded = _normalizeMaterials(Utterance(text, lang: AppLanguage.pl).folded);
   void removeRejected(String rejectedWord, String acceptedWord) {
     final rejected = _canonicalTopic(rejectedWord);
     final accepted = _canonicalTopic(acceptedWord);
     if (rejected != accepted &&
-        _qualifierGroups.any((group) => group.contains(rejected) && group.contains(accepted))) {
+        (_qualifierGroups.any((group) => group.contains(rejected) && group.contains(accepted)) ||
+            (_nominalDiameter.hasMatch(rejected) && _nominalDiameter.hasMatch(accepted)))) {
       words.remove(rejected);
     }
   }
@@ -182,6 +190,11 @@ Set<String> _effectiveCorrectionWords(String text) {
   return words;
 }
 
+final _nominalDiameter = RegExp(r'^dn\d+[a-z]?$');
+
+Set<String> _nominalDiameters(Set<String> words) =>
+    words.where(_nominalDiameter.hasMatch).toSet();
+
 bool _hasConflictingQualifier(
     Set<String> question, Set<String> original, Set<String> correction) {
   for (final group in _qualifierGroups) {
@@ -192,6 +205,13 @@ bool _hasConflictingQualifier(
         current.intersection(remembered).isEmpty) {
       return true;
     }
+  }
+  final currentDn = _nominalDiameters(question);
+  final correctedDn = _nominalDiameters(correction);
+  final rememberedDn = correctedDn.isNotEmpty ? correctedDn : _nominalDiameters(original);
+  if (currentDn.isNotEmpty && rememberedDn.isNotEmpty &&
+      currentDn.intersection(rememberedDn).isEmpty) {
+    return true;
   }
   return false;
 }
@@ -212,6 +232,13 @@ List<RememberedCorrection> relevantCorrections(
         qualifiers.addAll(found);
         break;
       }
+    }
+  }
+  for (final turn in turns.reversed) {
+    final sizes = _nominalDiameters(_effectiveCorrectionWords(turn));
+    if (sizes.isNotEmpty) {
+      qualifiers.addAll(sizes);
+      break;
     }
   }
   final ranked = <({RememberedCorrection record, int score, int order})>[];

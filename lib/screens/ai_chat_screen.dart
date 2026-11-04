@@ -3414,7 +3414,7 @@ class _AiChatScreenState extends State<AiChatScreen>
           question.role != ChatRole.user) {
         break;
       }
-      final utterance = Utterance(question.text, lang: followUp.lang);
+      final utterance = Utterance(question.text, lang: followUp.lang, byVoice: question.byVoice);
       if (!isKnowledgeQuestion(utterance) &&
           !isEllipticalKnowledgeFollowUp(utterance)) {
         break;
@@ -3464,7 +3464,7 @@ class _AiChatScreenState extends State<AiChatScreen>
         setState(() {
           _cmdCtrl.clear();
           _inputCtrl.clear();
-          _messages.add(ChatMessage(role: ChatRole.user, text: text));
+          _messages.add(ChatMessage(role: ChatRole.user, text: text, byVoice: u.byVoice));
           _appendKnowledgeReply(ChatMessage(role: ChatRole.assistant,
               text: prompt, kind: AiReplyKind.localDialogue));
           _busy = false;
@@ -3490,7 +3490,7 @@ class _AiChatScreenState extends State<AiChatScreen>
           _cmdCtrl.clear();
           _inputCtrl.clear();
           _voiceUsed = false;
-          _messages.add(ChatMessage(role: ChatRole.user, text: text));
+          _messages.add(ChatMessage(role: ChatRole.user, text: text, byVoice: u.byVoice));
           _appendKnowledgeReply(ChatMessage(role: ChatRole.assistant,
               text: prompt, kind: AiReplyKind.localDialogue));
           _busy = false;
@@ -3514,7 +3514,7 @@ class _AiChatScreenState extends State<AiChatScreen>
           _cmdCtrl.clear();
           _inputCtrl.clear();
           _voiceUsed = false;
-          _messages.add(ChatMessage(role: ChatRole.user, text: text));
+          _messages.add(ChatMessage(role: ChatRole.user, text: text, byVoice: u.byVoice));
           _appendKnowledgeReply(ChatMessage(role: ChatRole.assistant,
               text: prompt, kind: AiReplyKind.localDialogue));
           _busy = false;
@@ -3577,7 +3577,8 @@ class _AiChatScreenState extends State<AiChatScreen>
         !isBareKnowledgeCorrection(u)) {
       toRemember = RememberedCorrection(question: clarification.userTurns.first, correction: text);
     } else if (clarification != null && clarification.userTurns.length >= 2 &&
-        isBareKnowledgeCorrection(Utterance(clarification.userTurns.last, lang: lang))) {
+        isBareKnowledgeCorrection(Utterance(clarification.userTurns.last, lang: lang,
+            byVoice: previousUser?.text == clarification.userTurns.last && previousUser!.byVoice))) {
       toRemember = RememberedCorrection(question: clarification.userTurns.first, correction: text);
     }
     if (toRemember != null && memorySnapshot == null) {
@@ -3722,7 +3723,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       // Historia BEZ bieżącego pytania, najwyżej 6 ostatnich wpisów.
       history = chatHistoryForRequest(_messages);
       setState(() {
-        _messages.add(ChatMessage(role: ChatRole.user, text: text));
+        _messages.add(ChatMessage(role: ChatRole.user, text: text, byVoice: _voiceUsed));
         // Retrying a previous turn must not replace a new draft. Also preserve
         // edits made while the consent dialog for a normal send was open.
         if (retryText == null && _inputCtrl.text.trim() == text) {

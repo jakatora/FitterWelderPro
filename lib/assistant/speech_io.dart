@@ -72,6 +72,7 @@ class SystemSpeechInput implements SpeechInput, MicrophoneMute {
   void Function(String? error)? _onDone;
   Timer? _completionTimer;
   int _turn = 0;
+  bool _acceptResults = false;
 
   @override
   bool get isSupported =>
@@ -113,6 +114,7 @@ class SystemSpeechInput implements SpeechInput, MicrophoneMute {
     _completionTimer = null;
     final cb = _onDone;
     _onDone = null;
+    _acceptResults = false;
     _turn++;
     cb?.call(error);
   }
@@ -130,10 +132,14 @@ class SystemSpeechInput implements SpeechInput, MicrophoneMute {
     if (_onDone != null) await cancel();
     _onDone = onDone;
     final turn = ++_turn;
+    _acceptResults = true;
     try {
       await _stt.listen(
-        onResult: (SpeechRecognitionResult r) =>
-            onResult(r.recognizedWords, r.finalResult),
+        onResult: (SpeechRecognitionResult r) {
+          if (turn == _turn && _acceptResults) {
+            onResult(r.recognizedWords, r.finalResult);
+          }
+        },
         listenOptions: SpeechListenOptions(
           localeId: speechLocaleFor(language),
           listenFor: const Duration(seconds: 45),
@@ -160,6 +166,7 @@ class SystemSpeechInput implements SpeechInput, MicrophoneMute {
   @override
   Future<void> cancelForMute() async {
     final turn = _turn;
+    _acceptResults = false;
     try {
       await _stt.cancel();
     } finally {
@@ -170,6 +177,7 @@ class SystemSpeechInput implements SpeechInput, MicrophoneMute {
   @override
   Future<void> cancel() async {
     final turn = _turn;
+    _acceptResults = false;
     try {
       await _stt.cancel();
     } catch (_) {}

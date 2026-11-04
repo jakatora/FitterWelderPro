@@ -87,6 +87,9 @@ class ChatMessage {
   final DateTime timestamp;
   final AiReplyKind kind;
 
+  /// Input origin used locally when interpreting a conversation turn.
+  final bool byVoice;
+
   /// Optional citation list — populated in Phase 5b when retrieval is wired up.
   /// Each entry is the heading of the knowledge-base section the response
   /// drew from (e.g. "Iteration 75 — P91 welding").
@@ -99,6 +102,7 @@ class ChatMessage {
     DateTime? timestamp,
     this.citations = const [],
     this.kind = AiReplyKind.demo,
+    this.byVoice = false,
     this.needsClarification = false,
   }) : timestamp = timestamp ?? DateTime.now();
 }

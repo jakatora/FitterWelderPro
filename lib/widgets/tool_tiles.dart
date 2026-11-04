@@ -214,11 +214,11 @@ class ToolRow extends StatelessWidget {
                                 ),
                               ),
                               const SizedBox(height: 2),
-                              // Jedna linia: menu ma być zwarte, a tytuł
-                              // sam mówi, co to za narzędzie.
+                              // Dwie linie pozwalają odczytać dłuższe opisy
+                              // także na wąskim ekranie.
                               Text(
                                 tool.subtitle(context),
-                                maxLines: 1,
+                                maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
                                   fontSize: 12.5,

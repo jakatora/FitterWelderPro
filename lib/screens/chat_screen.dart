@@ -53,10 +53,6 @@ const Color kChatTimeOnOthers = kTextMut;
 // dowolnie zmiennej ksywki — nie ma więc czego walidować. Kto chce zmienić to,
 // co widzą inni, robi to w jednym miejscu: w profilu.
 
-// P1-43 — minimum visible message length. Single-character "k" / "ok!" feels
-// like accidental keyboard mash and rate-limits faster than it informs.
-const int _kMinMessageChars = 2;
-
 // P1-42 — 30s heartbeat throttle while the app is in background. When the
 // Timer fires AppLifecycleState.paused we instead schedule a single
 // poll at most every 30s so we keep up with light traffic without
@@ -384,6 +380,8 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
   String? _pendingKey;
   AccountService? _pendingAccount;
   int? _pendingRevision;
+  late final AccountService _observedAccount;
+  late int _observedAccountRevision;
 
   /// Bramka imienia i zasad jest właśnie na ekranie — drugie stuknięcie
   /// „Wyślij" nie może otworzyć jej drugi raz.
@@ -408,8 +406,33 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
+    _observedAccount = AccountService.instance;
+    _observedAccountRevision = _observedAccount.sessionRevision;
+    _observedAccount.addListener(_onAccountChanged);
     WidgetsBinding.instance.addObserver(this);
     _bootstrap();
+  }
+
+  void _onAccountChanged() {
+    final revision = _observedAccount.sessionRevision;
+    if (!mounted || revision == _observedAccountRevision) return;
+    _observedAccountRevision = revision;
+    // Discard responses and per-reader 'mine' flags from the former session.
+    _lastAppliedMessageRequest = ++_messageRequestSequence;
+    setState(() {
+      _messages.clear();
+      _seenKeys.clear();
+      _pendingText = null;
+      _pendingKey = null;
+      _pendingAccount = null;
+      _pendingRevision = null;
+      _lastFetchedId = 0;
+      _supportsIdCursor = false;
+      _retentionConfirmed = false;
+      _hasNewMessages = false;
+      _loading = true;
+    });
+    unawaited(_refresh(initial: true));
   }
 
   /// Wiadomości bez tych od zablokowanych autorów. Filtrujemy po stronie
@@ -481,6 +504,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _observedAccount.removeListener(_onAccountChanged);
     _poller?.cancel();
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
@@ -696,19 +720,6 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
     final draft = retryDraft ?? _ctrl.text;
     final text = retryText ?? draft.trim();
     if (text.isEmpty || _sending) return;
-    // P1-43 — minimum 2 visible characters. Single-character mash usually
-    // means a gloved misfire; refuse and tell the user how to fix it
-    // instead of burning a 429 budget on noise.
-    if (text.length < _kMinMessageChars) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(context.tr(
-          pl: 'Za krótka wiadomość — napisz przynajmniej $_kMinMessageChars znaki.',
-          en: 'Message too short — write at least $_kMinMessageChars characters.',
-        )),
-        duration: const Duration(seconds: 4),
-      ));
-      return;
-    }
     // Filtr treści obraźliwych — pierwsza z trzech rzeczy, których Apple wymaga
     // przy treściach od użytkowników (obok zgłaszania i blokowania). Zatrzymujemy
     // przy wysyłce, żeby taka wiadomość w ogóle nie trafiła do innych.
