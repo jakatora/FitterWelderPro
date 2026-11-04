@@ -58,6 +58,7 @@ import '../theme/app_theme.dart' show kTextMut;
 import '../utils/haptic.dart';
 import '../widgets/community_gate.dart';
 import '../widgets/tool_registry.dart';
+import '../widgets/tool_tiles.dart' show ToolGroupScreen;
 
 // Asystent tekstowy i głosowy (spec 2026-08-30 §6). Dwa tryby:
 //
@@ -279,6 +280,9 @@ class _AiChatScreenState extends State<AiChatScreen>
       });
       if (phase == VoiceSessionPhase.error) {
         final message = switch (error) {
+          'error_language_unavailable' when !kIsWeb && defaultTargetPlatform == TargetPlatform.windows => _tr(
+              'Brakuje plików rozpoznawania mowy dla wybranego języka. Sprawdź, czy cały folder aplikacji został skopiowany, lub pobierz ponownie wersję z obsługą głosu. Możesz też wpisać pytanie.',
+              'Speech recognition files for the selected language are missing. Check that the entire app folder was copied, or download the voice-enabled version again. You can also type your question.'),
           'error_language_unavailable' => _tr(
               'Brakuje systemowego pakietu rozpoznawania mowy dla wybranego języka. Sprawdź połączenie z internetem lub zainstaluj pakiet mowy w ustawieniach urządzenia.',
               'The system speech recognition package for this language is missing. Check your internet connection or install the speech package in device settings.'),
@@ -288,6 +292,9 @@ class _AiChatScreenState extends State<AiChatScreen>
           'speech_capture_unconfirmed' => _tr(
               'Nie udało się potwierdzić wyłączenia mikrofonu. Zamknij aplikację i sprawdź wskaźnik mikrofonu w systemie przed ponownym uruchomieniem.',
               'The microphone could not be confirmed stopped. Close the app and check the system microphone indicator before restarting.'),
+          'speech_unavailable' || 'error_permission' => _tr(
+              'Nie udało się uruchomić mikrofonu. Sprawdź jego podłączenie i uprawnienia aplikacji w ustawieniach systemu lub wpisz pytanie.',
+              'Could not start the microphone. Check its connection and app permissions in system settings, or type your question.'),
           'error_network' || 'error_network_timeout' => _tr(
               'Rozpoznawanie mowy utraciło połączenie. Sprawdź internet i rozpocznij rozmowę ponownie.',
               'Speech recognition lost its connection. Check your internet and start the conversation again.'),
@@ -618,6 +625,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   String? _pendingKnowledgeAnswer;
   List<String> _visibleKnowledgeSources = const [];
   VoidCallback? _knowledgeRetry;
+  bool _retryWithoutMemory = false;
   UndoAction? _localUndo;
   bool _localCommitting = false;
   final _feedback = AssistantFeedbackRecorder();
@@ -2643,6 +2651,14 @@ class _AiChatScreenState extends State<AiChatScreen>
         final tool = toolById(result.show!.toolId);
         if (tool != null) {
           await openTool(_navigationContext, tool, fields: result.show!.fields);
+        } else if (result.show!.fields.isEmpty) {
+          final group = toolGroupForNavigationId(result.show!.toolId);
+          if (group != null) {
+            await Navigator.of(_navigationContext).push(MaterialPageRoute<void>(
+                settings: RouteSettings(name: 'tool:${toolGroupNavigationId(group)}',
+                    arguments: kAssistantRouteOrigin),
+                builder: (_) => ToolGroupScreen(group: group)));
+          }
         }
       }
     }
@@ -3645,7 +3661,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   void _offerKnowledgeRetry(String text, AiClarification? clarification, int epoch,
       {bool Function()? contextStillMatches, Future<void> Function()? onResolved,
       void Function(AiClarification)? onClarification,
-      bool speechTranscript = false}) {
+      bool speechTranscript = false, bool withoutMemory = false}) {
     final turn = _knowledgeTurn;
     var started = false;
     void retry() {
@@ -3673,16 +3689,21 @@ class _AiChatScreenState extends State<AiChatScreen>
       setState(() => _knowledgeRetry = null);
       unawaited(_send(questionClarification: clarification, retryText: text,
           onResolved: onResolved, onClarification: onClarification,
-          retrySpeechTranscript: speechTranscript));
+          retrySpeechTranscript: speechTranscript, skipRememberedCorrections: withoutMemory));
     }
-    setState(() => _knowledgeRetry = retry);
+    setState(() {
+      _knowledgeRetry = retry;
+      _retryWithoutMemory = withoutMemory;
+    });
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(_tr('Możesz ponowić pytanie.', 'You can retry your question.')),
+      content: Text(withoutMemory
+          ? _tr('Możesz zapytać bez zapisanych poprawek.', 'You can ask without saved corrections.')
+          : _tr('Możesz ponowić pytanie.', 'You can retry your question.')),
       duration: const Duration(seconds: 6),
       behavior: SnackBarBehavior.floating,
       backgroundColor: _kCard,
       action: SnackBarAction(
-        label: _tr('Ponów', 'Retry'), textColor: _kAccent,
+        label: withoutMemory ? _tr('Zapytaj', 'Ask') : _tr('Ponów', 'Retry'), textColor: _kAccent,
         onPressed: retry,
       ),
     ));
@@ -3691,7 +3712,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   Future<void> _send({AiClarification? questionClarification, String? retryText,
       Future<void> Function()? onResolved,
       void Function(AiClarification)? onClarification,
-      bool? retrySpeechTranscript}) async {
+      bool? retrySpeechTranscript, bool skipRememberedCorrections = false}) async {
     questionClarification ??= _knowledgeClarification;
     final epoch = _conversationEpoch;
     final text = (retryText ?? _inputCtrl.text).trim();
@@ -3779,7 +3800,8 @@ class _AiChatScreenState extends State<AiChatScreen>
                   isoSummary: summary,
                   calculatorContext: calculatorContext,
                   questionClarification: questionClarification,
-                  speechTranscript: speechTranscript);
+                  speechTranscript: speechTranscript,
+                  useRememberedCorrections: !skipRememberedCorrections);
       if (!mounted || epoch != _conversationEpoch) return;
       if (calculatorContext != null) {
         final current =
@@ -3842,11 +3864,12 @@ class _AiChatScreenState extends State<AiChatScreen>
         }
       }
       _typing.value = false;
-      if (const {AiReplyKind.unavailable, AiReplyKind.offlineHelp}.contains(reply.kind)) {
+      if (reply.memoryUnsupported || (reply.retryable &&
+          const {AiReplyKind.unavailable, AiReplyKind.offlineHelp}.contains(reply.kind))) {
         _offerKnowledgeRetry(text, questionClarification, epoch,
             contextStillMatches: retryContextStillMatches, onResolved: onResolved,
-            onClarification: onClarification,
-            speechTranscript: speechTranscript);
+            onClarification: onClarification, speechTranscript: speechTranscript,
+            withoutMemory: reply.memoryUnsupported || skipRememberedCorrections);
       }
       _scrollToBottom();
       await _speak(reply.text);
@@ -3866,8 +3889,8 @@ class _AiChatScreenState extends State<AiChatScreen>
       _scrollToBottom();
       _offerKnowledgeRetry(text, questionClarification, epoch,
           contextStillMatches: retryContextStillMatches, onResolved: onResolved,
-          onClarification: onClarification,
-          speechTranscript: speechTranscript);
+          onClarification: onClarification, speechTranscript: speechTranscript,
+          withoutMemory: skipRememberedCorrections);
     }
   }
 
@@ -4170,7 +4193,9 @@ class _AiChatScreenState extends State<AiChatScreen>
         key: const Key('assistant-persistent-retry'),
         onPressed: _knowledgeRetry,
         icon: const Icon(Icons.refresh),
-        label: Text(_tr('Ponów pytanie', 'Retry question')),
+        label: Text(_retryWithoutMemory
+            ? _tr('Zapytaj bez zapisanych poprawek', 'Ask without saved corrections')
+            : _tr('Ponów pytanie', 'Retry question')),
         style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
       );
 

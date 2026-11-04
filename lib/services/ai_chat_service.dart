@@ -87,6 +87,12 @@ class ChatMessage {
   final DateTime timestamp;
   final AiReplyKind kind;
 
+  /// Whether repeating this request can reasonably resolve the failure.
+  final bool retryable;
+
+  /// Saved corrections were sent but the server did not acknowledge them.
+  final bool memoryUnsupported;
+
   /// Input origin used locally when interpreting a conversation turn.
   final bool byVoice;
 
@@ -102,6 +108,8 @@ class ChatMessage {
     DateTime? timestamp,
     this.citations = const [],
     this.kind = AiReplyKind.demo,
+    this.retryable = true,
+    this.memoryUnsupported = false,
     this.byVoice = false,
     this.needsClarification = false,
   }) : timestamp = timestamp ?? DateTime.now();
@@ -158,6 +166,7 @@ class AiChatService {
     CalculatorQuestionContext? calculatorContext,
     AiClarification? questionClarification,
     bool speechTranscript = false,
+    bool useRememberedCorrections = true,
   }) async {
     final trimmed = userText.trim();
     if (containsCredentialValue(trimmed) ||
@@ -209,11 +218,13 @@ class AiChatService {
       final identity = await PremiumService.instance.authHeaders();
       final profile = await AiProfessionalContext.instance.capture();
       CorrectionMemorySnapshot? memory;
-      try {
-        memory = await CorrectionMemoryStore.instance.capture(trimmed,
-            priorUserTurns: questionClarification?.userTurns ?? const []);
-      } catch (_) {
-        // An unreadable memory is never sent as context or silently rewritten.
+      if (useRememberedCorrections) {
+        try {
+          memory = await CorrectionMemoryStore.instance.capture(trimmed,
+              priorUserTurns: questionClarification?.userTurns ?? const []);
+        } catch (_) {
+          // An unreadable memory is never sent as context or silently rewritten.
+        }
       }
       profile.requireCurrent();
       memory?.requireCurrent();
@@ -327,9 +338,11 @@ class AiChatService {
         return ChatMessage(
             role: ChatRole.assistant,
             text: AppLanguageController.isEnglish
-                ? 'The server could not confirm support for saved corrections. Please try after the server update.'
-                : 'Serwer nie potwierdził obsługi zapamiętanych poprawek. Spróbuj po aktualizacji serwera.',
-            kind: AiReplyKind.unavailable);
+                ? 'The server could not confirm that it used your saved corrections. You can review them in Assistant memory or choose to ask without saved corrections.'
+                : 'Serwer nie potwierdził uwzględnienia zapisanych poprawek. Możesz je sprawdzić w Pamięci asystenta lub wybrać pytanie bez zapisanych poprawek.',
+            kind: AiReplyKind.unavailable,
+            retryable: false,
+            memoryUnsupported: true);
       }
       if (calculatorContext != null &&
           body['calculator_context_used'] != true) {
@@ -338,7 +351,8 @@ class AiChatService {
             text: AppLanguageController.isEnglish
                 ? 'The server has not confirmed calculator context support. Ask again after the backend update.'
                 : 'Serwer nie potwierdził obsługi danych kalkulatora. Zapytaj ponownie po aktualizacji backendu.',
-            kind: AiReplyKind.unavailable);
+            kind: AiReplyKind.unavailable,
+            retryable: false);
       }
       if (isoSummary != null && body['iso_summary_used'] != true) {
         return ChatMessage(
@@ -346,7 +360,8 @@ class AiChatService {
             text: AppLanguageController.isEnglish
                 ? 'The server has not confirmed ISO drawing context support. Update the backend or use the native drawing summary.'
                 : 'Serwer nie potwierdził obsługi kontekstu rysunku ISO. Zaktualizuj backend lub użyj podsumowania rysunku w aplikacji.',
-            kind: AiReplyKind.unavailable);
+            kind: AiReplyKind.unavailable,
+            retryable: false);
       }
       final cites = rawCitations == null
           ? const <String>[]

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../app_navigator.dart';
 import '../../widgets/tool_registry.dart';
+import '../../widgets/tool_tiles.dart';
 import 'skill.dart';
 
 abstract interface class RecordToolHandle {
@@ -283,6 +284,15 @@ Future<ShowOutcome> showInModule(ShowInModule show,
     final tool = toolById(show.toolId);
     final context = appNavigatorKey.currentState?.overlay?.context;
     if (context == null) return ShowOutcome.unavailable;
+    final group = toolGroupForNavigationId(show.toolId);
+    if (group != null) {
+      if (!explicit || show.fields.isNotEmpty) return ShowOutcome.unavailable;
+      unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
+          settings: RouteSettings(name: 'tool:${toolGroupNavigationId(group)}',
+              arguments: kAssistantRouteOrigin),
+          builder: (_) => ToolGroupScreen(group: group))));
+      return ShowOutcome.opened;
+    }
     if (tool == null) {
       // Navigation entries own their existing consent gates. They accept no
       // field injection; account credentials stay in the dedicated form.

@@ -27,8 +27,10 @@ IndustrialArtworkKind _artworkForGroup(ToolGroup group) => switch (group) {
       ToolGroup.weldParams => IndustrialArtworkKind.welder,
       ToolGroup.weldCalculators => IndustrialArtworkKind.calculator,
       ToolGroup.inspection => IndustrialArtworkKind.inspection,
+      ToolGroup.safety => IndustrialArtworkKind.hotWork,
+      ToolGroup.documentation => IndustrialArtworkKind.blueprint,
       ToolGroup.stainlessFinish => IndustrialArtworkKind.finishing,
-      ToolGroup.costing => IndustrialArtworkKind.costing,
+      ToolGroup.costing => IndustrialArtworkKind.weldQuote,
     };
 
 IndustrialArtworkKind _artworkForTool(ToolSpec tool) => switch (tool.id) {
@@ -439,7 +441,8 @@ class _ToolGroupedMenuState extends State<ToolGroupedMenu> {
                   key: ValueKey('tool-group-${group.name}'),
                   onTap: () =>
                       Navigator.of(context).push(MaterialPageRoute<void>(
-                    builder: (_) => _ToolGroupScreen(group: group),
+                    settings: RouteSettings(name: 'tool:${toolGroupNavigationId(group)}'),
+                    builder: (_) => ToolGroupScreen(group: group),
                   )),
                   child: ConstrainedBox(
                     constraints:
@@ -478,9 +481,9 @@ class _ToolGroupedMenuState extends State<ToolGroupedMenu> {
   }
 }
 
-class _ToolGroupScreen extends StatelessWidget {
+class ToolGroupScreen extends StatelessWidget {
   final ToolGroup group;
-  const _ToolGroupScreen({required this.group});
+  const ToolGroupScreen({super.key, required this.group});
 
   @override
   Widget build(BuildContext context) {

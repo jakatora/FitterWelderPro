@@ -125,7 +125,9 @@ enum ToolGroup {
   weldParams(ToolSection.welder, 'Parametry spawania', 'Welding parameters'),
   weldCalculators(ToolSection.welder, 'Kalkulatory', 'Calculators'),
   inspection(
-      ToolSection.welder, 'Kontrola i dokumentacja', 'Inspection and records'),
+      ToolSection.welder, 'Kontrola i badania', 'Inspection and testing'),
+  safety(ToolSection.welder, 'Bezpieczeństwo pracy', 'Work safety'),
+  documentation(ToolSection.welder, 'Dokumentacja i uprawnienia', 'Records and qualifications'),
   stainlessFinish(
       ToolSection.welder, 'Wykończenie nierdzewki', 'Stainless finishing'),
   costing(ToolSection.welder, 'Wyceny i koszty', 'Quotes and costs');
@@ -1973,7 +1975,7 @@ final List<ToolSpec> kToolRegistry = [
   ),
   ToolSpec(
     id: 'hot_work',
-    group: ToolGroup.inspection,
+    group: ToolGroup.safety,
     titlePl: 'Prace pożarowo niebezpieczne',
     titleEn: 'Hot work permit',
     subtitlePl: 'Zezwolenie, checklista stanowiska, pomiar DGW, protokół PDF',
@@ -2005,7 +2007,7 @@ final List<ToolSpec> kToolRegistry = [
   ),
   ToolSpec(
     id: 'confined_space',
-    group: ToolGroup.inspection,
+    group: ToolGroup.safety,
     titlePl: 'Przestrzeń zamknięta: wejście i spawanie',
     titleEn: 'Confined space: entry and welding',
     subtitlePl: 'Zbiornik, studzienka: lista, pomiar O₂/DGW/CO/H₂S, PDF',
@@ -2048,7 +2050,7 @@ final List<ToolSpec> kToolRegistry = [
   ),
   ToolSpec(
     id: 'fume',
-    group: ToolGroup.inspection,
+    group: ToolGroup.safety,
     titlePl: 'Dymy spawalnicze i odciąg',
     titleEn: 'Welding fume and extraction',
     subtitlePl: 'Zasięg ssawki, NDS dymu, maska / nawiew, lista stanowiska',
@@ -2101,7 +2103,7 @@ final List<ToolSpec> kToolRegistry = [
   ),
   ToolSpec(
     id: 'rigging',
-    group: ToolGroup.inspection,
+    group: ToolGroup.safety,
     titlePl: 'Zawiesia i podwieszanie',
     titleEn: 'Slings and rigging',
     subtitlePl:
@@ -2152,7 +2154,7 @@ final List<ToolSpec> kToolRegistry = [
   ),
   ToolSpec(
     id: 'grinding',
-    group: ToolGroup.inspection,
+    group: ToolGroup.safety,
     titlePl: 'Tarcze i szlifierki',
     titleEn: 'Discs and grinders',
     subtitlePl:
@@ -2250,7 +2252,7 @@ final List<ToolSpec> kToolRegistry = [
   ),
   ToolSpec(
     id: 'weld_journal',
-    group: ToolGroup.inspection,
+    group: ToolGroup.documentation,
     titlePl: 'Dziennik spoin',
     titleEn: 'Weld journal',
     subtitlePl: 'Weld map BPE, numeracja, śledzenie',
@@ -2280,7 +2282,7 @@ final List<ToolSpec> kToolRegistry = [
   // kwalifikacją procedury i należy do WPS (następny wpis).
   ToolSpec(
     id: 'welder_exam',
-    group: ToolGroup.inspection,
+    group: ToolGroup.documentation,
     titlePl: 'Egzamin spawacza: pytania',
     titleEn: 'Welder exam: questions',
     subtitlePl:
@@ -2312,7 +2314,7 @@ final List<ToolSpec> kToolRegistry = [
   ),
   ToolSpec(
     id: 'qualification_range',
-    group: ToolGroup.inspection,
+    group: ToolGroup.documentation,
     titlePl: 'Zakres uprawnień z próbki',
     titleEn: 'Qualification range from test',
     subtitlePl: 'ISO 9606-1: grubość, średnica, pozycje, FM z próbki',
@@ -2342,7 +2344,7 @@ final List<ToolSpec> kToolRegistry = [
   ),
   ToolSpec(
     id: 'welder_certificates',
-    group: ToolGroup.inspection,
+    group: ToolGroup.documentation,
     titlePl: 'Uprawnienia spawacza',
     titleEn: 'Welder qualifications',
     subtitlePl: 'ISO 9606-1 / WPQ: ważność, potwierdzenia co 6 mies.',
@@ -2370,7 +2372,7 @@ final List<ToolSpec> kToolRegistry = [
   ),
   ToolSpec(
     id: 'wps_library',
-    group: ToolGroup.inspection,
+    group: ToolGroup.documentation,
     titlePl: 'Biblioteka WPS',
     titleEn: 'WPS library',
     subtitlePl: 'Instrukcje spawania, zakresy, WPQR/PQR, eksport JSON',
@@ -2390,7 +2392,7 @@ final List<ToolSpec> kToolRegistry = [
   ),
   ToolSpec(
     id: 'work_progress',
-    group: ToolGroup.inspection,
+    group: ToolGroup.documentation,
     titlePl: 'Postęp robót',
     titleEn: 'Work progress',
     subtitlePl:
@@ -2436,7 +2438,7 @@ final List<ToolSpec> kToolRegistry = [
   ),
   ToolSpec(
     id: 'weld_symbols',
-    group: ToolGroup.inspection,
+    group: ToolGroup.documentation,
     titlePl: 'Symbole spawalnicze',
     titleEn: 'Welding symbols',
     subtitlePl: 'Czytnik rysunku: strona, rowek, a/z, n × l (e)',
@@ -2514,7 +2516,7 @@ final List<ToolSpec> kToolRegistry = [
   ),
   ToolSpec(
     id: 'instruments',
-    group: ToolGroup.inspection,
+    group: ToolGroup.documentation,
     titlePl: 'Przyrządy i kalibracja',
     titleEn: 'Instruments and calibration',
     subtitlePl: 'Spawarki, manometry, termometry — terminy, przypomnienia',
@@ -2552,7 +2554,7 @@ final List<ToolSpec> kToolRegistry = [
   ),
   ToolSpec(
     id: 'coupon_log',
-    group: ToolGroup.inspection,
+    group: ToolGroup.documentation,
     titlePl: 'Log kuponów',
     titleEn: 'Coupon log',
     subtitlePl: 'Próbki spawów dnia',
@@ -2774,6 +2776,12 @@ List<ToolSpec> toolsInGroup(ToolGroup group) =>
 List<ToolGroup> groupsOf(ToolSection section) => ToolGroup.values
     .where((g) => g.section == section && toolsInGroup(g).isNotEmpty)
     .toList(growable: false);
+
+String toolGroupNavigationId(ToolGroup group) => 'tool_group:${group.name}';
+
+ToolGroup? toolGroupForNavigationId(String id) => ToolGroup.values
+    .where((group) => toolGroupNavigationId(group) == id && toolsInGroup(group).isNotEmpty)
+    .firstOrNull;
 
 /// Rozwiązuje zapisane identyfikatory na dostępne narzędzia, po cichu
 /// pomijając nieznane i ukryte.

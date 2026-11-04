@@ -1607,12 +1607,12 @@ class _FumePageState extends State<_FumeBody> with ToolHandleHost<_FumeBody> {
               pl: 'Zbiornik, kanał, wnętrze kadłuba albo skrzyni: dym '
                   'i gazy osłonowe zbierają się, a tlenu ubywa. Najpierw '
                   'moduł „Przestrzeń zamknięta: wejście i spawanie” (Spawacz '
-                  '→ Kontrola i dokumentacja): pozwolenie, pomiar O₂/DGW/CO, '
+                  '→ Bezpieczeństwo pracy): pozwolenie, pomiar O₂/DGW/CO, '
                   'asekuracja, nawiew — dopiero potem ten ekran.',
               en: 'Tank, sewer, inside a hull or box section: fume and '
                   'shielding gas build up and oxygen runs short. First the '
                   '“Confined space: entry and welding” module (Welder → '
-                  'Inspection and records): permit, O₂/LEL/CO readings, '
+                  'Work safety): permit, O₂/LEL/CO readings, '
                   'attendant, forced air — only then this screen.'),
         ),
         _note(

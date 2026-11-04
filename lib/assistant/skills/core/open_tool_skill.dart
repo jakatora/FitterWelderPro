@@ -36,6 +36,10 @@ const Set<String> _generic = {
   'tool',
   'screen',
   'module',
+  'grupa',
+  'grupe',
+  'grupy',
+  'group',
   'app',
   'okno',
   'zakladke',
@@ -79,11 +83,44 @@ String? _navigationQuery(Utterance u) {
 
 ToolSpec? _uniqueNavigationTarget(String? query, AppLanguage lang) {
   if (query == null || query.isEmpty) return null;
+  // A group is not a request for whichever tool happens to score highest.
+  if (_exactGroup(query, lang) != null) return null;
   final hits = findTools(query, lang);
   if (hits.isEmpty || hits.length > 1 && hits[1].score == hits.first.score) {
     return null;
   }
   return hits.first.tool;
+}
+
+ToolGroup? _exactGroup(String? query, AppLanguage lang) {
+  if (query == null || query.isEmpty) return null;
+  final folded = normalizeForSearch(query);
+  if (lang == AppLanguage.pl) {
+    final inflected = switch (folded) {
+      'bezpieczenstwa pracy' => ToolGroup.safety,
+      'ciecia i projektow' => ToolGroup.cutProjects,
+      'kolan i ksztaltek' => ToolGroup.elbowsFittings,
+      'odgalezien i siodel' => ToolGroup.branches,
+      'dokumentacje i uprawnienia' => ToolGroup.documentation,
+      'dokumentacji i uprawnien' => ToolGroup.documentation,
+      'kontrole i badania' => ToolGroup.inspection,
+      'kontroli i badan' => ToolGroup.inspection,
+      'trase i spadki' => ToolGroup.routeSlope,
+      'trasy i spadkow' => ToolGroup.routeSlope,
+      'tabel i przelicznikow' => ToolGroup.tables,
+      'podpor i kolnierzy' => ToolGroup.supportsFlanges,
+      'parametrow spawania' => ToolGroup.weldParams,
+      'kalkulatorow' => ToolGroup.weldCalculators,
+      'wykonczenia nierdzewki' => ToolGroup.stainlessFinish,
+      'wycen i kosztow' => ToolGroup.costing,
+      _ => null,
+    };
+    if (inflected != null && toolsInGroup(inflected).isNotEmpty) return inflected;
+  }
+  return ToolGroup.values.where((group) =>
+      toolsInGroup(group).isNotEmpty &&
+      normalizeForSearch(lang == AppLanguage.en ? group.titleEn : group.titlePl) == folded)
+      .firstOrNull;
 }
 
 class OpenToolSkill extends AssistantSkill {
@@ -146,6 +183,10 @@ class OpenToolSkill extends AssistantSkill {
 
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
+    final group = _exactGroup(_navigationQuery(u), u.lang);
+    if (group != null) {
+      return SkillMatch(this, 0.9, slots: {'group': group.name}, utterance: u);
+    }
     final q = openQuery(u);
     if (q == null) return null;
     final where = !kOpenVerbAtStartRe.hasMatch(withoutPolishVoiceFillers(u));
@@ -207,6 +248,18 @@ class OpenToolSkill extends AssistantSkill {
 
   @override
   Future<SkillResult> run(SkillMatch m, AssistantContext ctx) async {
+    final groupName = m.slots['group'];
+    if (groupName is String) {
+      final group = toolGroupForNavigationId('tool_group:$groupName');
+      if (group == null) {
+        return const FailedResult(AssistantText('Ta grupa jest niedostępna.', 'This group is unavailable.'));
+      }
+      return AnswerResult(
+        AssistantAnswer(text: AssistantText(
+            'Otwieram grupę „${group.titlePl}”.', 'Opening the "${group.titleEn}" group.')),
+        show: ShowInModule(toolGroupNavigationId(group)),
+      );
+    }
     final id = m.slots['tool'] as String?;
     final tied = (m.slots['tied'] as List?)?.cast<String>();
     if (id == null) {

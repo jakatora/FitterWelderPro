@@ -1493,14 +1493,20 @@ class _Composer extends StatelessWidget {
             IconButton(
               onPressed: sending ? null : onSend,
               // Bez etykiety TalkBack i VoiceOver czytały samo „przycisk".
-              tooltip: context.tr(pl: 'Wyślij', en: 'Send'),
+              tooltip: sending
+                  ? context.tr(pl: 'Wysyłanie wiadomości', en: 'Sending message')
+                  : context.tr(pl: 'Wyślij', en: 'Send'),
               iconSize: 28,
               constraints: const BoxConstraints(minWidth: 56, minHeight: 56),
               icon: sending
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 18,
                       height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        semanticsLabel: context.tr(
+                            pl: 'Wysyłanie wiadomości', en: 'Sending message'),
+                      ),
                     )
                   : Icon(Icons.send_rounded, color: _kAccent),
             ),

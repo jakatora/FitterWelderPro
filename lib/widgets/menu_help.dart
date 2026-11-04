@@ -34,24 +34,23 @@ const kFitterMenuHelp = ScreenHelp(
 const kWelderMenuHelp = ScreenHelp(
   titlePl: 'Menu Spawacz',
   titleEn: 'Welder menu',
-  bodyPl: 'Narzędzia spawacza: parametry dla rur i zbiorników, kalkulatory '
-      '(heat input i CE, gaz, formowanie, timer), kontrola i dokumentacja '
-      'spoin oraz wykończenie stali nierdzewnej.',
-  bodyEn:
-      'Welder tools: parameters for pipes and tanks, calculators (heat input '
-      'and CE, gas, purge, timer), weld inspection and records, and stainless '
-      'finishing.',
+  bodyPl: 'Wybierz grupę, aby zobaczyć jej narzędzia: Parametry spawania, '
+      'Kalkulatory, Kontrola i badania, Bezpieczeństwo pracy, Dokumentacja i '
+      'uprawnienia, Wykończenie nierdzewki albo Wyceny i koszty.',
+  bodyEn: 'Choose a group to see its tools: Welding parameters, Calculators, '
+      'Inspection and testing, Work safety, Records and qualifications, '
+      'Stainless finishing, or Quotes and costs.',
   stepsPl: [
     HelpStep(
         '🔥', 'Heat input i CE — energia liniowa i podgrzewanie z chemii.'),
-    HelpStep('📝', 'Dziennik spoin — numeracja, weld map, stempel spawacza.'),
+    HelpStep('📝', 'Dokumentacja i uprawnienia — znajdziesz tu dziennik spoin i bibliotekę WPS.'),
     HelpStep(
         '📌', 'Przytrzymaj narzędzie, żeby przypiąć je na ekranie głównym.'),
   ],
   stepsEn: [
     HelpStep(
         '🔥', 'Heat input and CE — arc energy and preheat from chemistry.'),
-    HelpStep('📝', 'Weld journal — numbering, weld map, welder stamp.'),
+    HelpStep('📝', 'Records and qualifications — find the weld journal and WPS library here.'),
     HelpStep('📌', 'Long-press a tool to pin it to the home screen.'),
   ],
 );
