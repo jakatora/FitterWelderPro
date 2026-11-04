@@ -535,6 +535,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
           cutoff == null || !m.createdAt.toUtc().isBefore(cutoff)).toList();
       if (!mounted || request < _lastAppliedMessageRequest) return;
       _lastAppliedMessageRequest = request;
+      final firstMessages = _messages.isEmpty && msgs.isNotEmpty;
       setState(() {
         final received = msgs.map(_keyOf).toSet();
         final arrivedDuringRefresh = _messages.where((m) =>
@@ -559,8 +560,14 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
         _pollFailed = false;
         _error = null;
       });
-      if (initial) {
-        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+      if (initial || firstMessages) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_scroll.hasClients ||
+              _scroll.position.isScrollingNotifier.value) {
+            return;
+          }
+          _scrollToBottom();
+        });
       }
     } catch (e) {
       if (!mounted || request < _lastAppliedMessageRequest) return;

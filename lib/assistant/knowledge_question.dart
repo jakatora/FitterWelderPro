@@ -1,14 +1,14 @@
 import 'core/utterance.dart';
 import '../i18n/app_language.dart';
 
-// Observed Vosk PL failure: a spoken welding method (TIG) became
-// "metodę tę ideę". Ask for a repeat rather than silently choosing a method.
-final _unclearWeldingMethod = RegExp(r'\bmetod(?:e|a|y|zie)?\s+(?:te|ta)\s+idee\b');
+// Observed Vosk PL failures on spoken TIG. Ask again rather than guessing.
+final _unclearWeldingMethod = RegExp(r'\bmetod(?:e|a|y|zie)?\s+(?:te|ta)\s+(?:idee|idzie|imie)\b');
+final _unclearMethodReply = RegExp(r'^(?:te|ta)\s+(?:idee|idzie|imie)$');
 
 bool needsWeldingMethodRepeat(Utterance u, {bool awaitingMethod = false}) =>
     u.byVoice && u.lang == AppLanguage.pl &&
     (_unclearWeldingMethod.hasMatch(u.folded) ||
-        (awaitingMethod && RegExp(r'^(?:te|ta)\s+idee$').hasMatch(u.folded)));
+        (awaitingMethod && _unclearMethodReply.hasMatch(u.folded)));
 
 final _polishSpeechLead = RegExp(r'^(?:(?:no|sluchaj|wiesz|yyy|yy)\s+)+');
 

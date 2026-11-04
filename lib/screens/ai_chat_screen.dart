@@ -1669,8 +1669,8 @@ class _AiChatScreenState extends State<AiChatScreen>
       // or execute a command on its basis. Preserve any existing question so
       // the user can repeat their answer in the same conversation.
       final repeatMethodPrompt = _tr(
-        'Nie rozpoznałem nazwy metody spawania. Powiedz ją proszę jeszcze raz, wolniej.',
-        'I could not recognize the welding method. Please say it again, more slowly.',
+        'Nie rozpoznałem nazwy metody spawania. Powiedz ją proszę jeszcze raz, wolniej. Możesz też zakończyć rozmowę głosową i wpisać nazwę.',
+        'I could not recognize the welding method. Please say it again, more slowly. You can also end the voice conversation and type the name.',
       );
       final previousAiClarification = _aiClarification;
       final previousClarification = previousAiClarification ?? _knowledgeClarification;
@@ -3966,6 +3966,26 @@ class _AiChatScreenState extends State<AiChatScreen>
           .contains(defaultTargetPlatform) &&
       _voice is SystemSpeechOutput;
 
+  Future<void> _installAndroidVoice() async {
+    var opened = false;
+    try {
+      opened = await const MethodChannel('fitterwelder/voice_setup')
+              .invokeMethod<bool>('installVoiceData') ==
+          true;
+    } on PlatformException {
+      // Some devices do not provide a voice-data installer.
+    } on MissingPluginException {
+      // Keep the manual instructions usable on older app builds.
+    }
+    if (!mounted || opened) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(_tr(
+        'Nie udało się otworzyć instalatora. Sprawdź ustawienia mowy w telefonie.',
+        'Could not open the installer. Check the speech settings on your phone.',
+      )),
+    ));
+  }
+
   Future<void> _chooseVoice() async {
     if (_voiceSession.active) return;
     final output = _voice as SystemSpeechOutput;
@@ -3990,6 +4010,16 @@ class _AiChatScreenState extends State<AiChatScreen>
                 child: Text(_tr(
                     'Brak dostępnych głosów dla tego języka. Sprawdź ustawienia mowy urządzenia i pobierz odpowiedni głos.',
                     'No voices are available for this language. Check your device speech settings and download a voice.')),
+              ),
+            if (voices.isEmpty && !kIsWeb &&
+                defaultTargetPlatform == TargetPlatform.android)
+              SimpleDialogOption(
+                key: const Key('assistant-install-voice'),
+                onPressed: () {
+                  Navigator.pop(dialogContext);
+                  unawaited(_installAndroidVoice());
+                },
+                child: Text(_tr('Pobierz głos', 'Download a voice')),
               ),
             for (var i = 0; i < voices.length; i++)
               SimpleDialogOption(
@@ -4027,6 +4057,14 @@ class _AiChatScreenState extends State<AiChatScreen>
                   ),
                 ]),
               ),
+            SimpleDialogOption(
+              key: const Key('assistant-voice-cancel'),
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Text(_tr('Anuluj', 'Cancel')),
+              ),
+            ),
           ],
         ),
       );

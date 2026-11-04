@@ -55,6 +55,12 @@ const _ignoredWords = {
   'rodzaje',
   'spawanie',
   'spawac',
+  'spawania',
+  'spawaniu',
+  'spawaniem',
+  'spawan',
+  'welding',
+  'podczas',
   'rura',
   'rury',
   'material',
@@ -97,6 +103,7 @@ String _canonicalTopic(String word) {
   if (word.startsWith('argon')) return 'argon';
   if (word.startsWith('koroz')) return 'korozja';
   if (word.startsWith('spoin')) return 'spoina';
+  if (word.startsWith('pekan')) return 'pekanie';
   if (word == 'gas' || _gasForms.hasMatch(word)) {
     return 'gaz';
   }
@@ -118,10 +125,14 @@ String _normalizeMaterials(String text) => text
     .replaceAll(_carbonSteel, 'stalweglowa')
     .replaceAllMapped(RegExp(r'\bdn\s+(\d{1,4})\b'), (match) => 'dn${match[1]}');
 
+// A shared measurement is not a shared subject: 3 mm may describe an
+// electrode, a pipe wall or a weld. Keep identifiers such as DN50 and 316L.
+final _measurementOnly = RegExp(r'^\d+(?:mm|cm|km|kg|bar|mpa|amp|amps|hz|kw|mm2|cm2|m|a|v|w|c|f)?$');
+
 Set<String> _topicWords(String text) => _normalizeMaterials(Utterance(text, lang: AppLanguage.pl)
     .folded)
     .split(' ')
-    .where((word) => word.length >= 3 && !_ignoredWords.contains(word))
+    .where((word) => word.length >= 3 && !_ignoredWords.contains(word) && !_measurementOnly.hasMatch(word))
     .map(_canonicalTopic)
     .toSet();
 
