@@ -245,6 +245,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   String _voiceTranscript = '';
   bool _voiceFinalPending = false;
   bool _voiceNeedsRepeat = false;
+  String? _voiceErrorMessage;
   bool _disposingVoice = false;
   bool _voiceStartPending = false;
   int _voiceStartEpoch = 0;
@@ -259,6 +260,9 @@ class _AiChatScreenState extends State<AiChatScreen>
           _cmdCtrl.text.isEmpty;
       if (restoreQuestion) _cmdCtrl.text = _voiceTranscript;
       setState(() {
+        if (phase == VoiceSessionPhase.starting || phase == VoiceSessionPhase.idle) {
+          _voiceErrorMessage = null;
+        }
         if ((phase == VoiceSessionPhase.idle || phase == VoiceSessionPhase.error) &&
             _deferredMixedAction?.fromVoice == true) {
           _deferredMixedAction = null;
@@ -276,17 +280,23 @@ class _AiChatScreenState extends State<AiChatScreen>
       if (phase == VoiceSessionPhase.error) {
         final message = switch (error) {
           'error_language_unavailable' => _tr(
-              'Brakuje modelu mowy dla wybranego języka. Sprawdź instalację aplikacji.',
-              'The speech model for the selected language is missing. Check the app installation.'),
+              'Brakuje systemowego pakietu rozpoznawania mowy dla wybranego języka. Sprawdź połączenie z internetem lub zainstaluj pakiet mowy w ustawieniach urządzenia.',
+              'The system speech recognition package for this language is missing. Check your internet connection or install the speech package in device settings.'),
           'speech_overloaded' => _tr(
               'Komputer nie nadąża z rozpoznawaniem mowy. Spróbuj ponownie.',
               'Speech recognition cannot keep up. Please try again.'),
+          'speech_capture_unconfirmed' => _tr(
+              'Nie udało się potwierdzić wyłączenia mikrofonu. Zamknij aplikację i sprawdź wskaźnik mikrofonu w systemie przed ponownym uruchomieniem.',
+              'The microphone could not be confirmed stopped. Close the app and check the system microphone indicator before restarting.'),
           'error_network' || 'error_network_timeout' => _tr(
               'Rozpoznawanie mowy utraciło połączenie. Sprawdź internet i rozpocznij rozmowę ponownie.',
               'Speech recognition lost its connection. Check your internet and start the conversation again.'),
           'voice_language_unavailable' => _tr(
               'Brakuje głosu dla wybranego języka. Zainstaluj go w ustawieniach systemu i rozpocznij rozmowę ponownie.',
               'A voice for the selected language is missing. Install it in system settings and restart the conversation.'),
+          'voice_selected_unavailable' => _tr(
+              'Wybrany głos jest niedostępny. Wybierz inny głos lub ustaw wybór automatyczny i rozpocznij rozmowę ponownie.',
+              'The selected voice is unavailable. Choose another voice or automatic selection and restart the conversation.'),
           'voice_playback_failed' => _tr(
               'Nie udało się odczytać odpowiedzi. Możesz ją przeczytać w rozmowie i spróbować ponownie.',
               'Could not read the answer aloud. You can read it in the conversation and try again.'),
@@ -296,11 +306,19 @@ class _AiChatScreenState extends State<AiChatScreen>
           _ => _tr('Rozmowa głosowa przerwana. Sprawdź mikrofon i spróbuj ponownie.',
               'Voice conversation stopped. Check the microphone and try again.'),
         };
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-          content: Text(restoreQuestion
+        setState(() {
+          _voiceErrorMessage = restoreQuestion
               ? '$message ${_tr('Pytanie zachowano w polu tekstowym.', 'Your question was kept in the text field.')}'
-              : message),
-        ));
+              : message;
+        });
+        if (widget.embedded) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && _voiceSession.phase == VoiceSessionPhase.error &&
+                _embeddedDetailsScroll.hasClients) {
+              _embeddedDetailsScroll.jumpTo(0);
+            }
+          });
+        }
       }
     },
     onTranscript: (text, isFinal) {
@@ -658,6 +676,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   // ── „Odpowiedz" ─────────────────────────────────────────────────────────
   final _inputCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
+  final _embeddedDetailsScroll = ScrollController();
   final _focus = FocusNode();
   final _messages = <ChatMessage>[];
   final ValueNotifier<bool> _typing = ValueNotifier<bool>(false);
@@ -793,6 +812,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     _cmdCtrl.dispose();
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
+    _embeddedDetailsScroll.dispose();
     _focus.dispose();
     _typing.dispose();
     super.dispose();
@@ -3918,7 +3938,8 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   bool get _canChooseVoice => !kIsWeb &&
-      defaultTargetPlatform == TargetPlatform.windows &&
+      const {TargetPlatform.windows, TargetPlatform.android, TargetPlatform.iOS}
+          .contains(defaultTargetPlatform) &&
       _voice is SystemSpeechOutput;
 
   Future<void> _chooseVoice() async {
@@ -3942,8 +3963,9 @@ class _AiChatScreenState extends State<AiChatScreen>
             if (voices.isEmpty)
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: Text(_tr('Brak dostępnych głosów dla tego języka.',
-                    'No voices are available for this language.')),
+                child: Text(_tr(
+                    'Brak dostępnych głosów dla tego języka. Sprawdź ustawienia mowy urządzenia i pobierz odpowiedni głos.',
+                    'No voices are available for this language. Check your device speech settings and download a voice.')),
               ),
             for (var i = 0; i < voices.length; i++)
               SimpleDialogOption(
@@ -4155,6 +4177,13 @@ class _AiChatScreenState extends State<AiChatScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (_voiceErrorMessage != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Text(_voiceErrorMessage!,
+                  key: const Key('assistant-voice-error'),
+                  style: const TextStyle(color: _kTextSec)),
+            ),
           if (_voiceSession.active)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -4222,6 +4251,7 @@ class _AiChatScreenState extends State<AiChatScreen>
         Expanded(
             child: ListView(
                 key: const Key('assistant-embedded-details'),
+                controller: _embeddedDetailsScroll,
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 children: [
               _voiceSessionStatus(showMute: false),

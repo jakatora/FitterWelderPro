@@ -9,10 +9,12 @@ const kFitterMenuHelp = ScreenHelp(
   titleEn: 'Fitter menu',
   bodyPl: 'Narzędzia montera rur, pogrupowane według pracy: cięcie i projekty, '
       'kolana i kształtki, odgałęzienia, trasa i spadki, tabele, podpory i '
-      'kołnierze. Wszystko działa bez internetu.',
+      'kołnierze. Lokalne kalkulatory działają bez internetu; skaner rysunków '
+      'wymaga połączenia.',
   bodyEn: 'Pipe fitter tools grouped by job: cutting and projects, elbows and '
       'fittings, branches, route and slope, tables, supports and flanges. '
-      'Everything works offline.',
+      'Local calculators work offline; the drawing scanner needs an internet '
+      'connection.',
   stepsPl: [
     HelpStep('📋', 'Lista cięć — projekty, segmenty i długości do cięcia.'),
     HelpStep(

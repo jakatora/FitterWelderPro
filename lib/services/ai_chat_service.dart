@@ -346,7 +346,12 @@ class AiChatService {
       }
       final cites = rawCitations == null
           ? const <String>[]
-          : (rawCitations as List).cast<String>().toList();
+          // App context labels are not web sources. Keep them on one line so
+          // a newline followed by a URL cannot be mistaken for a web citation.
+          : (rawCitations as List).cast<String>()
+              .map((label) => label.replaceAll(RegExp(r'\s+'), ' ').trim())
+              .where((label) => label.isNotEmpty)
+              .toList();
       final sources = <String>[];
       final rawSources = body['web_sources'];
       if (rawSources != null) {
@@ -366,10 +371,17 @@ class AiChatService {
               uri.userInfo.isNotEmpty) {
             throw const FormatException('Invalid source URL');
           }
-          sources.add('[${sources.length + 1}] ${source['title']}\n$uri');
+          final label = (source['title'] as String)
+              .replaceAll(RegExp(r'\s+'), ' ').trim();
+          sources.add('[${sources.length + 1}] ${label.isEmpty ? uri.host : label}\n$uri');
         }
       }
       final researchStatus = body['research_status'];
+      // A link alone is not evidence that the server verified the answer.
+      // Older ordinary answers without web sources remain compatible.
+      if (sources.isNotEmpty && researchStatus != 'verified_sources') {
+        throw const FormatException('Unverified web sources');
+      }
       if (researchStatus != null &&
           (researchStatus != 'verified_sources' &&
                   researchStatus != 'unverified' ||

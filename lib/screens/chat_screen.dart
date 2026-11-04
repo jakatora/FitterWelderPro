@@ -391,6 +391,8 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
   // P3-13 — polling loading dot in AppBar. Goes true around each poll so the
   // user can see "the app is alive and watching the channel".
   bool _polling = false;
+  int _messageRequestSequence = 0;
+  int _lastAppliedMessageRequest = 0;
   bool _pollFailed = false;
   bool _retentionConfirmed = false;
   bool _hasNewMessages = false;
@@ -492,7 +494,13 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
   String _keyOf(ChatMessage m) =>
       '${m.id}|${m.createdAt.toUtc().millisecondsSinceEpoch}';
 
+  int _compareMessages(ChatMessage a, ChatMessage b) {
+    final byTime = a.createdAt.compareTo(b.createdAt);
+    return byTime != 0 ? byTime : a.id.compareTo(b.id);
+  }
+
   Future<void> _refresh({bool initial = false}) async {
+    final request = ++_messageRequestSequence;
     final before = _messages.map(_keyOf).toSet();
     if (mounted) setState(() => _polling = true);
     try {
@@ -501,7 +509,8 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
       final cutoff = batch.retainedSince;
       final msgs = batch.messages.where((m) =>
           cutoff == null || !m.createdAt.toUtc().isBefore(cutoff)).toList();
-      if (!mounted) return;
+      if (!mounted || request < _lastAppliedMessageRequest) return;
+      _lastAppliedMessageRequest = request;
       setState(() {
         final received = msgs.map(_keyOf).toSet();
         final arrivedDuringRefresh = _messages.where((m) =>
@@ -515,10 +524,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
           ..clear()
           ..addAll(msgs)
           ..addAll(arrivedDuringRefresh)
-          ..sort((a, b) {
-            final byTime = a.createdAt.compareTo(b.createdAt);
-            return byTime != 0 ? byTime : a.id.compareTo(b.id);
-          });
+          ..sort(_compareMessages);
         // P1-42 — rebuild the composite-key seen-set from scratch on full
         // refresh so we don't grow it unbounded across reconnects.
         _seenKeys
@@ -533,7 +539,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
         WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
       }
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || request < _lastAppliedMessageRequest) return;
       setState(() {
         _error = e.toString();
         _loading = false;
@@ -566,6 +572,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
       await _refresh();
       return;
     }
+    final request = ++_messageRequestSequence;
     if (mounted) setState(() => _polling = true);
     // The server filters with created_at > since. Re-read the last
     // millisecond so a second message with the same timestamp is not missed;
@@ -576,7 +583,8 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
       final batch = await ChatService.instance.listMessageBatch(widget.room.id,
           sinceIso: last, afterId: _supportsIdCursor ? _lastFetchedId : null,
           limit: 100);
-      if (!mounted) return;
+      if (!mounted || request < _lastAppliedMessageRequest) return;
+      _lastAppliedMessageRequest = request;
       final cutoff = batch.retainedSince;
       // P1-42 — dedupe on composite (id + createdAt) so identical-timestamp
       // burst posts with distinct ids still come through; identical id+ts
@@ -610,10 +618,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
             ..addAll(_messages.map(_keyOf));
         }
         _messages.addAll(fresh);
-        _messages.sort((a, b) {
-          final byTime = a.createdAt.compareTo(b.createdAt);
-          return byTime != 0 ? byTime : a.id.compareTo(b.id);
-        });
+        _messages.sort(_compareMessages);
         _seenKeys.addAll(fresh.map(_keyOf));
         _polling = false;
         _pollFailed = false;
@@ -631,7 +636,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
         });
       }
     } catch (_) {
-      if (mounted) {
+      if (mounted && request >= _lastAppliedMessageRequest) {
         setState(() {
           _polling = false;
           _pollFailed = true;
@@ -765,7 +770,10 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
       setState(() {
         // Po ponowieniu serwer może odesłać wiadomość, którą odpytywanie
         // zdążyło już pokazać — drugi raz jej nie dokładamy.
-        if (_seenKeys.add(_keyOf(msg))) _messages.add(msg);
+        if (_seenKeys.add(_keyOf(msg))) {
+          _messages.add(msg);
+          _messages.sort(_compareMessages);
+        }
         _sending = false;
       });
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());

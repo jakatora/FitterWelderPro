@@ -111,6 +111,9 @@ class WindowsOfflineSpeechInput implements SpeechInput, MicrophoneMute {
   final bool _supported;
   _ListeningSession? _session;
   int _generation = 0;
+  // A failed native stop leaves capture state unknown. Do not silently open a
+  // second recorder: the adapter can no longer prove the first one is closed.
+  bool _captureStopUnconfirmed = false;
 
   @override
   bool get isSupported => _supported;
@@ -124,6 +127,10 @@ class WindowsOfflineSpeechInput implements SpeechInput, MicrophoneMute {
     required void Function(String? error) onDone,
   }) async {
     final generation = ++_generation;
+    if (_captureStopUnconfirmed) {
+      onDone('speech_capture_unconfirmed');
+      return;
+    }
     final previous = _session;
     if (previous != null) {
       previous.suppressResults = true;
@@ -131,6 +138,10 @@ class WindowsOfflineSpeechInput implements SpeechInput, MicrophoneMute {
       await _end(previous, null);
     }
     if (generation != _generation) return;
+    if (_captureStopUnconfirmed) {
+      onDone('speech_capture_unconfirmed');
+      return;
+    }
     final session = _ListeningSession(createCapture(), onResult, onDone);
     _session = session;
     String? error;
@@ -219,8 +230,16 @@ class WindowsOfflineSpeechInput implements SpeechInput, MicrophoneMute {
       var finalError = error;
       try {
         await session.started.future;
-        await session.subscription?.cancel();
-        await session.capture.stop();
+        try {
+          await session.subscription?.cancel();
+        } finally {
+          try {
+            await session.capture.stop();
+          } catch (_) {
+            _captureStopUnconfirmed = true;
+            rethrow;
+          }
+        }
         if (flush &&
             session.recognizer != null &&
             !session.resultSent &&
@@ -268,11 +287,15 @@ class WindowsOfflineSpeechInput implements SpeechInput, MicrophoneMute {
   @override
   Future<void> cancelForMute() async {
     _generation++;
+    if (_captureStopUnconfirmed) {
+      throw MicrophoneStopUnconfirmed();
+    }
     final session = _session;
     if (session == null) return;
     session.suppressResults = true;
     session.flushing = false;
     await _end(session, null);
+    if (_captureStopUnconfirmed) throw MicrophoneStopUnconfirmed();
     if (session.endingError != null) throw StateError('Microphone could not be stopped');
   }
 

@@ -51,18 +51,27 @@ abstract interface class MicrophoneMute {
   Future<void> cancelForMute();
 }
 
+/// The native capture did not confirm that the microphone stopped.
+class MicrophoneStopUnconfirmed extends StateError {
+  MicrophoneStopUnconfirmed() : super('Microphone stop could not be confirmed');
+}
+
 /// Identyfikator języka dla rozpoznawania mowy.
 String speechLocaleFor(AppLanguage lang) =>
     lang == AppLanguage.en ? 'en_US' : 'pl_PL';
 
 class SystemSpeechInput implements SpeechInput, MicrophoneMute {
   factory SystemSpeechInput() => _shared;
-  SystemSpeechInput._();
+  SystemSpeechInput._() : _stt = SpeechToText();
+  @visibleForTesting
+  SystemSpeechInput.forTesting(this._stt);
   static final _shared = SystemSpeechInput._();
 
-  final SpeechToText _stt = SpeechToText();
+  final SpeechToText _stt;
   bool _ready = false;
   void Function(String? error)? _onDone;
+  Timer? _completionTimer;
+  int _turn = 0;
 
   @override
   bool get isSupported =>
@@ -79,7 +88,16 @@ class SystemSpeechInput implements SpeechInput, MicrophoneMute {
         onStatus: (status) {
           if (status == SpeechToText.doneStatus ||
               status == SpeechToText.notListeningStatus) {
-            _finish(null);
+            // Android can send notListening/done synchronously and post the
+            // recognizer error afterwards. Give that error a chance to arrive
+            // before treating the turn as an ordinary, empty recognition.
+            if (_onDone != null) {
+              final turn = _turn;
+              _completionTimer ??= Timer(const Duration(milliseconds: 250), () {
+                _completionTimer = null;
+                _finishTurn(turn, null);
+              });
+            }
           }
         },
       );
@@ -91,9 +109,16 @@ class SystemSpeechInput implements SpeechInput, MicrophoneMute {
   }
 
   void _finish(String? error) {
+    _completionTimer?.cancel();
+    _completionTimer = null;
     final cb = _onDone;
     _onDone = null;
+    _turn++;
     cb?.call(error);
+  }
+
+  void _finishTurn(int turn, String? error) {
+    if (turn == _turn && _onDone != null) _finish(error);
   }
 
   @override
@@ -104,6 +129,7 @@ class SystemSpeechInput implements SpeechInput, MicrophoneMute {
   }) async {
     if (_onDone != null) await cancel();
     _onDone = onDone;
+    final turn = ++_turn;
     try {
       await _stt.listen(
         onResult: (SpeechRecognitionResult r) =>
@@ -118,33 +144,36 @@ class SystemSpeechInput implements SpeechInput, MicrophoneMute {
         ),
       );
     } catch (e) {
-      _finish(e.toString());
+      _finishTurn(turn, e.toString());
     }
   }
 
   @override
   Future<void> stop() async {
+    final turn = _turn;
     try {
       await _stt.stop();
     } catch (_) {}
-    _finish(null);
+    _finishTurn(turn, null);
   }
 
   @override
   Future<void> cancelForMute() async {
+    final turn = _turn;
     try {
       await _stt.cancel();
     } finally {
-      _finish(null);
+      _finishTurn(turn, null);
     }
   }
 
   @override
   Future<void> cancel() async {
+    final turn = _turn;
     try {
       await _stt.cancel();
     } catch (_) {}
-    _finish(null);
+    _finishTurn(turn, null);
   }
 }
 
@@ -156,6 +185,11 @@ abstract class SpeechOutput {
 /// The platform could not select an installed voice for the requested language.
 class SpeechLanguageUnavailable implements Exception {
   const SpeechLanguageUnavailable();
+}
+
+/// A previously selected voice was listed but rejected by the platform.
+class SpeechSelectedVoiceUnavailable extends StateError {
+  SpeechSelectedVoiceUnavailable() : super('Selected voice unavailable');
 }
 
 /// Adapter for a voice session that must wait until native playback finishes.
@@ -385,6 +419,8 @@ class SystemSpeechOutput implements SpeechOutput {
         final result = await tts.setVoice(preview);
         if (result == 0) throw StateError('Voice unavailable');
       } else {
+        Map<String, String>? voice;
+        var isExplicitSelection = false;
         try {
           final voices = knownVoices ?? await tts.getVoices;
           Map<String, String>? preferred;
@@ -403,13 +439,21 @@ class SystemSpeechOutput implements SpeechOutput {
               _voiceIsInstalledLocally(raw) &&
               (preferred?['identifier'] == null ||
                   raw['identifier'] == preferred?['identifier']));
-          final voice = preferred != null && matches.isNotEmpty
-              ? preferred
-              : chooseEnhancedVoice(voices, language);
-          if (epoch != _speechEpoch) return;
-          if (voice != null) await tts.setVoice(voice);
+          isExplicitSelection = preferred != null && matches.isNotEmpty;
+          voice = isExplicitSelection ? preferred : chooseEnhancedVoice(voices, language);
         } catch (_) {
           // Some platforms do not provide voice metadata; keep the system voice.
+        }
+        if (epoch != _speechEpoch) return;
+        if (voice != null) {
+          try {
+            final result = await tts.setVoice(voice);
+            if (result == 0 && isExplicitSelection) throw SpeechSelectedVoiceUnavailable();
+          } on SpeechSelectedVoiceUnavailable {
+            rethrow;
+          } catch (_) {
+            if (isExplicitSelection) throw SpeechSelectedVoiceUnavailable();
+          }
         }
       }
       if (epoch != _speechEpoch) return;

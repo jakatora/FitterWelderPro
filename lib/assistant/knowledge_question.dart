@@ -38,8 +38,9 @@ final _answerCorrection = RegExp(
     r'nie to mial(?:em|am) na mysli|'
     r'to nie (?:jest )?to o co pytal(?:em|am)|'
     r'zle mowisz|zle mnie zrozumial(?:es|as)|nie zgadzam sie|'
+    r'mylisz sie|to sie nie zgadza|nie zgadza sie|'
     r'to (?:raczej )?tak nie (?:bedzie|jest|dziala)|'
-    r'to (?:nieprawda|bledne|nieprawidlowe)|to nie to|to nie tak|wrong|that is not what i meant|'
+    r'to (?:nieprawda|bledne|nieprawidlowe)|to nie (?:jest )?(?:to|tak)|wrong|that is not what i meant|'
     r'that is wrong|you are wrong|chodzilo (?:mi )?o|chodzi (?:mi )?o|'
     r'mial(?:em|am) na mysli|mam na mysli|i meant)\b)');
 final _correctionConnectors = RegExp(

@@ -536,18 +536,12 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
     _toast(message);
   }
 
-  /// The one error the rest of this app never produces.
-  ///
-  /// Every other tool works in flight mode, so "no connection" has to be
-  /// said in full here — otherwise a fitter in a cellar reads a failed scan
-  /// as a broken app and stops trusting the numbers it does have.
+  /// Explain the connection requirement and the available manual alternative.
   String _offlineMessage() => _tr(
-        'Brak połączenia z internetem. Skan rysunku to jedyna funkcja, która '
-            'go wymaga — reszta aplikacji działa offline. Wpisz wymiary '
-            'ręcznie albo spróbuj w zasięgu.',
-        'No internet connection. Scanning a drawing is the only feature that '
-            'needs one — the rest of the app works offline. Type the '
-            'dimensions in by hand, or try again in coverage.',
+        'Brak połączenia z internetem. Analiza rysunku wymaga połączenia. '
+            'Wpisz wymiary ręcznie albo spróbuj ponownie w zasięgu.',
+        'No internet connection. Drawing analysis needs a connection. '
+            'Enter the dimensions manually or try again when connected.',
       );
 
   /// Turns an HTTP failure into something a fitter can act on.
@@ -933,10 +927,10 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
                           'midnight. Stored scans reopen without it.',
                     )
                   : _tr(
-                      'Skan wymaga internetu (reszta aplikacji działa '
-                          'offline).',
-                      'Scanning needs internet (the rest of the app works '
-                          'offline).',
+                      'Analiza rysunku wymaga internetu; wymiary możesz '
+                          'wpisać ręcznie.',
+                      'Drawing analysis needs internet; you can enter '
+                          'dimensions manually.',
                     ),
               style: TextStyle(
                 fontSize: 11.5,
@@ -1335,8 +1329,8 @@ class _PickEmpty extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             tr(
-                'Analiza AI wymaga internetu — reszta aplikacji działa offline.',
-                'AI analysis needs internet — the rest of the app works offline.'),
+                'Analiza AI wymaga internetu; wymiary możesz wpisać ręcznie.',
+                'AI analysis needs internet; you can enter dimensions manually.'),
             style: const TextStyle(color: _kBlue, fontSize: 11),
             textAlign: TextAlign.center,
           ),

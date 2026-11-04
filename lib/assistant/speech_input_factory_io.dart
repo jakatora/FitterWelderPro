@@ -9,7 +9,10 @@ import 'windows_voice_assets.dart';
 
 const _preview = bool.fromEnvironment('FWP_WINDOWS_VOICE_PREVIEW');
 
-SpeechInput createSpeechInput() => createPlatformSpeechInput(
+// Share the Windows capture owner across screens, just as the system speech
+// adapter is shared on mobile. An unconfirmed stop must survive navigation.
+SpeechInput? _runtimeInput;
+SpeechInput createSpeechInput() => _runtimeInput ??= createPlatformSpeechInput(
       preview: _preview,
       isWindows: Platform.isWindows,
       executableDirectory: p.dirname(Platform.resolvedExecutable),

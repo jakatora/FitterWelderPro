@@ -142,8 +142,8 @@ class VoiceSession {
       if (epoch == _epoch && _phase == VoiceSessionPhase.muting) {
         _setPhase(VoiceSessionPhase.muted);
       }
-    } catch (_) {
-      if (epoch == _epoch) _setPhase(VoiceSessionPhase.error, 'speech_failed');
+    } catch (error) {
+      if (epoch == _epoch) _setPhase(VoiceSessionPhase.error, _captureError(error));
     } finally {
       _muting = null;
       completed.complete();
@@ -245,9 +245,9 @@ class VoiceSession {
           await input.cancel();
         }
         _captureCleanupFailed = false;
-      } catch (_) {
+      } catch (error) {
         _captureCleanupFailed = true;
-        if (epoch == _epoch) _setPhase(VoiceSessionPhase.error, 'speech_failed');
+        if (epoch == _epoch) _setPhase(VoiceSessionPhase.error, _captureError(error));
       } finally {
         _failedCaptureCleanup = null;
         completed.complete();
@@ -279,6 +279,9 @@ class VoiceSession {
     }
   }
 
+  String _captureError(Object error) => error is MicrophoneStopUnconfirmed
+      ? 'speech_capture_unconfirmed' : 'speech_failed';
+
   Future<void> _stopOutputSafely() async {
     try {
       await output.stop();
@@ -309,6 +312,8 @@ class VoiceSession {
         );
       } on SpeechLanguageUnavailable {
         rethrow;
+      } on SpeechSelectedVoiceUnavailable {
+        rethrow;
       } catch (_) {
         _playbackCleanupFailed = true;
         if (epoch == _epoch) _setPhase(VoiceSessionPhase.error, 'voice_playback_failed');
@@ -317,8 +322,10 @@ class VoiceSession {
       if (epoch == _epoch) await _listen(epoch);
     } on SpeechLanguageUnavailable {
       if (epoch == _epoch) _setPhase(VoiceSessionPhase.error, 'voice_language_unavailable');
-    } catch (_) {
-      if (epoch == _epoch) _setPhase(VoiceSessionPhase.error, 'speech_failed');
+    } on SpeechSelectedVoiceUnavailable {
+      if (epoch == _epoch) _setPhase(VoiceSessionPhase.error, 'voice_selected_unavailable');
+    } catch (error) {
+      if (epoch == _epoch) _setPhase(VoiceSessionPhase.error, _captureError(error));
     }
   }
 
@@ -328,8 +335,8 @@ class VoiceSession {
     try {
       try {
         await _cancelCaptureSafely();
-      } catch (_) {
-        if (epoch == _epoch) _setPhase(VoiceSessionPhase.error, 'speech_failed');
+      } catch (error) {
+        if (epoch == _epoch) _setPhase(VoiceSessionPhase.error, _captureError(error));
         return;
       }
       if (epoch != _epoch) return;
@@ -357,6 +364,8 @@ class VoiceSession {
         await output.speak(answer, _language);
       } on SpeechLanguageUnavailable {
         rethrow;
+      } on SpeechSelectedVoiceUnavailable {
+        rethrow;
       } catch (_) {
         _playbackCleanupFailed = true;
         if (epoch == _epoch) _setPhase(VoiceSessionPhase.error, 'voice_playback_failed');
@@ -368,6 +377,8 @@ class VoiceSession {
       if (epoch == _epoch) {
         _setPhase(VoiceSessionPhase.error, 'voice_language_unavailable');
       }
+    } on SpeechSelectedVoiceUnavailable {
+      if (epoch == _epoch) _setPhase(VoiceSessionPhase.error, 'voice_selected_unavailable');
     } catch (_) {
       if (epoch == _epoch) {
         _setPhase(VoiceSessionPhase.error, 'response_failed');
@@ -380,6 +391,7 @@ class VoiceSession {
     final stopped = Completer<void>();
     _stopping = stopped.future;
     _epoch++;
+    final epoch = _epoch;
     _listenEpoch++;
     _retryTimer?.cancel();
     _retryTimer = null;
@@ -394,6 +406,9 @@ class VoiceSession {
         _stopOutputSafely().catchError((Object _) {}),
         if (_interrupting case final interrupting?) interrupting,
       ]);
+    } catch (error) {
+      _captureCleanupFailed = true;
+      if (epoch == _epoch) _setPhase(VoiceSessionPhase.error, _captureError(error));
     } finally {
       _stopping = null;
       stopped.complete();
